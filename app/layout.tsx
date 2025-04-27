@@ -5,6 +5,7 @@ import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/toaster"
 import { Suspense } from "react"
+import { Analytics } from '@vercel/analytics/next'
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" })
 const jetbrainsMono = JetBrains_Mono({
@@ -30,7 +31,7 @@ export default function RootLayout({
           <Suspense>
             <main className="min-h-screen">{children}</main>
             <Toaster />
-            {/* Removed Analytics and EnvStatus components */}
+            <Analytics />
           </Suspense>
         </ThemeProvider>
       </body>
