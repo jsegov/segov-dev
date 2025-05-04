@@ -13,25 +13,19 @@ A personal portfolio site with an integrated AI "Ask Me Anything" page and a sim
 - **Projects Showcase**: Display portfolio projects in a responsive grid
 - **Career Timeline**: Visual representation of professional experience
 
-## Demo
-
-![Portfolio Screenshot](public/images/portfolio-screenshot.png)
-
-Visit the live site: [jonathansegovia.dev](https://jonathansegovia.dev)
-
 ## Tech Stack
 
-- **Framework**: Next.js 14+ (App Router) with TypeScript
+- **Framework**: Next.js 15+ (App Router) with TypeScript
 - **Styling**: Tailwind CSS
 - **Content**: Contentful CMS with SSG and ISR (24h revalidation)
 - **Deployment**: Vercel with GitHub Actions CI/CD
-- **AI**: OpenAI API with streaming responses
+- **AI**: Vercel AI SDK
 
 ## Getting Started
 
 ### Prerequisites
 
-- Node.js 18+ and npm/yarn
+- Node.js 15+ and npm/yarn
 - Contentful account
 - Vercel account (optional for deployment)
 
@@ -84,16 +78,6 @@ Visit the live site: [jonathansegovia.dev](https://jonathansegovia.dev)
 ├── styles/                 # Global CSS and Tailwind configuration
 └── types/                  # TypeScript type definitions
 ```
-
-## AI Chatbot Implementation
-
-The "Ask Me Anything" page uses:
-
-- **Vercel AI SDK**: Provides streaming UI components and utilizes OpenAI models for generating responses
-- **Streaming Responses**: Implements server-sent events for real-time response streaming
-- **Context Management**: Maintains conversation history for contextual responses
-- **Custom Prompts**: Pre-configured with personal information to answer questions accurately
-- **Rate Limiting**: Protects against excessive usage
 
 ## Local Development Guide
 

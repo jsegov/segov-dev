@@ -54,47 +54,34 @@ export default async function CareerPage() {
               <p>No career entries found. Add some content in your Contentful space.</p>
             </div>
           ) : (
-            <div className="mt-8">
+            <div className="mt-8 space-y-8">
               {careerEntries.map((entry, index) => {
                 const startDate = new Date(entry.startDate)
                 const endDate = entry.endDate ? new Date(entry.endDate) : null
 
                 return (
-                  <div key={index} className="relative pl-8 pb-8">
-                    {/* Timeline line */}
-                    {index < careerEntries.length - 1 && (
-                      <div className="absolute left-3 top-6 bottom-0 w-0.5 bg-terminal-text/30"></div>
-                    )}
-
-                    {/* Timeline dot */}
-                    <div className="absolute left-0 top-1.5 w-6 h-6 rounded-full border-2 border-terminal-text bg-terminal-black flex items-center justify-center">
-                      <div className="w-2 h-2 rounded-full bg-terminal-text"></div>
-                    </div>
-
-                    <div className="card">
-                      <div className="flex flex-col md:flex-row md:justify-between md:items-start mb-2">
-                        <h2 className="text-xl font-bold">{entry.title}</h2>
-                        <div className="text-sm text-terminal-text/70">
-                          {format(startDate, "MMM yyyy")} - {endDate ? format(endDate, "MMM yyyy") : "Present"}
-                        </div>
+                  <div key={index} className="border border-terminal-green/30 rounded p-6 bg-terminal-black/30">
+                    <div className="flex flex-col md:flex-row md:justify-between md:items-start mb-3">
+                      <h2 className="text-2xl font-bold">{entry.title}</h2>
+                      <div className="text-sm text-terminal-text/70">
+                        {format(startDate, "MMM yyyy")} - {endDate ? format(endDate, "MMM yyyy") : "Present"}
                       </div>
-                      <div className="text-lg mb-2">{entry.companyName}</div>
-                      <p className="text-terminal-text/90">{entry.description}</p>
-                      
-                      {/* Display skills */}
-                      {entry.skills && entry.skills.length > 0 && (
-                        <div className="flex flex-wrap gap-2 mt-4">
-                          {entry.skills.map((skill, skillIndex) => (
-                            <span
-                              key={skillIndex}
-                              className="text-xs px-2 py-1 bg-terminal-black border border-terminal-green/30 rounded"
-                            >
-                              {skill}
-                            </span>
-                          ))}
-                        </div>
-                      )}
                     </div>
+                    <div className="text-lg mb-4">{entry.companyName}</div>
+                    <p className="text-terminal-green/90 mb-4">{entry.description}</p>
+                    
+                    {entry.skills && entry.skills.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {entry.skills.map((skill, skillIndex) => (
+                          <span
+                            key={skillIndex}
+                            className="text-xs px-2 py-1 bg-terminal-black border border-terminal-green/30 rounded"
+                          >
+                            {skill}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )
               })}
