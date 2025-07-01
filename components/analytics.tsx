@@ -7,8 +7,10 @@ import { Label } from "@/components/ui/label"
 
 export function Analytics() {
   const [analyticsEnabled, setAnalyticsEnabled] = useState<boolean>(false)
+  const [isMounted, setIsMounted] = useState(false)
 
   useEffect(() => {
+    setIsMounted(true)
     const storedPreference = localStorage.getItem("analytics-enabled")
     if (storedPreference !== null) {
       setAnalyticsEnabled(storedPreference === "true")
@@ -18,6 +20,11 @@ export function Analytics() {
   const handleToggleAnalytics = (checked: boolean) => {
     setAnalyticsEnabled(checked)
     localStorage.setItem("analytics-enabled", String(checked))
+  }
+
+  // Don't render until component is mounted to prevent hydration mismatch
+  if (!isMounted) {
+    return null
   }
 
   return (

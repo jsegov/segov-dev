@@ -8,6 +8,34 @@ interface RichTextRendererProps {
   content: any
 }
 
+// Sanitize URLs to prevent XSS attacks
+function sanitizeUrl(url: string): string | null {
+  if (!url || typeof url !== 'string') return null;
+  
+  // Remove any whitespace
+  url = url.trim();
+  
+  // Allow only safe protocols
+  const allowedProtocols = ['http:', 'https:', 'mailto:', 'tel:'];
+  const isRelativeUrl = url.startsWith('/') || url.startsWith('./') || url.startsWith('../');
+  
+  if (isRelativeUrl) {
+    return url; // Relative URLs are generally safe
+  }
+  
+  try {
+    const urlObj = new URL(url);
+    if (!allowedProtocols.includes(urlObj.protocol.toLowerCase())) {
+      console.warn(`[RichTextRenderer] Blocked potentially unsafe URL protocol: ${urlObj.protocol}`);
+      return null;
+    }
+    return url;
+  } catch (error) {
+    console.warn(`[RichTextRenderer] Invalid URL format: ${url}`);
+    return null;
+  }
+}
+
 export function RichTextRenderer({ content }: RichTextRendererProps) {
   const options = {
     renderMark: {
@@ -44,9 +72,13 @@ export function RichTextRenderer({ content }: RichTextRendererProps) {
       [BLOCKS.HR]: () => <hr className="my-6 border-terminal-green/30" />,
       [BLOCKS.EMBEDDED_ASSET]: (node: any) => {
         const { title, description, file } = node.data.target.fields
-        const url = file?.url ? `https:${file.url}` : null
+        const rawUrl = file?.url ? `https:${file.url}` : null
+        const url = rawUrl ? sanitizeUrl(rawUrl) : null
 
-        if (!url) return null
+        if (!url) {
+          console.warn(`[RichTextRenderer] Blocked or invalid embedded asset URL: ${rawUrl}`);
+          return null;
+        }
 
         if (file.contentType.includes("image")) {
           return (
@@ -73,11 +105,19 @@ export function RichTextRenderer({ content }: RichTextRendererProps) {
       },
       [INLINES.HYPERLINK]: (node: any, children: React.ReactNode) => {
         const { uri } = node.data
-        const isInternal = uri.startsWith("/")
+        const sanitizedUri = sanitizeUrl(uri)
+
+        if (!sanitizedUri) {
+          console.warn(`[RichTextRenderer] Blocked or invalid hyperlink URL: ${uri}`);
+          // Return children as plain text instead of a link
+          return <span className="text-terminal-green">{children}</span>
+        }
+
+        const isInternal = sanitizedUri.startsWith("/")
 
         if (isInternal) {
           return (
-            <Link href={uri} className="text-terminal-green underline hover:text-white">
+            <Link href={sanitizedUri} className="text-terminal-green underline hover:text-white">
               {children}
             </Link>
           )
@@ -85,7 +125,7 @@ export function RichTextRenderer({ content }: RichTextRendererProps) {
 
         return (
           <a
-            href={uri}
+            href={sanitizedUri}
             target="_blank"
             rel="noopener noreferrer"
             className="text-terminal-green underline hover:text-white"
