@@ -40,6 +40,34 @@ function formatProjectData(projectEntries: ProjectEntry[] | undefined): string {
   return context;
 }
 
+// Get safe base URL for internal API calls
+function getSafeBaseUrl(req: Request): string {
+  // Use environment variable if available (recommended for production)
+  if (process.env.NEXT_PUBLIC_BASE_URL) {
+    return process.env.NEXT_PUBLIC_BASE_URL;
+  }
+  
+  // Fallback to constructing from request, but validate the host
+  const host = req.headers.get('host') || 'localhost:3000';
+  
+  // Validate host to prevent header injection
+  const allowedHosts = [
+    'localhost:3000',
+    'localhost:3001', 
+    process.env.VERCEL_URL,
+    process.env.NEXT_PUBLIC_VERCEL_URL
+  ].filter(Boolean);
+  
+  if (!allowedHosts.some(allowedHost => host === allowedHost || host.endsWith(`.${allowedHost}`))) {
+    console.warn(`[CHATBOT API] Potentially unsafe host header: ${host}`);
+    // Default to localhost for development
+    return process.env.NODE_ENV === 'production' ? 'https://localhost' : 'http://localhost:3000';
+  }
+  
+  const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
+  return `${protocol}://${host}`;
+}
+
 // System prompt for the chatbot
 const systemPrompt = `
 You are a terminal-based AI assistant for Jonathan Segovia's personal website.
@@ -77,13 +105,13 @@ export async function POST(req: Request) {
       )
     }
     
+    // Get safe base URL for internal API calls
+    const baseUrl = getSafeBaseUrl(req);
+    
     // Fetch career data from API with ISR
     let careerContext = "";
     try {
-      // Construct absolute URL for server-side fetch
-      const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
-      const host = req.headers.get('host') || 'localhost:3000';
-      const careerApiUrl = `${protocol}://${host}/api/context/career`;
+      const careerApiUrl = `${baseUrl}/api/context/career`;
       
       const res = await fetch(careerApiUrl);
       if (res.ok) {
@@ -99,10 +127,7 @@ export async function POST(req: Request) {
     // Fetch project data from API with ISR
     let projectContext = "";
     try {
-      // Construct absolute URL for server-side fetch
-      const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
-      const host = req.headers.get('host') || 'localhost:3000';
-      const projectApiUrl = `${protocol}://${host}/api/context/project`;
+      const projectApiUrl = `${baseUrl}/api/context/project`;
       
       const res = await fetch(projectApiUrl);
       if (res.ok) {
