@@ -71,6 +71,11 @@ A personal portfolio site with an integrated AI "Ask Me Anything" page and a sim
 │   ├── ama/                # Ask Me Anything page
 │   └── components/         # Page-specific components
 ├── components/             # Shared React components
+├── infra/                  # Infrastructure as code
+│   ├── manifests/          # Kubernetes manifests (PVCs, secrets)
+│   ├── helm-values/        # Helm chart values for deployments
+│   ├── scripts/            # Deployment helper scripts
+│   └── env.example         # Infrastructure environment variables template
 ├── lib/                    # Utility functions and API clients
 │   ├── contentful/         # Contentful API integration
 │   └── openai/             # OpenAI API integration

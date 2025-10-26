@@ -1,0 +1,26 @@
+# vLLM + Qwen3-8B-FP8 starter values (tune in later tasks)
+model: "Qwen/Qwen3-8B-FP8"
+image:
+  repository: ghcr.io/vllm-project/vllm
+  tag: "0.10.0"
+  pullPolicy: IfNotPresent
+resources:
+  limits:
+    nvidia.com/gpu: 1
+    cpu: "8"
+    memory: 40Gi
+  requests:
+    nvidia.com/gpu: 1
+    cpu: "4"
+    memory: 32Gi
+ingress:
+  enabled: true
+  clusterName: "<YOUR_CLUSTER_NAME>"
+  orgID: "<YOUR_ORG_ID>"
+modelCache:
+  enabled: true
+  create: false
+  name: huggingface-model-cache
+# hfToken:
+#   secretName: "hf-token"  # uncomment if using gated models
+

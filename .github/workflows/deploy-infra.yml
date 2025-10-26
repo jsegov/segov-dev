@@ -1,0 +1,16 @@
+name: Deploy Infra (scaffold)
+
+on:
+  push:
+    paths:
+      - 'infra/**'
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Placeholder
+        run: echo "Infra deploy workflow scaffold; steps added in later task"
+
