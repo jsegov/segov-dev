@@ -1,26 +1,47 @@
-# vLLM + Qwen3-8B-FP8 starter values (tune in later tasks)
+# vLLM + Qwen3-8B-FP8 configuration for CoreWeave with L40S GPU
 model: "Qwen/Qwen3-8B-FP8"
 image:
   repository: ghcr.io/vllm-project/vllm
   tag: "0.10.0"
   pullPolicy: IfNotPresent
+
 resources:
   limits:
     nvidia.com/gpu: 1
     cpu: "8"
-    memory: 40Gi
+    memory: 48Gi
   requests:
     nvidia.com/gpu: 1
     cpu: "4"
-    memory: 32Gi
+    memory: 40Gi
+
+# Target L40S GPU nodes on CoreWeave
+# Note: Adjust nodeSelector label based on actual cluster labels
+# Run: kubectl get nodes --show-labels | grep gpu
+nodeSelector:
+  nvidia.com/gpu.product: "NVIDIA-L40S"
+
+# Optional tolerations if required by the cluster
+# tolerations:
+#   - key: "nvidia.com/gpu"
+#     operator: "Exists"
+#     effect: "NoSchedule"
+
 ingress:
   enabled: true
-  clusterName: "<YOUR_CLUSTER_NAME>"
-  orgID: "<YOUR_ORG_ID>"
+  clusterName: "${COREWEAVE_CLUSTER_NAME}"
+  orgID: "${COREWEAVE_ORG_ID}"
+
 modelCache:
   enabled: true
   create: false
   name: huggingface-model-cache
+
+# Disable autoscaling for MVP (fixed replica count)
+autoscaling:
+  enabled: false
+
+# Omit hfToken for public Qwen3 model
 # hfToken:
 #   secretName: "hf-token"  # uncomment if using gated models
 
