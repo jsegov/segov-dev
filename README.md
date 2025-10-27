@@ -51,6 +51,10 @@ A personal portfolio site with an integrated AI "Ask Me Anything" page and a sim
    CONTENTFUL_PREVIEW_SECRET=your_preview_secret
    CONTENTFUL_ENVIRONMENT=master
    OPENAI_API_KEY=your_openai_api_key
+   
+   # Optional: Use self-hosted CoreWeave vLLM endpoint
+   OPENAI_BASE_URL=https://basic-inference.<orgid>-<cluster>.coreweave.app/v1
+   LLM_MODEL_ID=Qwen/Qwen3-8B-FP8
    ```
 
 4. Run the development server:

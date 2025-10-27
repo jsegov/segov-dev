@@ -1,7 +1,17 @@
 import { NextResponse } from "next/server"
 import { streamText } from "ai"
-import { openai } from "@ai-sdk/openai"
+import { createOpenAI } from "@ai-sdk/openai"
 import { CareerEntry, ProjectEntry } from "@/lib/contentful"
+
+// Configure OpenAI client with custom baseURL support for CoreWeave vLLM
+const openaiClient = createOpenAI({
+  apiKey: process.env.OPENAI_API_KEY || 'unused',
+  baseURL: process.env.OPENAI_BASE_URL || undefined,
+})
+
+// Determine which model to use based on configuration
+const useCoreweave = !!process.env.OPENAI_BASE_URL
+const MODEL_ID = process.env.LLM_MODEL_ID || (useCoreweave ? 'Qwen/Qwen3-8B-FP8' : 'gpt-4o')
 
 // Format career entries from Contentful
 function formatCareerData(careerEntries: CareerEntry[] | undefined): string {
@@ -96,9 +106,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid question format" }, { status: 400 })
     }
 
-    // Check if OpenAI API key is configured
-    if (!process.env.OPENAI_API_KEY) {
-      console.error("[CHATBOT API] OpenAI API key not configured")
+    // Check if OpenAI API key is configured (required when not using CoreWeave)
+    if (!process.env.OPENAI_BASE_URL && !process.env.OPENAI_API_KEY) {
+      console.error("[CHATBOT API] Missing OPENAI_API_KEY and no OPENAI_BASE_URL set")
       return new Response(
         "Error: API configuration issue. Please contact the site administrator.",
         { status: 500 },
@@ -148,7 +158,7 @@ export async function POST(req: Request) {
     try {
       // Use streamText from AI SDK to generate text
       const result = await streamText({
-        model: openai("gpt-4o"),
+        model: openaiClient(MODEL_ID),
         messages: [
           { role: "system", content: enhancedPrompt },
           { role: "user", content: question },
