@@ -1,16 +1,69 @@
-name: Deploy Infra (scaffold)
+name: Deploy CoreWeave Infra
 
 on:
   push:
+    branches: [main]
     paths:
       - 'infra/**'
-    branches: [ main ]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coreweave-infra-deploy
+  cancel-in-progress: true
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      COREWEAVE_ORG_ID: ${{ secrets.COREWEAVE_ORG_ID }}
+      COREWEAVE_CLUSTER_NAME: ${{ secrets.COREWEAVE_CLUSTER_NAME }}
+      HF_AUTH_TOKEN: ${{ secrets.HF_AUTH_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
-      - name: Placeholder
-        run: echo "Infra deploy workflow scaffold; steps added in later task"
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'v1.30.0'
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v3.14.4'
+
+      - name: Install dependencies (envsubst)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gettext-base curl
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p "$HOME/.kube"
+          echo "$COREWEAVE_KUBECONFIG_B64" | base64 -d > "$HOME/.kube/config"
+        env:
+          COREWEAVE_KUBECONFIG_B64: ${{ secrets.COREWEAVE_KUBECONFIG_B64 }}
+
+      - name: Verify cluster access
+        run: |
+          kubectl cluster-info
+          kubectl get nodes -o name | head -n 5 || true
+
+      - name: Deploy CoreWeave infra (Traefik, cert-manager, vLLM)
+        run: |
+          bash infra/scripts/deploy_infra.sh
+
+      - name: Output vLLM endpoint
+        id: endpoint
+        run: |
+          HOST=$(kubectl get ingress basic-inference -n inference -o=jsonpath='{.spec.rules[0].host}')
+          echo "host=$HOST" >> $GITHUB_OUTPUT
+          echo "Resolved endpoint: https://$HOST"
+
+      - name: Health check
+        run: |
+          curl -fsS https://${{ steps.endpoint.outputs.host }}/health
 
