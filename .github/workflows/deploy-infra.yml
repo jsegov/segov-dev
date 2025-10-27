@@ -56,14 +56,36 @@ jobs:
         run: |
           bash infra/scripts/deploy_infra.sh
 
-      - name: Output vLLM endpoint
+      - name: Wait for vLLM ingress hostname
         id: endpoint
         run: |
-          HOST=$(kubectl get ingress basic-inference -n inference -o=jsonpath='{.spec.rules[0].host}')
-          echo "host=$HOST" >> $GITHUB_OUTPUT
-          echo "Resolved endpoint: https://$HOST"
+          set -euo pipefail
+          MAX_ATTEMPTS=30
+          SLEEP_SECONDS=10
+
+          for attempt in $(seq 1 $MAX_ATTEMPTS); do
+            HOST=$(kubectl get ingress basic-inference -n inference -o=jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+
+            if [ -n "$HOST" ]; then
+              echo "Ingress hostname assigned: $HOST"
+              echo "host=$HOST" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+
+            echo "Ingress hostname not ready yet (attempt ${attempt}/${MAX_ATTEMPTS}), retrying in ${SLEEP_SECONDS}s..."
+            sleep "$SLEEP_SECONDS"
+          done
+
+          echo "Ingress hostname was not assigned after $((MAX_ATTEMPTS * SLEEP_SECONDS)) seconds" >&2
+          kubectl describe ingress basic-inference -n inference || true
+          exit 1
 
       - name: Health check
         run: |
-          curl -fsS https://${{ steps.endpoint.outputs.host }}/health
+          HOST="${{ steps.endpoint.outputs.host }}"
+          if [ -z "$HOST" ]; then
+            echo "Ingress hostname not available" >&2
+            exit 1
+          fi
+          curl -fsS "https://$HOST/health"
 
