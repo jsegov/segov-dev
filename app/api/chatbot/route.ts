@@ -4,9 +4,10 @@ import { CareerEntry, ProjectEntry } from "@/lib/contentful"
 
 // Configure OpenAI client with custom baseURL support for GKE vLLM endpoint
 // Defaults to OpenAI's official API when OPENAI_BASE_URL is not set
+// Note: OpenAI SDK automatically appends /v1 to baseURL, so OPENAI_BASE_URL should NOT include /v1
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || 'EMPTY',
-  baseURL: process.env.OPENAI_BASE_URL ? `${process.env.OPENAI_BASE_URL}/v1` : undefined, // undefined defaults to OpenAI's official API
+  baseURL: process.env.OPENAI_BASE_URL || undefined, // undefined defaults to OpenAI's official API
 })
 
 // Determine which model to use based on configuration

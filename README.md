@@ -53,7 +53,8 @@ A personal portfolio site with an integrated AI "Ask Me Anything" page and a sim
    OPENAI_API_KEY=your_openai_api_key
    
    # Optional: Use self-hosted GKE vLLM endpoint
-   OPENAI_BASE_URL=https://llm.your-domain.com/v1
+   # Note: Do NOT include /v1 in OPENAI_BASE_URL - the OpenAI SDK appends it automatically
+   OPENAI_BASE_URL=https://llm.your-domain.com
    LLM_MODEL_ID=Qwen/Qwen3-8B-FP8
    ```
 
@@ -156,7 +157,7 @@ The workflow performs the following steps:
 After successful deployment:
 
 1. The workflow logs the HTTPS endpoint (IP or hostname). Once DNS and the managed certificate become active, the endpoint serves `/health` and `/v1`.
-2. Update application environments with `OPENAI_BASE_URL=https://<your-domain>/v1`.
+2. Update application environments with `OPENAI_BASE_URL=https://<your-domain>` (do NOT include `/v1` - the OpenAI SDK appends it automatically).
 3. (Optional) Configure Cloud Armor policies and verify access from allowed IPs.
 
 ### Infrastructure Configuration
