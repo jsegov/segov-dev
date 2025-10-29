@@ -106,9 +106,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid question format" }, { status: 400 })
     }
 
-    // Check if OpenAI API key is configured (required when using OpenAI's official API)
-    if (!process.env.OPENAI_BASE_URL && !process.env.OPENAI_API_KEY) {
-      console.error("[CHATBOT API] Missing OPENAI_API_KEY (required when using OpenAI's official API)")
+    // Check if OpenAI API key is configured (always required, even for self-hosted endpoints)
+    if (!process.env.OPENAI_API_KEY) {
+      console.error("[CHATBOT API] Missing OPENAI_API_KEY (required for all API configurations)")
       return new Response(
         "Error: API configuration issue. Please contact the site administrator.",
         { status: 500 },
