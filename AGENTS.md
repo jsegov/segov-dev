@@ -62,8 +62,8 @@ Create a `.env.local` file in the root directory with these variables:
 - `CONTENTFUL_PREVIEW_ACCESS_TOKEN` - Contentful preview token for draft content
 - `CONTENTFUL_PREVIEW_SECRET` - Secret for Contentful preview mode
 - `CONTENTFUL_ENVIRONMENT` - Contentful environment (default: "master")
-- `OPENAI_API_KEY` - OpenAI API key for the AMA chatbot (or any non-empty value when using CoreWeave)
-- `OPENAI_BASE_URL` - (Optional) Custom OpenAI-compatible API endpoint (e.g., CoreWeave vLLM service)
+- `OPENAI_API_KEY` - OpenAI API key for the AMA chatbot (or any non-empty value when using the self-hosted endpoint)
+- `OPENAI_BASE_URL` - (Optional) Custom OpenAI-compatible API endpoint (e.g., your GKE vLLM service)
 - `LLM_MODEL_ID` - (Optional) Model ID to use (defaults to "Qwen/Qwen3-8B-FP8" when OPENAI_BASE_URL is set, otherwise "gpt-4o")
 
 **Never commit `.env.local` or any `.env*` files to version control.**
@@ -127,4 +127,3 @@ Write tests for components in the `tests/` directory mirroring the `components/`
 - The closest `AGENTS.md` to any edited file takes precedence
 - Explicit user prompts override any instructions in this file
 - The agent will attempt to run testing commands listed above when making changes
-

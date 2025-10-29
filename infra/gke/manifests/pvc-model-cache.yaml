@@ -5,9 +5,8 @@ metadata:
   namespace: inference
 spec:
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce
+  storageClassName: '${GKE_STORAGE_CLASS}'
   resources:
     requests:
-      storage: 10Ti
-  storageClassName: shared-vast
-
+      storage: '${MODEL_CACHE_STORAGE}'

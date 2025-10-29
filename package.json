@@ -13,7 +13,6 @@
     "coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@ai-sdk/openai": "^1.3.20",
     "@contentful/rich-text-react-renderer": "latest",
     "@contentful/rich-text-types": "latest",
     "@hookform/resolvers": "^3.9.1",
@@ -47,7 +46,6 @@
     "@remix-run/react": "latest",
     "@sveltejs/kit": "latest",
     "@vercel/analytics": "latest",
-    "ai": "^4.3.10",
     "autoprefixer": "^10.4.20",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

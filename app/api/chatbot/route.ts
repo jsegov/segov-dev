@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server"
-import { streamText } from "ai"
-import { createOpenAI } from "@ai-sdk/openai"
+import OpenAI from "openai"
 import { CareerEntry, ProjectEntry } from "@/lib/contentful"
 
-// Configure OpenAI client with custom baseURL support for CoreWeave vLLM
-const openaiClient = createOpenAI({
-  apiKey: process.env.OPENAI_API_KEY || 'unused',
-  baseURL: process.env.OPENAI_BASE_URL || undefined,
+// Configure OpenAI client with custom baseURL support for GKE vLLM endpoint
+// Defaults to OpenAI's official API when OPENAI_BASE_URL is not set
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY || 'EMPTY',
+  baseURL: process.env.OPENAI_BASE_URL ? `${process.env.OPENAI_BASE_URL}/v1` : undefined, // undefined defaults to OpenAI's official API
 })
 
 // Determine which model to use based on configuration
@@ -106,9 +106,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid question format" }, { status: 400 })
     }
 
-    // Check if OpenAI API key is configured (required when not using CoreWeave)
+    // Check if OpenAI API key is configured (required when using OpenAI's official API)
     if (!process.env.OPENAI_BASE_URL && !process.env.OPENAI_API_KEY) {
-      console.error("[CHATBOT API] Missing OPENAI_API_KEY and no OPENAI_BASE_URL set")
+      console.error("[CHATBOT API] Missing OPENAI_API_KEY (required when using OpenAI's official API)")
       return new Response(
         "Error: API configuration issue. Please contact the site administrator.",
         { status: 500 },
@@ -153,28 +153,54 @@ export async function POST(req: Request) {
     // Enhance system prompt with career and project data
     const enhancedPrompt = systemPrompt + careerContext + projectContext;
 
-    console.log("[CHATBOT API] Making AI SDK streamText call")
+    console.log("[CHATBOT API] Making OpenAI streaming call")
 
     try {
-      // Use streamText from AI SDK to generate text
-      const result = await streamText({
-        model: openaiClient(MODEL_ID),
+      // Use OpenAI SDK streaming chat completions
+      const stream = await openai.chat.completions.create({
+        model: MODEL_ID,
         messages: [
           { role: "system", content: enhancedPrompt },
           { role: "user", content: question },
         ],
         temperature: 0.7,
-        maxTokens: 500,
+        max_tokens: 500,
+        stream: true,
       })
 
-      console.log("[CHATBOT API] Streaming response with AI SDK")
+      console.log("[CHATBOT API] Streaming response with OpenAI SDK")
 
-      // Return the streaming response using toTextStreamResponse
-      return result.toTextStreamResponse()
+      // Convert OpenAI stream to plain text stream (compatible with response.text())
+      const encoder = new TextEncoder()
+      const readable = new ReadableStream({
+        async start(controller) {
+          try {
+            for await (const chunk of stream) {
+              const content = chunk.choices[0]?.delta?.content || ''
+              if (content) {
+                // Send plain text chunks
+                controller.enqueue(encoder.encode(content))
+              }
+            }
+            controller.close()
+          } catch (streamError) {
+            console.error("[CHATBOT API] Stream error:", streamError)
+            controller.error(streamError)
+          }
+        },
+      })
+
+      return new Response(readable, {
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+        },
+      })
     } catch (aiError) {
-      console.error("[CHATBOT API] AI SDK error:", aiError)
+      console.error("[CHATBOT API] OpenAI API error:", aiError)
 
-      // Return a specific error for AI SDK issues
+      // Return a specific error for API issues
       return new Response(
         `segov@terminal:~$ echo "Error: API service unavailable"
 Error: API service unavailable. Please try again later.`,
