@@ -1,6 +1,6 @@
 import type { Metadata } from "next"
 import { Navbar } from "@/components/navbar"
-import { getProjects, ProjectEntry } from "@/lib/contentful"
+import { getProjects, ProjectEntry } from "@/lib/content"
 import { Github } from "lucide-react"
 
 export const metadata: Metadata = {
@@ -18,7 +18,7 @@ export default async function ProjectsPage() {
     projects = await getProjects()
   } catch (err) {
     console.error("Failed to fetch projects:", err)
-    error = "Failed to load project data. Please check your Contentful configuration."
+    error = "Failed to load project data."
   }
 
   return (
@@ -38,18 +38,10 @@ export default async function ProjectsPage() {
           {error ? (
             <div className="mt-8 p-4 border border-red-500/30 bg-red-500/10 text-red-400 rounded">
               <p>{error}</p>
-              <p className="mt-2 text-sm">
-                Make sure you've set up the required environment variables:
-                <ul className="list-disc list-inside mt-1">
-                  <li>CONTENTFUL_SPACE_ID</li>
-                  <li>CONTENTFUL_ACCESS_TOKEN</li>
-                  <li>CONTENTFUL_ENVIRONMENT (optional)</li>
-                </ul>
-              </p>
             </div>
           ) : projects.length === 0 ? (
             <div className="mt-8 p-4 border border-terminal-green/30 rounded">
-              <p>No projects found. Add some content in your Contentful space.</p>
+              <p>No projects found.</p>
             </div>
           ) : (
             <div className="mt-8 space-y-8">

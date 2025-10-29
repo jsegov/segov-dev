@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { Navbar } from "@/components/navbar"
 import { Github, Linkedin } from "lucide-react"
-import { getAboutMe } from "@/lib/contentful"
+import { getAboutMe } from "@/lib/content"
 
 // Custom X logo component
 function XLogo({ className }: { className?: string }) {

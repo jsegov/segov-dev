@@ -1,0 +1,8 @@
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: vllm-cert
+  namespace: inference
+spec:
+  domains:
+    - '${GKE_DOMAIN}'

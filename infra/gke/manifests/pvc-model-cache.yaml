@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: huggingface-model-cache
+  namespace: inference
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: '${GKE_STORAGE_CLASS}'
+  resources:
+    requests:
+      storage: '${MODEL_CACHE_STORAGE}'
