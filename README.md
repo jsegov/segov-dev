@@ -6,7 +6,7 @@ A personal portfolio site with an integrated AI "Ask Me Anything" page and a sim
 
 - **Terminal-inspired Design**: Dark theme with monospace font and terminal-like UI elements
 - **Responsive Layout**: Works on all device sizes
-- **Content Management**: Powered by Contentful CMS
+- **Content Management**: File-based content using JSON and Markdown
 - **Static Site Generation**: Fast loading with Next.js SSG and ISR fallback
 - **AI Chatbot**: "Ask Me Anything" page with streaming responses
 - **Blog**: Content-rich blog with reading time estimates
@@ -17,7 +17,7 @@ A personal portfolio site with an integrated AI "Ask Me Anything" page and a sim
 
 - **Framework**: Next.js 15+ (App Router) with TypeScript
 - **Styling**: Tailwind CSS
-- **Content**: Contentful CMS with SSG and ISR (24h revalidation)
+- **Content**: JSON files and Markdown blog posts with SSG and ISR (24h revalidation)
 - **Deployment**: Vercel with GitHub Actions CI/CD
 - **AI**: Vercel AI SDK
 
@@ -25,8 +25,7 @@ A personal portfolio site with an integrated AI "Ask Me Anything" page and a sim
 
 ### Prerequisites
 
-- Node.js 15+ and npm/yarn
-- Contentful account
+- Node.js 15+ and npm/yarn/pnpm
 - Vercel account (optional for deployment)
 
 ### Installation
@@ -45,11 +44,6 @@ A personal portfolio site with an integrated AI "Ask Me Anything" page and a sim
 3. Set up environment variables:
    Create a `.env.local` file in the root directory with the following variables:
    ```
-   CONTENTFUL_SPACE_ID=your_contentful_space_id
-   CONTENTFUL_ACCESS_TOKEN=your_contentful_access_token
-   CONTENTFUL_PREVIEW_ACCESS_TOKEN=your_contentful_preview_token
-   CONTENTFUL_PREVIEW_SECRET=your_preview_secret
-   CONTENTFUL_ENVIRONMENT=master
    OPENAI_API_KEY=your_openai_api_key
    
    # Optional: Use self-hosted GKE vLLM endpoint
@@ -81,9 +75,14 @@ A personal portfolio site with an integrated AI "Ask Me Anything" page and a sim
 │   │   ├── manifests/      # Kubernetes manifests (namespace, deployment, ingress)
 │   │   ├── scripts/        # Deployment helper scripts
 │   │   └── env.example     # Infrastructure environment variables template
+├── data/                   # Content files (JSON and Markdown)
+│   ├── about.json          # About me content
+│   ├── career.json         # Career entries
+│   ├── projects.json       # Project entries
+│   └── blog/               # Blog posts (Markdown files)
 ├── lib/                    # Utility functions and API clients
-│   ├── contentful/         # Contentful API integration
-│   └── openai/             # OpenAI API integration
+│   ├── content.ts          # File-based content loading
+│   └── utils.ts            # Utility functions
 ├── public/                 # Static assets
 ├── styles/                 # Global CSS and Tailwind configuration
 └── types/                  # TypeScript type definitions
@@ -91,14 +90,26 @@ A personal portfolio site with an integrated AI "Ask Me Anything" page and a sim
 
 ## Local Development Guide
 
-### Environment Variables Setup
+### Content Management
 
-For local development, ensure your `.env.local` file has the correct Contentful credentials:
+Content is managed through files in the `data/` directory:
+- `data/about.json` - About me description
+- `data/career.json` - Career timeline entries
+- `data/projects.json` - Project portfolio entries
+- `data/blog/*.md` - Blog posts as Markdown files with frontmatter
 
-```
-CONTENTFUL_SPACE_ID=your_space_id
-CONTENTFUL_ACCESS_TOKEN=your_access_token
-CONTENTFUL_ENVIRONMENT=master
+Blog posts should follow this format:
+```markdown
+---
+title: "Post Title"
+slug: "post-slug"
+publishedDate: "2024-01-15"
+excerpt: "Post excerpt"
+coverImage: "/blog-images/cover.jpg"
+---
+
+# Post Content
+Markdown content here...
 ```
 
 ## Infrastructure Deployment

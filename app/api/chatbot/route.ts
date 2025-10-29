@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import OpenAI from "openai"
-import { CareerEntry, ProjectEntry } from "@/lib/contentful"
+import { CareerEntry, ProjectEntry } from "@/lib/content"
 
 // Configure OpenAI client with custom baseURL support for GKE vLLM endpoint
 // Defaults to OpenAI's official API when OPENAI_BASE_URL is not set

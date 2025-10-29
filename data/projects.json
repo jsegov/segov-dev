@@ -1,0 +1,9 @@
+[
+  {
+    "name": "segov.dev",
+    "description": "A portfolio website built with Next.js and deployed on Vercel. It features information about my professional experience and side projects, using JSON files and Markdown for content management. It also includes an AI-powered chatbot that uses OpenAI-compatible APIs.",
+    "skills": ["Next.js", "TypeScript", "React", "Tailwind CSS"],
+    "githubUrl": "https://github.com/jsegov/segov-dev"
+  }
+]
+

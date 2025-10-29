@@ -2,7 +2,7 @@ import type { Metadata } from "next"
 import Image from "next/image"
 import Link from "next/link"
 import { Navbar } from "@/components/navbar"
-import { getBlogPosts } from "@/lib/contentful"
+import { getBlogPosts, type BlogPost } from "@/lib/content"
 import { format } from "date-fns"
 
 export const metadata: Metadata = {
@@ -12,10 +12,9 @@ export const metadata: Metadata = {
 
 export const revalidate = 86400 // Revalidate every 24 hours
 
-function calculateReadingTime(content: any): number {
-  // Extract text from rich text content
-  const text = JSON.stringify(content)
-  const wordCount = text.split(/\s+/).length
+function calculateReadingTime(content: string): number {
+  // Count words in markdown content
+  const wordCount = content.split(/\s+/).length
   const readingTime = Math.ceil(wordCount / 200) // Assuming 200 words per minute
   return Math.max(1, readingTime) // Minimum 1 minute
 }
@@ -23,14 +22,14 @@ function calculateReadingTime(content: any): number {
 // Update the BlogPage component to handle potential errors when fetching data
 
 export default async function BlogPage() {
-  let posts = []
-  let error = null
+  let posts: BlogPost[] = []
+  let error: string | null = null
 
   try {
     posts = await getBlogPosts()
   } catch (err) {
     console.error("Failed to fetch blog posts:", err)
-    error = "Failed to load blog data. Please check your Contentful configuration."
+    error = "Failed to load blog data."
   }
 
   return (
@@ -50,14 +49,6 @@ export default async function BlogPage() {
           {error ? (
             <div className="mt-8 p-4 border border-red-500/30 bg-red-500/10 text-red-400 rounded">
               <p>{error}</p>
-              <p className="mt-2 text-sm">
-                Make sure you've set up the required environment variables:
-                <ul className="list-disc list-inside mt-1">
-                  <li>CONTENTFUL_SPACE_ID</li>
-                  <li>CONTENTFUL_ACCESS_TOKEN</li>
-                  <li>CONTENTFUL_ENVIRONMENT (optional)</li>
-                </ul>
-              </p>
             </div>
           ) : posts.length === 0 ? (
             <div className="mt-8 p-4 border border-terminal-green/30 rounded">
@@ -67,7 +58,7 @@ export default async function BlogPage() {
             <div className="space-y-8 mt-8">
               {posts.map((post) => {
                 const publishedDate = new Date(post.publishedDate)
-                const readingTime = calculateReadingTime(post.bodyRichText)
+                const readingTime = calculateReadingTime(post.bodyMarkdown)
 
                 return (
                   <Link key={post.slug} href={`/blog/${post.slug}`} className="card block">

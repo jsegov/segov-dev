@@ -3,8 +3,8 @@ import Image from "next/image"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { Navbar } from "@/components/navbar"
-import { RichTextRenderer } from "@/components/rich-text-renderer"
-import { getBlogPostBySlug, getAllBlogSlugs } from "@/lib/contentful"
+import { MarkdownRenderer } from "@/components/markdown-renderer"
+import { getBlogPostBySlug, getAllBlogSlugs } from "@/lib/content"
 import { format } from "date-fns"
 
 export const revalidate = 86400 // Revalidate every 24 hours
@@ -29,10 +29,9 @@ export async function generateMetadata({ params }: { params: { slug: string } })
   }
 }
 
-function calculateReadingTime(content: any): number {
-  // Extract text from rich text content
-  const text = JSON.stringify(content)
-  const wordCount = text.split(/\s+/).length
+function calculateReadingTime(content: string): number {
+  // Count words in markdown content
+  const wordCount = content.split(/\s+/).length
   const readingTime = Math.ceil(wordCount / 200) // Assuming 200 words per minute
   return Math.max(1, readingTime) // Minimum 1 minute
 }
@@ -45,7 +44,7 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
   }
 
   const publishedDate = new Date(post.publishedDate)
-  const readingTime = calculateReadingTime(post.bodyRichText)
+  const readingTime = calculateReadingTime(post.bodyMarkdown)
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -73,7 +72,7 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
             </div>
 
             <div className="prose prose-invert max-w-none">
-              <RichTextRenderer content={post.bodyRichText} />
+              <MarkdownRenderer content={post.content} />
             </div>
           </article>
         </div>

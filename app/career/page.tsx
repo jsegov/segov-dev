@@ -1,6 +1,6 @@
 import type { Metadata } from "next"
 import { Navbar } from "@/components/navbar"
-import { getCareerEntries, type CareerEntry } from "@/lib/contentful"
+import { getCareerEntries, type CareerEntry } from "@/lib/content"
 import { format } from "date-fns"
 
 export const metadata: Metadata = {
@@ -20,7 +20,7 @@ export default async function CareerPage() {
     console.log(`[CareerPage] Retrieved ${careerEntries.length} career entries`)
   } catch (err) {
     console.error("[CareerPage] Failed to fetch career entries:", err)
-    error = "Failed to load career data. Please check your Contentful configuration."
+    error = "Failed to load career data."
   }
 
   return (
@@ -40,18 +40,10 @@ export default async function CareerPage() {
           {error ? (
             <div className="mt-8 p-4 border border-red-500/30 bg-red-500/10 text-red-400 rounded">
               <p>{error}</p>
-              <p className="mt-2 text-sm">
-                Make sure you've set up the required environment variables:
-                <ul className="list-disc list-inside mt-1">
-                  <li>CONTENTFUL_SPACE_ID</li>
-                  <li>CONTENTFUL_ACCESS_TOKEN</li>
-                  <li>CONTENTFUL_ENVIRONMENT (optional)</li>
-                </ul>
-              </p>
             </div>
           ) : careerEntries.length === 0 ? (
             <div className="mt-8 p-4 border border-terminal-text/30 rounded">
-              <p>No career entries found. Add some content in your Contentful space.</p>
+              <p>No career entries found.</p>
             </div>
           ) : (
             <div className="mt-8 space-y-8">

@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { getCareerEntries, getProjects, getBlogPosts } from "@/lib/contentful"
+import { getCareerEntries, getProjects, getBlogPosts } from "@/lib/content"
 
 // In-memory log storage (will be cleared on server restart)
 const logs: any[] = []
@@ -48,8 +48,8 @@ function captureLog(level: string, args: any[]) {
   if (args.length > 0 && typeof args[0] === "string") {
     const message = args[0]
 
-    // Only capture Contentful logs
-    if (message.includes("[Contentful]")) {
+    // Capture content loading logs
+    if (message.includes("[Contentful]") || message.includes("Error fetching") || message.includes("Error reading")) {
       const logEntry = {
         timestamp: new Date().toISOString(),
         level: message.includes("ERROR")
@@ -61,7 +61,7 @@ function captureLog(level: string, args: any[]) {
               : message.includes("DEBUG")
                 ? "debug"
                 : "info",
-        message: message.replace(/\[Contentful\] (INFO|ERROR|WARNING|DEBUG|PERFORMANCE): /, ""),
+        message: message.replace(/\[Contentful\] (INFO|ERROR|WARNING|DEBUG|PERFORMANCE): /, "").replace(/Error (fetching|reading) /, ""),
         data: args.length > 1 ? args[1] : undefined,
       }
 

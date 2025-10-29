@@ -1,0 +1,19 @@
+[
+  {
+    "title": "Software Development Engineer II",
+    "companyName": "Amazon",
+    "startDate": "2021-07-06",
+    "endDate": null,
+    "description": "At Amazon, I design and build backend systems that power automated content publishing for Prime Video. I've led the architecture and delivery of distributed microservices on AWS (Lambda, ECS Fargate, SQS/SNS, DynamoDB) that streamline how studio content is validated and released. My work has helped automate hundreds of quality checks, improve release reliability for ~600K customers, and reduce AWS costs by around $2M annually. I also designed an MCP server that enables agentic workflows and accelerates internal development across teams.",
+    "skills": ["Java", "Typescript", "AWS", "Distributed Systems"]
+  },
+  {
+    "title": "Senior Associate Software Engineer",
+    "companyName": "Workday",
+    "startDate": "2019-07-22",
+    "endDate": "2021-06-18",
+    "description": "During my time at Workday, I contributed to several key initiatives in the Business Intelligence and Development Platforms. I developed a report suggestion framework that helped internal developers optimize report generation through custom rules. I also worked on enhancing a low-code application platform using TypeScript, React, and Scala, enabling users to build Workday applications more efficiently. I improved the development pipeline for ML applications by optimizing deployment processes with TeamCity and created automation scripts for VMware-based ML environments, which improved development agility and environment consistency.",
+    "skills": ["Kotlin", "Typescript", "React", "Team City"]
+  }
+]
+

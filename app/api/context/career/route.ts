@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCareerEntries } from "@/lib/contentful";
+import { getCareerEntries } from "@/lib/content";
 
 export const revalidate = 3600; // ISR - revalidate at most once per hour
 
