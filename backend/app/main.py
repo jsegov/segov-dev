@@ -1,19 +1,12 @@
 """FastAPI application with MCP server integration."""
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
 from mcp.server.fastmcp import FastMCP
 from app.config import settings
 from app.deps import init_vertex_ai
 from app.mcp_tools import vector_search, ingest_from_gcs, doc_get
 
-# Initialize Vertex AI (only if valid project ID is set)
-try:
-    if settings.project_id and settings.project_id != 'your-gcp-project-id':
-        init_vertex_ai(settings.project_id, settings.location)
-    else:
-        print('Warning: PROJECT_ID not set. Vertex AI features will not work.')
-except Exception as e:
-    print(f'Warning: Failed to initialize Vertex AI: {e}')
+if settings.project_id != 'your-gcp-project-id':
+    init_vertex_ai(settings.project_id, settings.location)
 
 # Create FastMCP instance
 mcp = FastMCP('vertex-rag-mcp')
@@ -104,11 +97,6 @@ async def health():
     """Health check endpoint."""
     return {'status': 'healthy'}
 
-
-# Mount MCP server
-# Note: FastMCP integration with FastAPI may require additional setup
-# depending on the FastMCP library version and remote transport requirements
-# This is a basic structure that may need adjustment based on FastMCP docs
 
 if __name__ == '__main__':
     import uvicorn

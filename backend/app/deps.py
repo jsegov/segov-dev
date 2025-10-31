@@ -1,6 +1,5 @@
 """Dependencies and initialization for Vertex AI."""
 from google.cloud import aiplatform
-from vertexai import rag
 import vertexai
 
 

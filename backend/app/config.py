@@ -1,7 +1,7 @@
 """Configuration settings for the MCP backend."""
 from pydantic_settings import BaseSettings
 from pydantic import Field
-import os
+import warnings
 
 
 class Settings(BaseSettings):
@@ -21,6 +21,12 @@ class Settings(BaseSettings):
         alias='GCS_BUCKET_NAME'
     )
     port: int = Field(default=8080, alias='PORT')
+    env: str = Field(default='production', alias='ENV')
+    google_application_credentials: str | None = Field(
+        default=None,
+        alias='GOOGLE_APPLICATION_CREDENTIALS',
+        description='Path to service account JSON key file (optional, uses ADC if not set)'
+    )
 
     class Config:
         env_file = '.env'
@@ -28,15 +34,12 @@ class Settings(BaseSettings):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # Warn if using defaults (development mode)
         if self.project_id == 'your-gcp-project-id':
-            import warnings
             warnings.warn(
                 'Using default PROJECT_ID. Set PROJECT_ID environment variable for production.',
                 UserWarning
             )
         if 'your-project-id' in self.rag_corpus_name or 'your-corpus-id' in self.rag_corpus_name:
-            import warnings
             warnings.warn(
                 'Using default RAG_CORPUS_NAME. Set RAG_CORPUS_NAME environment variable for production.',
                 UserWarning
