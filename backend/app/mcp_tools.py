@@ -50,23 +50,46 @@ async def vector_search(
 
 
 async def ingest_from_gcs(
-    paths: list[str],
+    paths: list[str] | None = None,
+    prefix: str | None = None,
     chunk_size: int = 512,
     chunk_overlap: int = 100,
     max_embedding_requests_per_min: int = 900,
+    bucket: str | None = None,
 ) -> dict[str, Any]:
     """
     Ingest documents from GCS into the RAG corpus.
 
     Args:
-        paths: List of GCS URIs or prefixes (e.g., ['gs://bucket/path'])
+        paths: List of GCS URIs or prefixes (e.g., ['gs://bucket/path']). If None and prefix is provided, uses prefix.
+        prefix: GCS prefix to ingest all files matching (e.g., 'documents/'). Uses default bucket if bucket not specified.
         chunk_size: Size of text chunks (default: 512)
         chunk_overlap: Overlap between chunks (default: 100)
         max_embedding_requests_per_min: Rate limit for embeddings (default: 900)
+        bucket: Bucket name to use if prefix is provided without bucket. Defaults to configured bucket.
 
     Returns:
         Dictionary with ingestion status
     """
+    # Handle prefix-based ingestion (ingest all files in a prefix)
+    if prefix:
+        bucket_name = bucket or settings.gcs_bucket_name
+        # Ensure prefix doesn't start with gs://
+        if prefix.startswith('gs://'):
+            paths_to_use = [prefix]
+        else:
+            # Use default bucket if prefix doesn't include bucket
+            if '/' not in prefix or not prefix.startswith(('gs://', bucket_name)):
+                full_path = f'gs://{bucket_name}/{prefix}'
+            else:
+                full_path = prefix
+            paths_to_use = [full_path]
+    elif paths:
+        paths_to_use = paths
+    else:
+        # Default: ingest all files from default bucket
+        paths_to_use = [f'gs://{settings.gcs_bucket_name}/']
+
     transformation_config = rag.TransformationConfig(
         chunking_config=rag.ChunkingConfig(
             chunk_size=chunk_size, chunk_overlap=chunk_overlap
@@ -75,14 +98,15 @@ async def ingest_from_gcs(
 
     result = rag.import_files(
         corpus_name=settings.rag_corpus_name,
-        paths=paths,
+        paths=paths_to_use,
         transformation_config=transformation_config,
         max_embedding_requests_per_min=max_embedding_requests_per_min,
     )
 
     return {
         'status': 'success',
-        'message': 'Files imported successfully',
+        'message': f'Files imported successfully from {len(paths_to_use)} path(s)',
+        'paths_ingested': paths_to_use,
         'import_result': str(result) if result else None,
     }
 
@@ -90,28 +114,47 @@ async def ingest_from_gcs(
 async def doc_get(
     rag_file_id: Optional[str] = None,
     gcs_uri: Optional[str] = None,
+    path: Optional[str] = None,
+    bucket: Optional[str] = None,
 ) -> dict[str, Any]:
     """
     Retrieve a document by RAG file ID or GCS URI.
 
     Args:
         rag_file_id: The RAG file ID
-        gcs_uri: The GCS URI of the document
+        gcs_uri: The full GCS URI of the document (e.g., 'gs://bucket/path/to/file.md')
+        path: Relative path within the default bucket (e.g., 'documents/file.md')
+        bucket: Bucket name to use if path is provided without bucket
 
     Returns:
         Dictionary containing document content and metadata
     """
-    if not rag_file_id and not gcs_uri:
-        return {'error': 'Either rag_file_id or gcs_uri must be provided'}
+    if not rag_file_id and not gcs_uri and not path:
+        return {'error': 'Either rag_file_id, gcs_uri, or path must be provided'}
+
+    # If path is provided (relative path), construct full URI using default bucket
+    if path and not gcs_uri:
+        bucket_name = bucket or settings.gcs_bucket_name
+        # Remove leading slash if present
+        path = path.lstrip('/')
+        gcs_uri = f'gs://{bucket_name}/{path}'
 
     # If GCS URI is provided, fetch directly from GCS
     if gcs_uri:
         from google.cloud import storage
 
         client = storage.Client(project=settings.project_id)
-        bucket_name, blob_path = gcs_uri.replace('gs://', '').split('/', 1)
+        gcs_path = gcs_uri.replace('gs://', '')
+        if '/' in gcs_path:
+            bucket_name, blob_path = gcs_path.split('/', 1)
+        else:
+            return {'error': f'Invalid GCS URI: {gcs_uri}. Expected format: gs://bucket/path'}
+        
         bucket = client.bucket(bucket_name)
         blob = bucket.blob(blob_path)
+
+        if not blob.exists():
+            return {'error': f'File not found: {gcs_uri}'}
 
         content = blob.download_as_text()
         return {
@@ -120,6 +163,7 @@ async def doc_get(
             'metadata': {
                 'size': len(content),
                 'content_type': blob.content_type,
+                'updated': blob.updated.isoformat() if blob.updated else None,
             },
         }
 
