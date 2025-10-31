@@ -1,18 +1,53 @@
 import { NextResponse } from "next/server"
 import OpenAI from "openai"
-import { CareerEntry, ProjectEntry } from "@/lib/content"
+import { GoogleAuth } from "google-auth-library"
+import { CareerEntry, ProjectEntry, getChatbotPrompt } from "@/lib/content"
 
-// Configure OpenAI client with custom baseURL support for GKE vLLM endpoint
-// Defaults to OpenAI's official API when OPENAI_BASE_URL is not set
-// Note: OpenAI SDK automatically appends /v1 to baseURL, so OPENAI_BASE_URL should NOT include /v1
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || 'EMPTY',
-  baseURL: process.env.OPENAI_BASE_URL || undefined, // undefined defaults to OpenAI's official API
-})
+// Get Google OAuth access token for Vertex AI authentication
+async function getGoogleAccessToken(): Promise<string> {
+  const credentialsJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON
 
-// Determine which model to use based on configuration
-const useCoreweave = !!process.env.OPENAI_BASE_URL
-const MODEL_ID = process.env.LLM_MODEL_ID || (useCoreweave ? 'Qwen/Qwen3-8B-FP8' : 'gpt-4o')
+  if (!credentialsJson) {
+    throw new Error('GOOGLE_APPLICATION_CREDENTIALS_JSON environment variable is not set')
+  }
+
+  let credentials
+  try {
+    credentials = JSON.parse(credentialsJson)
+  } catch (error) {
+    throw new Error('Failed to parse GOOGLE_APPLICATION_CREDENTIALS_JSON: Invalid JSON')
+  }
+
+  const auth = new GoogleAuth({
+    credentials,
+    scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+  })
+
+  const client = await auth.getClient()
+  const accessToken = await client.getAccessToken()
+
+  if (!accessToken.token) {
+    throw new Error('Failed to obtain access token')
+  }
+
+  return accessToken.token
+}
+
+// Construct Vertex AI endpoint URL from environment variables
+function getVertexAIEndpointUrl(): string {
+  const projectId = process.env.VERTEX_AI_PROJECT_ID
+  const location = process.env.VERTEX_AI_LOCATION || 'us-central1'
+  const endpointId = process.env.VERTEX_AI_ENDPOINT_ID
+
+  if (!projectId || !endpointId) {
+    throw new Error('VERTEX_AI_PROJECT_ID and VERTEX_AI_ENDPOINT_ID must be set')
+  }
+
+  return `https://${location}-aiplatform.googleapis.com/v1beta1/projects/${projectId}/locations/${location}/endpoints/${endpointId}`
+}
+
+// Determine which model to use
+const MODEL_ID = process.env.LLM_MODEL_ID || process.env.VERTEX_AI_SERVED_NAME || 'qwen3-8b-vllm'
 
 // Format career entries from Contentful
 function formatCareerData(careerEntries: CareerEntry[] | undefined): string {
@@ -79,18 +114,6 @@ function getSafeBaseUrl(req: Request): string {
   return `${protocol}://${host}`;
 }
 
-// System prompt for the chatbot
-const systemPrompt = `
-You are a terminal-based AI assistant for Jonathan Segovia's personal website.
-
-INSTRUCTIONS:
-1. You MUST ONLY answer questions related to Jonathan Segovia.
-2. If asked about topics not related to Jonathan Segovia, respond with: "Error: Query outside permitted scope. This terminal only responds to questions about Jonathan Segovia."
-3. Format your responses like terminal output, using plain text without markdown.
-4. Keep responses concise and focused.
-5. You may use simple ASCII formatting like dashes, asterisks, and pipe characters for structure.
-`
-
 export async function POST(req: Request) {
   console.log("[CHATBOT API] Received request")
 
@@ -107,9 +130,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid question format" }, { status: 400 })
     }
 
-    // Check if OpenAI API key is configured (always required, even for self-hosted endpoints)
-    if (!process.env.OPENAI_API_KEY) {
-      console.error("[CHATBOT API] Missing OPENAI_API_KEY (required for all API configurations)")
+    // Validate Vertex AI configuration
+    if (!process.env.VERTEX_AI_PROJECT_ID || !process.env.VERTEX_AI_ENDPOINT_ID) {
+      console.error("[CHATBOT API] Missing Vertex AI configuration (VERTEX_AI_PROJECT_ID or VERTEX_AI_ENDPOINT_ID)")
+      return new Response(
+        "Error: API configuration issue. Please contact the site administrator.",
+        { status: 500 },
+      )
+    }
+
+    if (!process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
+      console.error("[CHATBOT API] Missing GOOGLE_APPLICATION_CREDENTIALS_JSON")
       return new Response(
         "Error: API configuration issue. Please contact the site administrator.",
         { status: 500 },
@@ -151,13 +182,48 @@ export async function POST(req: Request) {
       console.error("[CHATBOT API] Error fetching project data:", fetchError);
     }
     
+    // Fetch base system prompt from JSON file
+    const basePrompt = await getChatbotPrompt();
+    if (!basePrompt) {
+      console.error("[CHATBOT API] Failed to load chatbot prompt");
+      return new Response(
+        "Error: Configuration issue. Please contact the site administrator.",
+        { status: 500 },
+      );
+    }
+    
     // Enhance system prompt with career and project data
-    const enhancedPrompt = systemPrompt + careerContext + projectContext;
+    const enhancedPrompt = basePrompt + careerContext + projectContext;
 
-    console.log("[CHATBOT API] Making OpenAI streaming call")
+    console.log("[CHATBOT API] Fetching Google OAuth token for Vertex AI")
+    
+    // Get Google access token for Vertex AI authentication
+    let accessToken: string
+    try {
+      accessToken = await getGoogleAccessToken()
+    } catch (tokenError) {
+      console.error("[CHATBOT API] Failed to get access token:", tokenError)
+      return new Response(
+        "Error: Authentication failed. Please contact the site administrator.",
+        { status: 500 },
+      )
+    }
+
+    // Construct Vertex AI endpoint URL
+    const vertexEndpointUrl = getVertexAIEndpointUrl()
+    console.log("[CHATBOT API] Using Vertex AI endpoint:", vertexEndpointUrl)
+
+    // Initialize OpenAI client with Vertex AI endpoint and Google token
+    // Note: OpenAI SDK automatically appends /v1 to baseURL, so baseURL should NOT include /v1
+    const openai = new OpenAI({
+      apiKey: accessToken,
+      baseURL: vertexEndpointUrl,
+    })
+
+    console.log("[CHATBOT API] Making OpenAI streaming call to Vertex AI")
 
     try {
-      // Use OpenAI SDK streaming chat completions
+      // Use OpenAI SDK streaming chat completions (compatible with Vertex AI)
       const stream = await openai.chat.completions.create({
         model: MODEL_ID,
         messages: [
@@ -169,7 +235,7 @@ export async function POST(req: Request) {
         stream: true,
       })
 
-      console.log("[CHATBOT API] Streaming response with OpenAI SDK")
+      console.log("[CHATBOT API] Streaming response from Vertex AI")
 
       // Convert OpenAI stream to plain text stream (compatible with response.text())
       const encoder = new TextEncoder()
@@ -199,7 +265,7 @@ export async function POST(req: Request) {
         },
       })
     } catch (aiError) {
-      console.error("[CHATBOT API] OpenAI API error:", aiError)
+      console.error("[CHATBOT API] Vertex AI API error:", aiError)
 
       // Return a specific error for API issues
       return new Response(

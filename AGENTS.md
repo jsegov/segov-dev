@@ -57,9 +57,13 @@ pnpm format
 
 Create a `.env.local` file in the root directory with these variables:
 
-- `OPENAI_API_KEY` - OpenAI API key for the AMA chatbot (or any non-empty value when using the self-hosted endpoint)
-- `OPENAI_BASE_URL` - (Optional) Custom OpenAI-compatible API endpoint base URL (e.g., `https://llm.your-domain.com`). Do NOT include `/v1` - the OpenAI SDK appends it automatically.
-- `LLM_MODEL_ID` - (Optional) Model ID to use (defaults to "Qwen/Qwen3-8B-FP8" when OPENAI_BASE_URL is set, otherwise "gpt-4o")
+- `VERTEX_AI_PROJECT_ID` - GCP project ID for Vertex AI deployment
+- `VERTEX_AI_LOCATION` - Region for Vertex AI (default: `us-central1`)
+- `VERTEX_AI_ENDPOINT_ID` - Vertex AI endpoint ID (populated after deployment)
+- `LLM_MODEL_ID` - (Optional) Model identifier for API calls (defaults to `qwen3-8b-vllm` or matches `VERTEX_AI_SERVED_NAME`)
+- `GOOGLE_APPLICATION_CREDENTIALS_JSON` - Google Cloud service account JSON as string (required for Vertex AI authentication)
+
+The application constructs the Vertex AI endpoint URL automatically from the project ID, location, and endpoint ID. Authentication is handled server-side using Google OAuth tokens from the service account.
 
 **Never commit `.env.local` or any `.env*` files to version control.**
 

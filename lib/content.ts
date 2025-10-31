@@ -38,6 +38,10 @@ export interface BlogPost {
   bodyMarkdown: string // Raw markdown for reading time calculation
 }
 
+export interface ChatbotPrompt {
+  prompt: string
+}
+
 // Fetch about me content
 export async function getAboutMe(): Promise<AboutMeEntry | null> {
   try {
@@ -167,6 +171,19 @@ export async function getAllBlogSlugs(): Promise<string[]> {
   } catch (error) {
     console.error('Error fetching all blog slugs', error)
     return []
+  }
+}
+
+// Fetch chatbot prompt
+export async function getChatbotPrompt(): Promise<string | null> {
+  try {
+    const filePath = path.join(dataDirectory, 'chatbot-prompt.json')
+    const fileContents = fs.readFileSync(filePath, 'utf8')
+    const data = JSON.parse(fileContents) as ChatbotPrompt
+    return data.prompt
+  } catch (error) {
+    console.error('Error fetching chatbot prompt', error)
+    return null
   }
 }
 
