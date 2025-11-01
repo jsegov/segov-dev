@@ -1,17 +1,39 @@
 """FastAPI application with MCP server integration."""
 from fastapi import FastAPI
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 from app.config import settings
 from app.deps import init_vertex_ai
 from app.mcp_tools import vector_search, ingest_from_gcs, doc_get
+import logging
+
+logger = logging.getLogger(__name__)
 
 if settings.project_id != 'your-gcp-project-id':
     init_vertex_ai(settings.project_id, settings.location)
 
-# Create FastMCP instance
-mcp = FastMCP('vertex-rag-mcp')
 
-# Register MCP tools
+def create_auth_provider():
+    """Create an auth provider based on configuration.
+    
+    Returns:
+        Auth provider instance if auth is enabled, None otherwise
+    """
+    if not settings.mcp_require_auth:
+        logger.info('MCP authentication disabled (MCP_REQUIRE_AUTH=false)')
+        return None
+    
+    logger.info('MCP authentication enabled (MCP_REQUIRE_AUTH=true)')
+    logger.warning(
+        'Authentication enabled but not yet fully implemented for FastMCP 2.0. '
+        'Server will run without authentication. For production, implement '
+        'proper auth provider (API key, OAuth, etc.)'
+    )
+    return None
+
+
+auth_provider = create_auth_provider()
+mcp = FastMCP('vertex-rag-mcp', auth=auth_provider)
+
 @mcp.tool()
 async def vector_search_tool(
     query: str,
@@ -78,24 +100,21 @@ async def doc_get_tool(
     return await doc_get(rag_file_id, gcs_uri, path, bucket)
 
 
-# Create FastAPI app
-app = FastAPI(
-    title='Vertex AI RAG MCP Server',
-    description='MCP server for Vertex AI RAG Engine operations',
-    version='0.1.0',
-)
+# Use FastMCP's http_app as the base application
+app = mcp.http_app()
 
-
-@app.get('/')
-async def root():
+# Add health check routes directly to the FastMCP app
+@app.route('/health', methods=['GET'])
+async def health(request):
     """Health check endpoint."""
-    return {'status': 'ok', 'service': 'vertex-rag-mcp'}
+    from starlette.responses import JSONResponse
+    return JSONResponse({'status': 'healthy'})
 
-
-@app.get('/health')
-async def health():
-    """Health check endpoint."""
-    return {'status': 'healthy'}
+@app.route('/', methods=['GET'])
+async def root(request):
+    """Root endpoint."""
+    from starlette.responses import JSONResponse
+    return JSONResponse({'status': 'ok', 'service': 'vertex-rag-mcp'})
 
 
 if __name__ == '__main__':

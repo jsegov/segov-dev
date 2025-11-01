@@ -20,12 +20,17 @@ This backend service exposes Model Context Protocol (MCP) tools for:
 ### Installation
 
 ```bash
-# Using pip
+# Using pip (recommended to use uv for FastMCP 2.0)
 pip install -r requirements.txt
+
+# Or using uv (recommended for FastMCP 2.0)
+uv pip install -r requirements.txt
 
 # Or using Poetry
 poetry install
 ```
+
+**Note:** This project uses FastMCP 2.0, which is a standalone package. The old `mcp[cli]` package is no longer used.
 
 ### Creating a RAG Corpus
 
@@ -98,7 +103,9 @@ PORT=8080
 
 ### Authentication
 
-The service uses Google Application Default Credentials (ADC). Ensure you have:
+#### Google Cloud Authentication
+
+The service uses Google Application Default Credentials (ADC) for GCP operations. Ensure you have:
 
 1. Set up `gcloud` CLI and authenticated:
    ```bash
@@ -106,6 +113,47 @@ The service uses Google Application Default Credentials (ADC). Ensure you have:
    ```
 
 2. Or set the `GOOGLE_APPLICATION_CREDENTIALS` environment variable to point to your service account key file.
+
+#### MCP Server Authentication (FastMCP 2.0)
+
+The MCP server supports optional authentication using FastMCP 2.0's auth provider system. By default, authentication is **disabled** for local testing.
+
+**For Local Testing (No Authentication):**
+
+By default, `MCP_REQUIRE_AUTH=false` (or unset), which disables authentication. This allows you to test locally without authentication:
+
+```python
+from fastmcp import Client
+
+async with Client("http://localhost:8080/mcp") as client:
+    tools = await client.list_tools()
+```
+
+**Enabling Authentication:**
+
+To enable authentication, set `MCP_REQUIRE_AUTH=true` in your `.env` file:
+
+```env
+MCP_REQUIRE_AUTH=true
+MCP_TOKEN_ISSUER=http://localhost:8080
+MCP_TOKEN_AUDIENCE=vertex-rag-mcp
+```
+
+**Note:** Authentication is currently not fully implemented for FastMCP 2.0. The server will run without authentication even when `MCP_REQUIRE_AUTH=true`. For production, implement a proper FastMCP 2.0 auth provider (e.g., API key provider, OAuth provider). See [FastMCP 2.0 documentation](https://gofastmcp.com/) for auth provider implementation details.
+
+When authentication is implemented, clients would connect as follows:
+
+```python
+from fastmcp import Client
+
+# For OAuth authentication (example)
+async with Client("http://localhost:8080/mcp", auth="oauth") as client:
+    tools = await client.list_tools()
+    
+# For API key authentication (example - when implemented)
+async with Client("http://localhost:8080/mcp", auth="api_key your-key") as client:
+    tools = await client.list_tools()
+```
 
 ## Development
 
@@ -182,14 +230,39 @@ doc_get(path="docs/file.md", bucket="other-bucket")
 
 **Returns:** Dictionary containing document content and metadata (size, content_type, updated timestamp)
 
+## Testing
+
+### Testing with pytest
+
+When testing the MCP server locally, ensure authentication is disabled (default):
+
+**Example test without authentication (default):**
+
+```python
+import pytest
+from fastmcp import Client
+
+@pytest.mark.asyncio
+async def test_mcp_server():
+    # Server must be running with MCP_REQUIRE_AUTH=false (default)
+    async with Client("http://localhost:8080/mcp") as client:
+        await client.ping()
+        tools = await client.list_tools()
+        assert len(tools) > 0
+```
+
+**Note:** Authentication is currently not fully implemented for FastMCP 2.0. Once authentication is implemented with a proper auth provider, tests with authentication would use the appropriate `auth` parameter based on the provider type (OAuth, API key, etc.). See [FastMCP 2.0 documentation](https://gofastmcp.com/) for client authentication examples.
+
 ## Deployment
 
 See `../infra/` for Cloud Run deployment configurations.
 
 ## Notes
 
-- The MCP server uses FastMCP's Streamable HTTP transport for remote access
+- The MCP server uses FastMCP 2.0's HTTP/SSE transport for remote access
+- This project has been migrated from FastMCP 1.0 (in the `mcp` package) to FastMCP 2.0 (standalone `fastmcp` package)
 - Ensure your Vertex AI RAG corpus is properly configured with a Vector Search index
 - The service requires appropriate IAM roles: `roles/aiplatform.user`, `roles/storage.objectViewer`
 - Default bucket (`segov-dev-bucket`) is configured in `env.example`. You can override it via `GCS_BUCKET_NAME` environment variable
 - The bucket should be in the same region (`us-east1`) as your RAG corpus for optimal performance
+- For FastMCP 2.0 documentation and features, see: https://gofastmcp.com/
