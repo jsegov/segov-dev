@@ -5,7 +5,7 @@ A guide for AI coding agents working on segov-dev.
 ## Project Overview
 
 This is a monorepo containing:
-- **Frontend**: Next.js 15 portfolio site with TypeScript strict mode, Tailwind CSS, file-based content management (JSON and Markdown), and OpenAI SDK. The site features a terminal-inspired design, blog functionality, and an "Ask Me Anything" chatbot page.
+- **Frontend**: Next.js 15 portfolio site with TypeScript strict mode, Tailwind CSS, file-based content management (JSON and Markdown), and OpenAI SDK. The site features a terminal-inspired design, blog functionality, and an "Ask Me Anything" chatbot page that uses OpenAI's API.
 - **Backend**: FastAPI-based MCP server for Vertex AI RAG Engine operations
 - **Infrastructure**: Cloud Run deployment configurations
 
@@ -62,11 +62,8 @@ pnpm format
 
 ### Frontend (`frontend/.env.local`)
 
-- `VERTEX_AI_PROJECT_ID` - GCP project ID for Vertex AI deployment
-- `VERTEX_AI_LOCATION` - Region for Vertex AI (default: `us-central1`)
-- `VERTEX_AI_ENDPOINT_ID` - Vertex AI endpoint ID (populated after deployment)
-- `LLM_MODEL_ID` - (Optional) Model identifier for API calls (defaults to `qwen3-8b-vllm` or matches `VERTEX_AI_SERVED_NAME`)
-- `GOOGLE_APPLICATION_CREDENTIALS_JSON` - Google Cloud service account JSON as string (required for Vertex AI authentication)
+- `OPENAI_API_KEY` - OpenAI API key for authentication (required)
+- `LLM_MODEL_ID` - (Optional) Model identifier for API calls (defaults to `gpt-5-nano-2025-08-07`)
 
 ### Backend (`backend/.env`)
 
@@ -75,7 +72,7 @@ pnpm format
 - `RAG_CORPUS_NAME` - Full resource name of the RAG corpus
 - `PORT` - Server port (default: `8080`)
 
-The frontend constructs the Vertex AI endpoint URL automatically from the project ID, location, and endpoint ID. Authentication is handled server-side using Google OAuth tokens from the service account.
+The frontend uses OpenAI's standard API endpoint. Authentication is handled server-side using the OpenAI API key.
 
 **Never commit `.env.local`, `.env`, or any `.env*` files to version control.**
 
