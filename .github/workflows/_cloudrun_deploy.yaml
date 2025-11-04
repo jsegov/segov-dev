@@ -93,6 +93,7 @@ jobs:
           export CONTAINER_IMAGE="${IMAGE_TAG}"
           export PROJECT_ID="${PROJECT_ID}"
           export REGION="${REGION}"
+          export SERVICE_NAME="${SERVICE_NAME}"
           export SERVICE_ACCOUNT="${SERVICE_ACCOUNT}"
           export CHAT_MODEL_ID="${CHAT_MODEL_ID}"
           export GCS_BUCKET_NAME="${GCS_BUCKET_NAME}"
