@@ -1,9 +1,13 @@
-"""FastAPI application with MCP server integration."""
+"""FastAPI application with MCP server integration and LangChain chat."""
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastmcp import FastMCP
 from app.config import settings
 from app.deps import init_vertex_ai
-from app.mcp_tools import vector_search, ingest_from_gcs, doc_get
+from app.mcp_tools import vector_search, doc_get
+from app.routes_chat import router as chat_router
 import logging
 
 logger = logging.getLogger(__name__)
@@ -31,6 +35,17 @@ def create_auth_provider():
     return None
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for FastAPI app."""
+    # Startup
+    logger.info('Starting FastAPI application with MCP and chat endpoints')
+    yield
+    # Shutdown
+    logger.info('Shutting down FastAPI application')
+
+
+# Create MCP server
 auth_provider = create_auth_provider()
 mcp = FastMCP('vertex-rag-mcp', auth=auth_provider)
 
@@ -52,36 +67,6 @@ async def vector_search_tool(
 
 
 @mcp.tool()
-async def ingest_from_gcs_tool(
-    paths: list[str] | None = None,
-    prefix: str | None = None,
-    chunk_size: int = 512,
-    chunk_overlap: int = 100,
-    max_embedding_requests_per_min: int = 900,
-    bucket: str | None = None,
-) -> dict:
-    """
-    Ingest documents from GCS into the RAG corpus.
-
-    Args:
-        paths: List of GCS URIs or prefixes (e.g., ['gs://bucket/path'])
-        prefix: GCS prefix to ingest all matching files (e.g., 'documents/'). Uses default bucket if not full URI.
-        chunk_size: Size of text chunks (default: 512)
-        chunk_overlap: Overlap between chunks (default: 100)
-        max_embedding_requests_per_min: Rate limit for embeddings (default: 900)
-        bucket: Bucket name for prefix-based ingestion (defaults to segov-dev-bucket)
-    """
-    return await ingest_from_gcs(
-        paths=paths,
-        prefix=prefix,
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        max_embedding_requests_per_min=max_embedding_requests_per_min,
-        bucket=bucket,
-    )
-
-
-@mcp.tool()
 async def doc_get_tool(
     rag_file_id: str | None = None,
     gcs_uri: str | None = None,
@@ -100,20 +85,68 @@ async def doc_get_tool(
     return await doc_get(rag_file_id, gcs_uri, path, bucket)
 
 
-# Use FastMCP's http_app as the base application
-app = mcp.http_app()
+# Get MCP HTTP app and its lifespan
+# Pass path="/" so routes are registered at root within the mounted app
+mcp_http_app = mcp.http_app(path="/")
 
-# Add health check routes directly to the FastMCP app
-@app.route('/health', methods=['GET'])
-async def health(request):
+
+@asynccontextmanager
+async def combined_lifespan(app: FastAPI):
+    """Combined lifespan that includes both FastAPI and MCP lifespans."""
+    # Start MCP lifespan first (this initializes the task group)
+    async with mcp_http_app.lifespan(app):
+        # Then start our FastAPI lifespan
+        async with lifespan(app):
+            yield
+
+
+# Create FastAPI root app with combined lifespan
+app = FastAPI(
+    title="Chat API",
+    version="1.0.0",
+    lifespan=combined_lifespan,
+)
+
+# Add CORS middleware for localhost:3000 (dev)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Include chat router
+app.include_router(chat_router)
+
+# Mount MCP app at /mcp
+app.mount("/mcp", mcp_http_app)
+
+# Add request logging middleware
+@app.middleware("http")
+async def log_requests(request, call_next):
+    """Log all requests for debugging."""
+    method = request.method
+    path = request.url.path
+    logger.info(f"Request: {method} {path}")
+    
+    try:
+        response = await call_next(request)
+        logger.info(f"Response: {method} {path} -> {response.status_code}")
+        return response
+    except Exception as e:
+        logger.error(f"Error handling {method} {path}: {e}", exc_info=True)
+        raise
+
+# Add health check endpoints
+@app.get('/health')
+async def health():
     """Health check endpoint."""
-    from starlette.responses import JSONResponse
     return JSONResponse({'status': 'healthy'})
 
-@app.route('/', methods=['GET'])
-async def root(request):
+@app.get('/')
+async def root():
     """Root endpoint."""
-    from starlette.responses import JSONResponse
     return JSONResponse({'status': 'ok', 'service': 'vertex-rag-mcp'})
 
 

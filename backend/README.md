@@ -167,6 +167,83 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 python -m app.main
 ```
 
+## Chat API (LangChain + MCP Integration)
+
+The backend also provides chat endpoints that integrate with the MCP server, allowing the LLM to use MCP tools (vector search, document retrieval) when answering questions.
+
+### Chat Endpoints
+
+- `POST /v1/chat` - Non-streaming chat endpoint
+- `POST /v1/chat/stream` - Streaming chat endpoint (SSE)
+
+### MCP Integration in Chat
+
+When `USE_MCP_IN_CHAT=true` (default), the chat endpoints use a LangChain agent that has access to MCP tools. The agent can automatically:
+- Search for relevant documents using `vector_search`
+- Retrieve document content using `doc_get`
+
+If MCP connection fails or is disabled, the endpoints gracefully fall back to a basic LLM chain without tools.
+
+### Chat Configuration
+
+Add these environment variables to your `.env` file:
+
+```env
+# Required: OpenAI API key for chat model access
+OPENAI_API_KEY=your-openai-api-key-here
+
+# Optional: Model ID override (default: gpt-4o-mini)
+CHAT_MODEL_ID=gpt-4o-mini
+
+# MCP Integration Configuration
+# URL of the MCP server endpoint (default: http://localhost:8080/mcp)
+MCP_SERVER_URL=http://localhost:8080/mcp
+
+# MCP transport type (default: streamable_http)
+MCP_TRANSPORT=streamable_http
+
+# Enable MCP tools in chat endpoints (default: true)
+USE_MCP_IN_CHAT=true
+```
+
+### Example Chat Request
+
+```bash
+curl -X POST http://localhost:8080/v1/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "session_id": "user-123",
+    "input": "What documents mention machine learning?",
+    "system": "You are a helpful assistant."
+  }'
+```
+
+The agent will automatically use `vector_search` to find relevant documents when needed.
+
+### Streaming Chat
+
+```bash
+curl -X POST http://localhost:8080/v1/chat/stream \
+  -H "Content-Type: application/json" \
+  -d '{
+    "session_id": "user-123",
+    "input": "Tell me about machine learning",
+    "stream": true
+  }' \
+  -N
+```
+
+The response streams tokens as SSE events:
+- `event: token` - A token chunk
+- `event: done` - Stream complete
+- `event: error` - Error occurred
+
+### More Information
+
+For detailed implementation guide, see [docs/langchain_fast_api.md](../docs/langchain_fast_api.md).
+
+For LangChain MCP integration documentation, see: https://docs.langchain.com/oss/python/langchain/mcp
+
 ## MCP Tools
 
 ### `vector_search`

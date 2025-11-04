@@ -5,7 +5,7 @@ A guide for AI coding agents working on segov-dev.
 ## Project Overview
 
 This is a monorepo containing:
-- **Frontend**: Next.js 15 portfolio site with TypeScript strict mode, Tailwind CSS, file-based content management (JSON and Markdown), and OpenAI SDK. The site features a terminal-inspired design, blog functionality, and an "Ask Me Anything" chatbot page that uses OpenAI's API.
+- **Frontend**: Next.js 15 portfolio site with TypeScript strict mode, Tailwind CSS, file-based content management (JSON and Markdown), and Vercel AI Gateway. The site features a terminal-inspired design, blog functionality, and an "Ask Me Anything" chatbot page that uses AI Gateway for model access.
 - **Backend**: FastAPI-based MCP server for Vertex AI RAG Engine operations
 - **Infrastructure**: Cloud Run deployment configurations
 
@@ -62,8 +62,9 @@ pnpm format
 
 ### Frontend (`frontend/.env.local`)
 
-- `OPENAI_API_KEY` - OpenAI API key for authentication (required)
-- `LLM_MODEL_ID` - (Optional) Model identifier for API calls (defaults to `gpt-5-nano-2025-08-07`)
+- `AI_GATEWAY_API_KEY` - Vercel AI Gateway API key for authentication (required)
+- `LLM_MODEL_ID` - (Optional) Model identifier for API calls (defaults to `gpt-4o`)
+- `MCP_SERVER_URL` - (Optional) URL of MCP backend server for tool integration. Defaults to `http://localhost:8080/mcp` for local development. If not set or server unavailable, chatbot will gracefully continue without MCP tools.
 
 ### Backend (`backend/.env`)
 
@@ -72,7 +73,9 @@ pnpm format
 - `RAG_CORPUS_NAME` - Full resource name of the RAG corpus
 - `PORT` - Server port (default: `8080`)
 
-The frontend uses OpenAI's standard API endpoint. Authentication is handled server-side using the OpenAI API key.
+The frontend uses Vercel AI Gateway for model access. Authentication is handled server-side using the AI Gateway API key.
+
+The chatbot can optionally integrate with an MCP (Model Context Protocol) server for enhanced retrieval capabilities. If `MCP_SERVER_URL` is set and the server is healthy, the chatbot will have access to vector search and document retrieval tools. If the MCP server is unavailable, the chatbot will gracefully degrade and continue operating with static content only.
 
 **Never commit `.env.local`, `.env`, or any `.env*` files to version control.**
 

@@ -51,6 +51,31 @@ class Settings(BaseSettings):
         alias='MCP_PRIVATE_KEY',
         description='Private key (PEM format) for JWT signing (reserved for future auth provider implementation)'
     )
+    openai_api_key: str = Field(
+        default='',
+        alias='OPENAI_API_KEY',
+        description='OpenAI API key for chat model access'
+    )
+    chat_model_id: str = Field(
+        default='gpt-4o-mini',
+        alias='CHAT_MODEL_ID',
+        description='OpenAI model ID for chat (default: gpt-4o-mini)'
+    )
+    mcp_server_url: str = Field(
+        default='http://localhost:8080/mcp',
+        alias='MCP_SERVER_URL',
+        description='URL of the MCP server endpoint (default: http://localhost:8080/mcp)'
+    )
+    mcp_transport: str = Field(
+        default='streamable_http',
+        alias='MCP_TRANSPORT',
+        description='MCP transport type (default: streamable_http)'
+    )
+    use_mcp_in_chat: bool = Field(
+        default=True,
+        alias='USE_MCP_IN_CHAT',
+        description='Enable MCP tools in chat endpoints (default: True)'
+    )
 
     class Config:
         env_file = '.env'
@@ -66,6 +91,11 @@ class Settings(BaseSettings):
         if 'your-project-id' in self.rag_corpus_name or 'your-corpus-id' in self.rag_corpus_name:
             warnings.warn(
                 'Using default RAG_CORPUS_NAME. Set RAG_CORPUS_NAME environment variable for production.',
+                UserWarning
+            )
+        if not self.openai_api_key:
+            warnings.warn(
+                'OPENAI_API_KEY not set. Chat endpoints will fail without it.',
                 UserWarning
             )
 
