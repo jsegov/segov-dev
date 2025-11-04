@@ -1,16 +1,7 @@
 import Link from "next/link"
 import { Navbar } from "@/components/navbar"
-import { Github, Linkedin } from "lucide-react"
+import { Github } from "lucide-react"
 import { getAboutMe } from "@/lib/content"
-
-// Custom X logo component
-function XLogo({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="currentColor">
-      <path d="M13.3174 10.7749L19.1457 4H17.7646L12.7039 9.88256L8.66193 4H4L10.1122 12.8955L4 20H5.38119L10.7254 13.7878L14.994 20H19.656L13.3174 10.7749ZM11.4257 12.9738L10.8064 12.0881L5.87886 5.03974H8.00029L11.9769 10.728L12.5962 11.6137L17.7653 19.0075H15.6439L11.4257 12.9738Z" />
-    </svg>
-  )
-}
 
 export default async function Home() {
   const aboutMe = await getAboutMe() || { 
@@ -29,16 +20,6 @@ export default async function Home() {
       name: "GitHub",
       url: "https://github.com/jsegov",
       icon: <Github className="h-5 w-5" />,
-    },
-    {
-      name: "LinkedIn",
-      url: "https://linkedin.com/in/jonathansegovia",
-      icon: <Linkedin className="h-5 w-5" />,
-    },
-    {
-      name: "X",
-      url: "https://x.com/jonsegov",
-      icon: <XLogo className="h-5 w-5" />,
     },
   ]
 
