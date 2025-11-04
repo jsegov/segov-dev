@@ -12,8 +12,35 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Track if Vertex AI was initialized
+_vertex_ai_initialized = False
+
+
+def check_vertex_ai_initialized():
+    """Check if Vertex AI is initialized and raise clear error if not.
+    
+    Raises:
+        RuntimeError: If Vertex AI is not initialized
+    """
+    if not _vertex_ai_initialized:
+        raise RuntimeError(
+            'Vertex AI is not initialized. Please set the PROJECT_ID environment variable. '
+            'The default placeholder value "your-gcp-project-id" was detected, which means '
+            'PROJECT_ID was not configured. MCP tools require Vertex AI to be initialized.'
+        )
+
+
 if settings.project_id != 'your-gcp-project-id':
     init_vertex_ai(settings.project_id, settings.location)
+    _vertex_ai_initialized = True
+    logger.info(f'Vertex AI initialized with project_id={settings.project_id}, location={settings.location}')
+else:
+    # Check if MCP tools are being used - if so, we need Vertex AI initialized
+    # This provides a clear error message instead of runtime failures
+    logger.warning(
+        'PROJECT_ID not set or using default placeholder. '
+        'Vertex AI initialization skipped. MCP tools will fail if used.'
+    )
 
 
 def create_auth_provider():
@@ -63,6 +90,7 @@ async def vector_search_tool(
         top_k: Number of results to return (default: 5)
         distance_threshold: Optional distance threshold for filtering results
     """
+    check_vertex_ai_initialized()
     return await vector_search(query, top_k, distance_threshold)
 
 
@@ -82,6 +110,7 @@ async def doc_get_tool(
         path: Relative path within the default bucket (e.g., 'documents/file.md')
         bucket: Bucket name to use if path is provided (defaults to segov-dev-bucket)
     """
+    check_vertex_ai_initialized()
     return await doc_get(rag_file_id, gcs_uri, path, bucket)
 
 
