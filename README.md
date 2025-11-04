@@ -22,17 +22,21 @@ A personal portfolio site with an integrated AI "Ask Me Anything" page and a sim
 - **Framework**: Next.js 15+ (App Router) with TypeScript
 - **Styling**: Tailwind CSS
 - **Content**: JSON files and Markdown blog posts with SSG and ISR (24h revalidation)
-- **AI**: Vercel AI SDK / OpenAI SDK with Vertex AI
+- **Deployment**: Vercel (with Workload Identity Federation for Cloud Run backend authentication)
+- **Architecture**: Frontend → Backend API route → Cloud Run backend → OpenAI API (direct)
 
 ### Backend
 - **Framework**: FastAPI
 - **MCP**: FastMCP for Model Context Protocol
-- **AI**: Vertex AI RAG Engine with Vector Search
+- **AI**: Direct OpenAI API calls (no AI Gateway)
+- **RAG**: Vertex AI RAG Engine with Vector Search
+- **Deployment**: Google Cloud Run (us-east1)
 
 ### Infrastructure
-- **Deployment**: Google Cloud Run
+- **Deployment**: Google Cloud Run (backend), Vercel (frontend)
 - **Build System**: Turborepo
 - **Package Manager**: pnpm workspaces
+- **Authentication**: Workload Identity Federation (WIF) for Vercel → Cloud Run
 
 ## Getting Started
 
@@ -58,22 +62,23 @@ A personal portfolio site with an integrated AI "Ask Me Anything" page and a sim
 
 3. Set up environment variables:
    
-   **Frontend** (`frontend/.env.local`):
+   **Frontend** (`frontend/.env.local` for local development):
    ```
-   VERTEX_AI_PROJECT_ID=your-gcp-project-id
-   VERTEX_AI_LOCATION=us-central1
-   VERTEX_AI_ENDPOINT_ID=your-endpoint-id
-   LLM_MODEL_ID=qwen3-8b-vllm
-   GOOGLE_APPLICATION_CREDENTIALS_JSON='{"type":"service_account",...}'
+   CHAT_BACKEND_URL=http://localhost:8080  # Optional, defaults to http://localhost:8080
    ```
    
    **Backend** (`backend/.env`):
    ```
-   PROJECT_ID=your-gcp-project-id
-   LOCATION=us-central1
-   RAG_CORPUS_NAME=projects/YOUR_PROJECT_ID/locations/us-central1/ragCorpora/YOUR_CORPUS_ID
-   PORT=8080
+   PROJECT_ID=segov-dev-model  # Default, can be overridden
+   LOCATION=us-east1  # Default, can be overridden
+   RAG_CORPUS_NAME=projects/segov-dev-model/locations/us-east1/ragCorpora/YOUR_CORPUS_ID
+   OPENAI_API_KEY=your-openai-api-key  # Required, stored in Secret Manager in production
+   PORT=8080  # Optional, Cloud Run sets this automatically
+   CHAT_MODEL_ID=gpt-5-nano-2025-08-07  # Optional, defaults to gpt-5-nano-2025-08-07
+   GCS_BUCKET_NAME=segov-dev-bucket  # Optional, defaults to segov-dev-bucket
    ```
+   
+   **Note**: For production, secrets (`OPENAI_API_KEY`, `RAG_CORPUS_NAME`) are managed via Google Secret Manager. The frontend uses Workload Identity Federation (WIF) to authenticate with the Cloud Run backend. See [AGENTS.md](AGENTS.md) for production environment variable setup.
 
 4. Run development servers:
    ```bash
@@ -135,27 +140,55 @@ uvicorn app.main:app --reload
 
 ### Setup GCP Infrastructure
 
+First, run the one-time infrastructure bootstrap script (idempotent, safe to rerun):
+
 ```bash
-cd infra
-./setup.sh
+cd infra && ./setup.sh
 ```
+
+This sets up:
+- Required GCP APIs
+- Artifact Registry for container images
+- Service account with minimal IAM roles
+- Workload Identity Federation (WIF) for Vercel authentication
+- GCS bucket for document ingestion
+- Secret Manager secrets (`OPENAI_API_KEY`, `RAG_CORPUS_NAME`)
+
+**Default values** (can be overridden via environment variables):
+- `PROJECT_ID`: `segov-dev-model` (hardcoded)
+- `REGION`: `us-east1`
+- `SERVICE_ACCOUNT_NAME`: `mcp-sa`
+- `GCS_BUCKET_NAME`: `segov-dev-bucket`
+- `CHAT_MODEL_ID`: `gpt-5-nano-2025-08-07`
 
 ### Deploy Services
 
+**Backend (Cloud Run):**
 ```bash
-# Deploy backend
-cd infra/backend
-./deploy.sh
-
-# Deploy frontend
-cd infra/frontend
-./deploy.sh
+cd backend && ../infra/backend/deploy.sh
 ```
 
-See [infra/README.md](infra/README.md) for detailed deployment instructions.
+The deploy script uses the same defaults as the setup script. No environment variables required unless overriding defaults.
+
+**Frontend (Vercel):**
+The frontend is deployed separately on Vercel. After deploying the backend, add these environment variables to your Vercel project:
+- `GCP_PROJECT_NUMBER` - GCP project number
+- `WIF_POOL_ID` - Workload Identity Pool ID (default: `vercel-pool`)
+- `WIF_PROVIDER_ID` - Workload Identity Provider ID (default: `vercel-oidc`)
+- `SERVICE_ACCOUNT_EMAIL` - Service account email (e.g., `mcp-sa@segov-dev-model.iam.gserviceaccount.com`)
+- `CLOUD_RUN_URL` - Cloud Run service URL (from backend deployment output)
+
+**Alternative: Frontend on Cloud Run**
+If you want to deploy the frontend to Cloud Run instead of Vercel:
+```bash
+cd infra/frontend && ./deploy.sh
+```
+
+See [AGENTS.md](AGENTS.md) and [infra/README.md](infra/README.md) for detailed deployment instructions.
 
 ## Documentation
 
+- [AGENTS.md](AGENTS.md) - Guide for AI coding agents (includes setup, deployment, and environment variables)
 - [Monorepo Structure](docs/monorepo.md) - Detailed monorepo information
 - [MCP GCP Implementation](docs/mcp_gcp.md) - Architecture and implementation guide
 - [Infrastructure](infra/README.md) - Deployment and infrastructure setup

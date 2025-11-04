@@ -49,6 +49,10 @@ jobs:
           export SERVICE_NAME="${{ vars.SERVICE_NAME }}"
           export PROJECT_ID="${{ vars.GCP_PROJECT_ID }}"
           export REGION="${{ vars.REGION }}"
+          export SERVICE_ACCOUNT="${{ vars.SERVICE_ACCOUNT }}"
+          if [ -z "$SERVICE_ACCOUNT" ]; then
+            export SERVICE_ACCOUNT="mcp-sa@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
+          fi
           export CHAT_MODEL_ID="${{ vars.CHAT_MODEL_ID }}"
           export GCS_BUCKET_NAME="${{ vars.GCS_BUCKET_NAME }}"
           envsubst < infra/backend/cloudrun.yaml > container-${{ inputs.environment }}.yaml

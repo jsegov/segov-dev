@@ -140,21 +140,22 @@ gcloud run services add-iam-policy-binding mcp-backend \
 
 The repository includes GitHub Actions workflows for automated deployment:
 
-- `.github/workflows/deploy.yml`: Caller workflow that triggers on pushes to `develop`, `stage`, or `main`
+- `.github/workflows/deploy.yml`: Workflow that triggers on pushes to `main` branch
 - `.github/workflows/_cloudrun_deploy.yaml`: Reusable workflow that builds, pushes, and deploys
 
 ### Setup for GitHub Actions
 
 1. **Set up Workload Identity Federation** (see [Google Cloud docs](https://cloud.google.com/iam/docs/workload-identity-federation-with-deployment-pipelines))
 
-2. **Configure GitHub Environments** (`dev`, `stage`, `prod`) with:
+2. **Configure GitHub Environment** (`prod`) with:
    - **Variables**:
      - `REGION=us-east1`
-     - `GCP_PROJECT_ID=<your-project-id>`
+     - `GCP_PROJECT_ID=segov-dev-model`
      - `ARTIFACT_REPO=containers`
      - `SERVICE_NAME=mcp-backend`
-     - `CHAT_MODEL_ID=gpt-4o-mini`
+     - `CHAT_MODEL_ID=gpt-5-nano-2025-08-07`
      - `GCS_BUCKET_NAME=segov-dev-bucket`
+     - `SERVICE_ACCOUNT` (optional, defaults to `mcp-sa@${GCP_PROJECT_ID}.iam.gserviceaccount.com`)
    - **Secrets**:
      - `WIF_PROVIDER`: Workload Identity Federation provider
      - `WIF_SERVICE_ACCOUNT`: Service account for deployment

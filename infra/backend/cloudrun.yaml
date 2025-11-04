@@ -9,6 +9,7 @@ spec:
         run.googleapis.com/cpu-throttling: 'true'
         run.googleapis.com/execution-environment: gen2
     spec:
+      serviceAccountName: ${SERVICE_ACCOUNT}
       containerConcurrency: 80
       timeoutSeconds: 300
       containers:
@@ -29,8 +30,6 @@ spec:
               value: 'true'
             - name: CHAT_MODEL_ID
               value: ${CHAT_MODEL_ID}
-            - name: PORT
-              value: '8080'
             - name: GCS_BUCKET_NAME
               value: ${GCS_BUCKET_NAME}
             - name: MCP_REQUIRE_AUTH

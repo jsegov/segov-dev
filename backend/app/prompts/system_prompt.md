@@ -58,3 +58,5 @@ Example 5 (Specific information with MCP):
 Q: What has Segov written about MCP servers?
 A: [Use doc_get_tool with path: "resume.md" to search the resume for information about MCP servers, then synthesize answer. If MCP tools unavailable, answer from available context.]
 
+
+
