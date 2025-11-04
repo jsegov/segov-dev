@@ -1,8 +1,8 @@
 [
   {
     "name": "segov.dev",
-    "description": "A portfolio website built with Next.js and deployed on Vercel. It features information about my professional experience and side projects, using JSON files and Markdown for content management. It also includes an AI-powered chatbot that uses Vercel AI Gateway for model access.",
-    "skills": ["Next.js", "TypeScript", "React", "Tailwind CSS"],
+    "description": "A portfolio website built with Next.js and deployed on Vercel. It features information about my professional experience and side projects. It includes an AI-powered chatbot with a FastAPI backend deployed on Cloud Run that integrates LangChain, Vertex AI RAG, and MCP (Model Context Protocol) tools for document retrieval and vector search.",
+    "skills": ["Next.js", "React", "Tailwind CSS", "FastAPI", "LangChain", "Vertex AI", "Cloud Run", "MCP"],
     "githubUrl": "https://github.com/jsegov/segov-dev"
   }
 ]
