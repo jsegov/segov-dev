@@ -1,9 +1,21 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalEnv": [
+    "NODE_ENV"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": [".next/**", "dist/**", "build/**"]
+      "outputs": [".next/**", "dist/**", "build/**"],
+      "env": [
+        "CHAT_BACKEND_URL",
+        "CLOUD_RUN_URL",
+        "GCP_PROJECT_NUMBER",
+        "WIF_POOL_ID",
+        "WIF_PROVIDER_ID",
+        "SERVICE_ACCOUNT_EMAIL",
+        "VERCEL_OIDC_TOKEN"
+      ]
     },
     "dev": {
       "cache": false,
