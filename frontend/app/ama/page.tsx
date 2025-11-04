@@ -85,8 +85,18 @@ export default function AMAPage() {
       }
 
       // Get the response text
+      console.log("Reading response body...")
       const responseText = await response.text()
       console.log("Response received, length:", responseText.length)
+      console.log("Response preview:", responseText.substring(0, 200))
+
+      if (!responseText || responseText.trim().length === 0) {
+        console.error("Empty response received from API")
+        setMessages((prev) =>
+          prev.map((msg) => (msg.id === assistantMessageId ? { ...msg, content: "segov@terminal:~$ echo 'Error: Empty response from server'\nError: Empty response from server" } : msg)),
+        )
+        return
+      }
 
       // Update the message with the API response
       setMessages((prev) =>

@@ -4,7 +4,12 @@ A guide for AI coding agents working on segov-dev.
 
 ## Project Overview
 
-This is a Next.js 15 portfolio site with TypeScript strict mode, Tailwind CSS, file-based content management (JSON and Markdown), and OpenAI SDK. The site features a terminal-inspired design, blog functionality, and an "Ask Me Anything" chatbot page.
+This is a monorepo containing:
+- **Frontend**: Next.js 15 portfolio site with TypeScript strict mode, Tailwind CSS, file-based content management (JSON and Markdown). The site features a terminal-inspired design, blog functionality, and an "Ask Me Anything" chatbot page. The chatbot calls a FastAPI backend deployed on Cloud Run, which handles all LLM interactions directly with OpenAI.
+- **Backend**: FastAPI-based MCP server for Vertex AI RAG Engine operations, deployed on Google Cloud Run. All LLM calls are made directly from the backend to OpenAI API (no AI Gateway).
+- **Infrastructure**: Cloud Run deployment configurations and one-time bootstrap scripts for GCP infrastructure setup
+
+See [docs/monorepo.md](docs/monorepo.md) for detailed structure information.
 
 ## Setup Commands
 
@@ -53,19 +58,82 @@ Format code:
 pnpm format
 ```
 
+## Infrastructure Setup
+
+### One-Time GCP Infrastructure Bootstrap
+
+Before deploying the backend, run the one-time infrastructure setup script:
+
+```bash
+cd infra && ./setup.sh
+```
+
+This script (idempotent, safe to rerun) sets up:
+- Required GCP APIs
+- Artifact Registry for container images
+- Service account with minimal IAM roles
+- Workload Identity Federation (WIF) for Vercel authentication
+- GCS bucket for document ingestion
+- Secret Manager secrets (`OPENAI_API_KEY`, `RAG_CORPUS_NAME`)
+
+**Default values (can be overridden via environment variables):**
+- `PROJECT_ID`: `segov-dev-model` (hardcoded)
+- `REGION`: `us-east1`
+- `SERVICE_ACCOUNT_NAME`: `mcp-sa`
+- `GCS_BUCKET_NAME`: `segov-dev-bucket`
+- `CHAT_MODEL_ID`: `gpt-5-nano-2025-08-07`
+
+**Optional environment variables for setup:**
+- `OPENAI_API_KEY` - If set, creates/updates the secret automatically
+- `RAG_CORPUS_NAME` or `CORPUS_ID` - If set, creates/updates the secret automatically
+- `VERCEL_TEAM_SLUG` - If using Vercel team accounts
+
+### Backend Deployment
+
+Deploy the backend to Cloud Run:
+
+```bash
+cd backend && ../infra/backend/deploy.sh
+```
+
+The deploy script uses the same defaults as the setup script. No environment variables required unless overriding defaults.
+
 ## Environment Variables
 
-Create a `.env.local` file in the root directory with these variables:
+### Frontend (`frontend/.env.local` for local dev, Vercel Project Settings for production)
 
-- `VERTEX_AI_PROJECT_ID` - GCP project ID for Vertex AI deployment
-- `VERTEX_AI_LOCATION` - Region for Vertex AI (default: `us-central1`)
-- `VERTEX_AI_ENDPOINT_ID` - Vertex AI endpoint ID (populated after deployment)
-- `LLM_MODEL_ID` - (Optional) Model identifier for API calls (defaults to `qwen3-8b-vllm` or matches `VERTEX_AI_SERVED_NAME`)
-- `GOOGLE_APPLICATION_CREDENTIALS_JSON` - Google Cloud service account JSON as string (required for Vertex AI authentication)
+**Local Development:**
+- `CHAT_BACKEND_URL` - (Optional) Backend URL for local development (defaults to `http://localhost:8080`)
 
-The application constructs the Vertex AI endpoint URL automatically from the project ID, location, and endpoint ID. Authentication is handled server-side using Google OAuth tokens from the service account.
+**Production (Vercel Environment Variables):**
+- `GCP_PROJECT_NUMBER` - GCP project number (from `gcloud projects describe PROJECT_ID --format='value(projectNumber)'`)
+- `WIF_POOL_ID` - Workload Identity Pool ID (default: `vercel-pool`, set by `infra/setup.sh`)
+- `WIF_PROVIDER_ID` - Workload Identity Provider ID (default: `vercel-oidc`, set by `infra/setup.sh`)
+- `SERVICE_ACCOUNT_EMAIL` - Service account email that WIF impersonates (e.g., `mcp-sa@segov-dev-model.iam.gserviceaccount.com`)
+- `CLOUD_RUN_URL` - Cloud Run service URL (ending in `.run.app`, used as ID token audience)
 
-**Never commit `.env.local` or any `.env*` files to version control.**
+**Note:** The frontend uses Workload Identity Federation (WIF) to authenticate with Cloud Run. When `CLOUD_RUN_URL` is set, the BFF (`frontend/app/api/chatbot/route.ts`) exchanges Vercel OIDC tokens for Google ID tokens via WIF and calls the Cloud Run backend. If `CLOUD_RUN_URL` is not set, it falls back to calling the local backend without authentication.
+
+**Architecture:** Frontend → Backend API route → Cloud Run backend → OpenAI API (direct, no AI Gateway)
+
+### Backend (`backend/.env`)
+
+**Required:**
+- `PROJECT_ID` - GCP project ID (default: `segov-dev-model` in deploy scripts)
+- `LOCATION` - Vertex AI region (default: `us-east1`)
+- `RAG_CORPUS_NAME` - Full resource name of the RAG corpus (stored in Secret Manager)
+- `OPENAI_API_KEY` - OpenAI API key for LLM access (stored in Secret Manager)
+
+**Optional:**
+- `PORT` - Server port (default: `8080`, automatically set by Cloud Run)
+- `CHAT_MODEL_ID` - OpenAI model ID (default: `gpt-5-nano-2025-08-07`)
+- `GCS_BUCKET_NAME` - GCS bucket for document ingestion (default: `segov-dev-bucket`)
+- `USE_MCP_IN_CHAT` - Enable MCP tools in chat (default: `true`)
+- `MCP_REQUIRE_AUTH` - Require MCP authentication (default: `false`)
+
+**Note:** The backend makes direct calls to OpenAI API using the `OPENAI_API_KEY` secret. All LLM interactions are handled server-side. The backend can optionally use MCP (Model Context Protocol) tools for enhanced retrieval capabilities via Vertex AI RAG Engine.
+
+**Never commit `.env.local`, `.env`, or any `.env*` files to version control.**
 
 ## Code Style
 
@@ -105,11 +173,18 @@ Write tests for components in the `tests/` directory mirroring the `components/`
 
 ## Development Workflow
 
-1. **Start working**: Run `pnpm install` first to ensure dependencies are up to date
-2. **Start dev server**: Run `pnpm dev` to start the development server on http://localhost:3000
+1. **Initial setup**: 
+   - Run `pnpm install` to install dependencies
+   - Set up GCP infrastructure: `cd infra && ./setup.sh`
+   - Export environment variables from `backend/.env` if needed (see Environment Variables section)
+2. **Start dev servers**: 
+   - Run `pnpm dev` to start all development servers
+   - Or run `pnpm --filter frontend dev` for frontend only (http://localhost:3000)
+   - Or run `uvicorn app.main:app --reload` from `backend/` for backend only (http://localhost:8080)
 3. **Make changes**: Edit files and let hot reload handle updates
 4. **Test locally**: Use `pnpm test:watch` to keep tests running during development
-5. **Before committing**: Always run `pnpm lint` and `pnpm test` to ensure code quality
+5. **Deploy backend**: Run `cd backend && ../infra/backend/deploy.sh` (uses defaults from setup.sh)
+6. **Before committing**: Always run `pnpm lint` and `pnpm test` to ensure code quality
 
 ## Pull Request Guidelines
 

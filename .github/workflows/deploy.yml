@@ -1,0 +1,17 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/_cloudrun_deploy.yaml
+    permissions:
+      id-token: write
+      contents: read
+    with:
+      environment: prod
+      ref: ${{ github.sha }}
+    secrets: inherit
+

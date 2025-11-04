@@ -1,0 +1,47 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: mcp-backend
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/cpu-throttling: 'true'
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      serviceAccountName: ${SERVICE_ACCOUNT}
+      containerConcurrency: 80
+      timeoutSeconds: 300
+      containers:
+        - image: ${CONTAINER_IMAGE}
+          ports:
+            - name: http1
+              containerPort: 8080
+          resources:
+            limits:
+              cpu: '1'
+              memory: 512Mi
+          env:
+            - name: PROJECT_ID
+              value: ${PROJECT_ID}
+            - name: LOCATION
+              value: ${REGION}
+            - name: USE_MCP_IN_CHAT
+              value: 'true'
+            - name: CHAT_MODEL_ID
+              value: ${CHAT_MODEL_ID}
+            - name: GCS_BUCKET_NAME
+              value: ${GCS_BUCKET_NAME}
+            - name: MCP_REQUIRE_AUTH
+              value: 'false'
+            - name: RAG_CORPUS_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: RAG_CORPUS_NAME
+                  key: latest
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: OPENAI_API_KEY
+                  key: latest
+

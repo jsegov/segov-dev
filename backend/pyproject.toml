@@ -1,0 +1,27 @@
+[tool.poetry]
+name = "mcp-backend"
+version = "0.1.0"
+description = "MCP server for Vertex AI RAG Engine"
+authors = ["Jonathan Segovia"]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.115.0"
+uvicorn = {extras = ["standard"], version = "^0.32.0"}
+fastmcp = "^2.13.0"
+google-cloud-aiplatform = "^1.76.0"
+google-cloud-storage = "^2.18.0"
+google-auth = "^2.36.0"
+pydantic = "^2.10.0"
+pydantic-settings = "^2.7.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.0"
+pytest-asyncio = "^0.24.0"
+black = "^24.10.0"
+ruff = "^0.8.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
