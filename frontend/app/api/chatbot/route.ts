@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server"
+import { cookies } from "next/headers"
+import { randomUUID } from "crypto"
 
 const CHAT_BACKEND_URL = process.env.CHAT_BACKEND_URL || 'http://localhost:8080'
+const SESSION_COOKIE_NAME = 'chat_session_id'
 
 export async function POST(req: Request) {
   console.log("[CHATBOT API] Received request")
@@ -16,6 +19,23 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid question format" }, { status: 400 })
     }
 
+    // Get or create session ID from cookies
+    const cookieStore = await cookies()
+    let sessionId = cookieStore.get(SESSION_COOKIE_NAME)?.value
+    
+    if (!sessionId) {
+      sessionId = randomUUID()
+      cookieStore.set(SESSION_COOKIE_NAME, sessionId, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 60 * 60 * 24 * 30, // 30 days
+      })
+      console.log("[CHATBOT API] Generated new session ID:", sessionId)
+    } else {
+      console.log("[CHATBOT API] Using existing session ID:", sessionId)
+    }
+
     // Call backend chat API
     const backendUrl = `${CHAT_BACKEND_URL}/v1/chat`
     console.log("[CHATBOT API] Calling backend:", backendUrl)
@@ -26,7 +46,7 @@ export async function POST(req: Request) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        session_id: 'anon',
+        session_id: sessionId,
         input: question,
       }),
     })
