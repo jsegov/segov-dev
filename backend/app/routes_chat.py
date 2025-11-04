@@ -45,17 +45,8 @@ async def chat(req: ChatRequest):
                         {"messages": messages},
                         config={"configurable": {"session_id": req.session_id}},
                     )
-                    history.add_user_message(req.input)
-                    if isinstance(out, dict) and "messages" in out:
-                        for msg in reversed(out["messages"]):
-                            if isinstance(msg, AIMessage):
-                                history.add_ai_message(msg.content)
-                                break
-                    elif isinstance(out, dict) and "output" in out:
-                        history.add_ai_message(out["output"])
-                    elif isinstance(out, str):
-                        history.add_ai_message(out)
                     
+                    # Extract text from response first to validate
                     text: str | None = None
                     if isinstance(out, str):
                         text = out
@@ -67,8 +58,14 @@ async def chat(req: ChatRequest):
                                     text = msg.content
                                     break
                     
+                    # Only add to history if we have a valid, non-empty response
                     if not text or not text.strip():
                         raise ValueError("Agent returned empty response")
+                    
+                    # Add messages to history only after confirming valid response
+                    # Add both atomically to prevent inconsistency
+                    history.add_user_message(req.input)
+                    history.add_ai_message(text)
                     
                     return JSONResponse({"text": text})
             except Exception as mcp_error:
@@ -153,12 +150,14 @@ async def chat_stream(req: ChatRequest):
                                         full_response_content += output["output"]
                                         emitted = True
                         
-                        if not emitted:
-                            raise ValueError("Agent produced no tokens")
+                        # Only add to history if we have valid, non-empty response
+                        if not emitted or not full_response_content.strip():
+                            raise ValueError("Agent produced no tokens or empty response")
                         
+                        # Add messages to history only after confirming valid response
+                        # Add both atomically to prevent inconsistency
                         history.add_user_message(req.input)
-                        if full_response_content:
-                            history.add_ai_message(full_response_content)
+                        history.add_ai_message(full_response_content)
                     
                     yield {"event": "done", "data": req.session_id}
                     return

@@ -46,12 +46,34 @@ export async function POST(req: Request) {
       // Production: Get ID token and call Cloud Run with authentication
       console.log("[CHATBOT API] Using Cloud Run with WIF authentication:", CLOUD_RUN_URL)
       
+      // Validate required environment variables
+      const projectNumber = process.env.GCP_PROJECT_NUMBER
+      const poolId = process.env.WIF_POOL_ID
+      const providerId = process.env.WIF_PROVIDER_ID
+      const serviceAccountEmail = process.env.SERVICE_ACCOUNT_EMAIL
+      
+      const missingVars: string[] = []
+      if (!projectNumber) missingVars.push('GCP_PROJECT_NUMBER')
+      if (!poolId) missingVars.push('WIF_POOL_ID')
+      if (!providerId) missingVars.push('WIF_PROVIDER_ID')
+      if (!serviceAccountEmail) missingVars.push('SERVICE_ACCOUNT_EMAIL')
+      
+      if (missingVars.length > 0) {
+        console.error("[CHATBOT API] Missing required environment variables:", missingVars)
+        return new Response(
+          `segov@terminal:~$ echo "Error: Configuration error"
+Error: Missing required environment variables: ${missingVars.join(', ')}. Please configure your Vercel environment variables.`,
+          { status: 500 },
+        )
+      }
+      
+      // Type assertions are safe here because we've validated above
       try {
         const idToken = await getCloudRunIdToken({
-          projectNumber: process.env.GCP_PROJECT_NUMBER!,
-          poolId: process.env.WIF_POOL_ID!,
-          providerId: process.env.WIF_PROVIDER_ID!,
-          serviceAccountEmail: process.env.SERVICE_ACCOUNT_EMAIL!,
+          projectNumber: projectNumber as string,
+          poolId: poolId as string,
+          providerId: providerId as string,
+          serviceAccountEmail: serviceAccountEmail as string,
           audience: CLOUD_RUN_URL,
         })
         
