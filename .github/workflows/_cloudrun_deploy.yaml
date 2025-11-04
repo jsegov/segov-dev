@@ -1,68 +1,140 @@
-name: Reusable Cloud Run Deploy
+name: Cloud Run Deployment
 
 on:
   workflow_call:
     inputs:
       environment:
-        type: string
         required: true
+        type: string
       ref:
-        type: string
         required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
-  deploy:
-    name: Deploy backend
+  deploy-backend:
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
+    
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Google Auth
-        id: auth
-        uses: google-github-actions/auth@v0
         with:
-          token_format: 'access_token'
+          ref: ${{ inputs.ref }}
+      
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
           workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
           service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
-
-      - name: Docker Auth (Artifact Registry)
-        uses: docker/login-action@v3
-        with:
-          username: 'oauth2accesstoken'
-          password: '${{ steps.auth.outputs.access_token }}'
-          registry: '${{ vars.REGION }}-docker.pkg.dev'
-
-      - name: Build, tag and push image
-        uses: docker/build-push-action@v3
-        with:
-          context: .
-          file: infra/backend/Dockerfile
-          push: true
-          tags: |
-            ${{ vars.REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.ARTIFACT_REPO }}/${{ vars.SERVICE_NAME }}:${{ inputs.ref }}
-
-      - name: Render service YAML
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+      
+      - name: Set deployment variables
+        id: vars
         run: |
-          export CONTAINER_IMAGE="${{ vars.REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.ARTIFACT_REPO }}/${{ vars.SERVICE_NAME }}:${{ inputs.ref }}"
-          export SERVICE_NAME="${{ vars.SERVICE_NAME }}"
-          export PROJECT_ID="${{ vars.GCP_PROJECT_ID }}"
-          export REGION="${{ vars.REGION }}"
-          export SERVICE_ACCOUNT="${{ vars.SERVICE_ACCOUNT }}"
-          if [ -z "$SERVICE_ACCOUNT" ]; then
-            export SERVICE_ACCOUNT="mcp-sa@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
+          PROJECT_ID="${{ vars.GCP_PROJECT_ID }}"
+          REGION="${{ vars.REGION }}"
+          SERVICE_NAME="${{ vars.SERVICE_NAME }}"
+          ARTIFACT_REPO="${{ vars.ARTIFACT_REPO }}"
+          CHAT_MODEL_ID="${{ vars.CHAT_MODEL_ID }}"
+          GCS_BUCKET_NAME="${{ vars.GCS_BUCKET_NAME }}"
+          SERVICE_ACCOUNT="${{ vars.SERVICE_ACCOUNT }}"
+          
+          if [ -z "${SERVICE_ACCOUNT}" ]; then
+            SERVICE_ACCOUNT="mcp-sa@${PROJECT_ID}.iam.gserviceaccount.com"
           fi
-          export CHAT_MODEL_ID="${{ vars.CHAT_MODEL_ID }}"
-          export GCS_BUCKET_NAME="${{ vars.GCS_BUCKET_NAME }}"
-          envsubst < infra/backend/cloudrun.yaml > container-${{ inputs.environment }}.yaml
-          cat container-${{ inputs.environment }}.yaml
-
-      - name: Deploy to Cloud Run (private)
-        id: deploy
-        uses: google-github-actions/deploy-cloudrun@v0
-        with:
-          service: ${{ vars.SERVICE_NAME }}
-          region: ${{ vars.REGION }}
-          metadata: container-${{ inputs.environment }}.yaml
-
+          
+          echo "PROJECT_ID=${PROJECT_ID}" >> $GITHUB_ENV
+          echo "REGION=${REGION}" >> $GITHUB_ENV
+          echo "SERVICE_NAME=${SERVICE_NAME}" >> $GITHUB_ENV
+          echo "ARTIFACT_REPO=${ARTIFACT_REPO}" >> $GITHUB_ENV
+          echo "CHAT_MODEL_ID=${CHAT_MODEL_ID}" >> $GITHUB_ENV
+          echo "GCS_BUCKET_NAME=${GCS_BUCKET_NAME}" >> $GITHUB_ENV
+          echo "SERVICE_ACCOUNT=${SERVICE_ACCOUNT}" >> $GITHUB_ENV
+      
+      - name: Build container image
+        working-directory: .
+        run: |
+          IMAGE_TAG="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPO}/${SERVICE_NAME}:$(date +%s)"
+          echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
+          
+          # Create temporary Dockerfile at root
+          cp infra/backend/Dockerfile .Dockerfile.backend
+          
+          # Create Cloud Build config
+          cat > .cloudbuild-backend.yaml << EOF
+          steps:
+          - name: 'gcr.io/cloud-builders/docker'
+            args: ['build', '-f', '.Dockerfile.backend', '-t', '${IMAGE_TAG}', '.']
+          images:
+          - '${IMAGE_TAG}'
+          EOF
+          
+          # Build using Cloud Build
+          gcloud builds submit \
+            --config=.cloudbuild-backend.yaml \
+            --project=${PROJECT_ID} .
+          
+          # Cleanup
+          rm -f .Dockerfile.backend .cloudbuild-backend.yaml
+      
+      - name: Install envsubst
+        run: |
+          sudo apt-get update && sudo apt-get install -y gettext-base
+      
+      - name: Render Cloud Run service YAML
+        working-directory: infra/backend
+        run: |
+          export CONTAINER_IMAGE="${IMAGE_TAG}"
+          export PROJECT_ID="${PROJECT_ID}"
+          export REGION="${REGION}"
+          export SERVICE_NAME="${SERVICE_NAME}"
+          export SERVICE_ACCOUNT="${SERVICE_ACCOUNT}"
+          export CHAT_MODEL_ID="${CHAT_MODEL_ID}"
+          export GCS_BUCKET_NAME="${GCS_BUCKET_NAME}"
+          
+          envsubst < cloudrun.yaml > ../../backend/cloudrun.rendered.yaml
+      
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run services replace backend/cloudrun.rendered.yaml \
+            --region=${REGION} \
+            --project=${PROJECT_ID}
+      
+      - name: Ensure authentication is required
+        run: |
+          gcloud run services remove-iam-policy-binding ${SERVICE_NAME} \
+            --member="allUsers" \
+            --role="roles/run.invoker" \
+            --region=${REGION} \
+            --project=${PROJECT_ID} 2>/dev/null || echo "allUsers binding not present"
+      
+      - name: Grant run.invoker to service account
+        run: |
+          gcloud run services add-iam-policy-binding ${SERVICE_NAME} \
+            --member="serviceAccount:${SERVICE_ACCOUNT}" \
+            --role="roles/run.invoker" \
+            --region=${REGION} \
+            --project=${PROJECT_ID} || echo "Invoker binding may already exist"
+      
+      - name: Get service URL
+        id: url
+        run: |
+          CLOUD_RUN_URL=$(gcloud run services describe ${SERVICE_NAME} \
+            --region=${REGION} \
+            --project=${PROJECT_ID} \
+            --format='value(status.url)')
+          echo "url=${CLOUD_RUN_URL}" >> $GITHUB_OUTPUT
+          echo "Deployed to: ${CLOUD_RUN_URL}"
+      
+      - name: Output deployment info
+        run: |
+          echo "::notice title=Deployment Complete::Service deployed to ${{ steps.url.outputs.url }}"
+          echo ""
+          echo "Add this to your Vercel environment variables:"
+          echo "  CLOUD_RUN_URL=${{ steps.url.outputs.url }}"
