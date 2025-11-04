@@ -186,10 +186,140 @@ async def doc_get(
         # RAG file IDs are managed by Vertex AI RAG Engine
         # They can only reference files that were ingested into the RAG corpus
         # No additional validation needed as Vertex AI controls the namespace
-        return {
-            'rag_file_id': rag_file_id,
-            'note': 'RAG file retrieval by ID requires additional RAG API calls',
-        }
+        
+        # Strategy: Use vector search to find chunks from this file ID
+        # The source_uri from the search results will point to the GCS location
+        # Note: If rag_file_id is itself a GCS URI, we'll handle it that way
+        
+        # Check if rag_file_id looks like a GCS URI
+        if rag_file_id.startswith('gs://'):
+            # Treat as GCS URI and validate/fetch
+            is_valid, error_msg = _validate_gcs_uri(rag_file_id)
+            if not is_valid:
+                return {'error': f'Invalid GCS URI: {error_msg}'}
+            
+            from google.cloud import storage
+            client = storage.Client(project=settings.project_id)
+            gcs_path = rag_file_id.replace('gs://', '')
+            if '/' in gcs_path:
+                bucket_name, blob_path = gcs_path.split('/', 1)
+            else:
+                return {'error': f'Invalid GCS URI: {rag_file_id}. Expected format: gs://bucket/path'}
+            
+            gcs_bucket = client.bucket(bucket_name)
+            blob = gcs_bucket.blob(blob_path)
+            
+            if not blob.exists():
+                return {'error': f'File not found: {rag_file_id}'}
+            
+            content = blob.download_as_text()
+            return {
+                'rag_file_id': rag_file_id,
+                'uri': rag_file_id,
+                'content': content,
+                'metadata': {
+                    'size': len(content),
+                    'content_type': blob.content_type,
+                    'updated': blob.updated.isoformat() if blob.updated else None,
+                },
+            }
+        
+        # Otherwise, use vector search to find the source URI
+        # Strategy: Use the rag_file_id as a query to find matching chunks
+        # The source_uri from results will point to the GCS location of the file
+        try:
+            # First, try using the rag_file_id directly as the query
+            # This works if the file ID appears in document content, filename, or metadata
+            retrieval_config = rag.RagRetrievalConfig(top_k=20)
+            
+            response = rag.retrieval_query(
+                rag_resources=[rag.RagResource(rag_corpus=settings.rag_corpus_name)],
+                query_text=rag_file_id,
+                retrieval_config=retrieval_config,
+            )
+            
+            # Look for chunks that match this file ID
+            source_uri = None
+            if response.contexts:
+                for ctx in response.contexts:
+                    if not ctx.source_uri:
+                        continue
+                    
+                    # Check if the file ID matches the source_uri (filename or path)
+                    # RAG file IDs might be the filename, full path, or GCS URI suffix
+                    source_filename = ctx.source_uri.split('/')[-1]
+                    source_path = ctx.source_uri
+                    
+                    if (rag_file_id == source_filename or
+                        rag_file_id in source_path or
+                        source_path.endswith(rag_file_id) or
+                        rag_file_id.endswith(source_filename)):
+                        source_uri = ctx.source_uri
+                        break
+                    
+                    # Also check metadata for file ID
+                    if ctx.metadata:
+                        metadata_str = str(ctx.metadata).lower()
+                        if rag_file_id.lower() in metadata_str:
+                            source_uri = ctx.source_uri
+                            break
+                
+                # If we found results but no exact match, use the first result's source_uri
+                # This assumes the query matched content from the target file
+                if not source_uri and response.contexts[0].source_uri:
+                    source_uri = response.contexts[0].source_uri
+            
+            if not source_uri:
+                return {
+                    'error': f'Could not find source URI for RAG file ID: {rag_file_id}',
+                    'rag_file_id': rag_file_id,
+                    'note': 'File may not exist in the RAG corpus or file ID format is not recognized',
+                }
+            
+            # Validate and fetch from GCS
+            is_valid, error_msg = _validate_gcs_uri(source_uri)
+            if not is_valid:
+                return {
+                    'error': f'Invalid source URI found: {error_msg}',
+                    'rag_file_id': rag_file_id,
+                    'source_uri': source_uri,
+                }
+            
+            from google.cloud import storage
+            client = storage.Client(project=settings.project_id)
+            gcs_path = source_uri.replace('gs://', '')
+            if '/' in gcs_path:
+                bucket_name, blob_path = gcs_path.split('/', 1)
+            else:
+                return {'error': f'Invalid source URI format: {source_uri}'}
+            
+            gcs_bucket = client.bucket(bucket_name)
+            blob = gcs_bucket.blob(blob_path)
+            
+            if not blob.exists():
+                return {
+                    'error': f'File not found at source URI: {source_uri}',
+                    'rag_file_id': rag_file_id,
+                    'source_uri': source_uri,
+                }
+            
+            content = blob.download_as_text()
+            return {
+                'rag_file_id': rag_file_id,
+                'uri': source_uri,
+                'content': content,
+                'metadata': {
+                    'size': len(content),
+                    'content_type': blob.content_type,
+                    'updated': blob.updated.isoformat() if blob.updated else None,
+                },
+            }
+            
+        except Exception as e:
+            return {
+                'error': f'Failed to retrieve document by RAG file ID: {str(e)}',
+                'rag_file_id': rag_file_id,
+            }
     
     return {'error': 'No valid identifier provided'}
 
