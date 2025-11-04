@@ -19,6 +19,8 @@ gcloud services enable \
   pubsub.googleapis.com \
   eventarc.googleapis.com \
   artifactregistry.googleapis.com \
+  iam.googleapis.com \
+  sts.googleapis.com \
   --project ${PROJECT_ID}
 
 # Create service account for MCP backend
@@ -40,6 +42,66 @@ gcloud projects add-iam-policy-binding ${PROJECT_ID} \
 gcloud projects add-iam-policy-binding ${PROJECT_ID} \
   --member="serviceAccount:${SERVICE_ACCOUNT_NAME}@${PROJECT_ID}.iam.gserviceaccount.com" \
   --role="roles/run.invoker"
+
+# Set up Workload Identity Federation for Vercel OIDC
+echo "Setting up Workload Identity Federation for Vercel..."
+PROJECT_NUMBER=$(gcloud projects describe ${PROJECT_ID} --format='value(projectNumber)')
+SERVICE_ACCOUNT_EMAIL="${SERVICE_ACCOUNT_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+POOL_ID="vercel-pool"
+PROVIDER_ID="vercel-oidc"
+
+# Get Vercel team slug (optional, can be set via env)
+VERCEL_TEAM_SLUG=${VERCEL_TEAM_SLUG:-""}
+if [ -z "${VERCEL_TEAM_SLUG}" ]; then
+  echo "Warning: VERCEL_TEAM_SLUG not set. Using default issuer."
+  VERCEL_ISSUER="https://oidc.vercel.com"
+else
+  VERCEL_ISSUER="https://oidc.vercel.com/${VERCEL_TEAM_SLUG}"
+fi
+
+# Create workload identity pool (idempotent)
+echo "Creating workload identity pool..."
+gcloud iam workload-identity-pools create ${POOL_ID} \
+  --project=${PROJECT_ID} \
+  --location="global" \
+  --display-name="Vercel OIDC Pool" \
+  --description="Workload Identity Pool for Vercel OIDC federation" || \
+  echo "Workload identity pool may already exist"
+
+# Create OIDC provider in the pool (idempotent)
+echo "Creating OIDC provider..."
+gcloud iam workload-identity-pools providers create-oidc ${PROVIDER_ID} \
+  --project=${PROJECT_ID} \
+  --location="global" \
+  --workload-identity-pool=${POOL_ID} \
+  --display-name="Vercel OIDC Provider" \
+  --issuer-uri=${VERCEL_ISSUER} \
+  --allowed-audiences="https://vercel.com" \
+  --attribute-mapping="google.subject=assertion.sub,attribute.project_id=assertion.project_id,attribute.branch=assertion.branch" || \
+  echo "OIDC provider may already exist"
+
+# Grant the pool permission to impersonate the service account
+echo "Granting token creator role to WIF pool..."
+POOL_RESOURCE="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL_ID}"
+gcloud iam service-accounts add-iam-policy-binding ${SERVICE_ACCOUNT_EMAIL} \
+  --project=${PROJECT_ID} \
+  --role="roles/iam.workloadIdentityUser" \
+  --member="principalSet://iam.googleapis.com/${POOL_RESOURCE}/*" || \
+  echo "IAM binding may already exist"
+
+echo ""
+echo "WIF Configuration Summary:"
+echo "  PROJECT_NUMBER: ${PROJECT_NUMBER}"
+echo "  POOL_ID: ${POOL_ID}"
+echo "  PROVIDER_ID: ${PROVIDER_ID}"
+echo "  SERVICE_ACCOUNT_EMAIL: ${SERVICE_ACCOUNT_EMAIL}"
+echo "  VERCEL_ISSUER: ${VERCEL_ISSUER}"
+echo ""
+echo "Add these to your Vercel environment variables:"
+echo "  GCP_PROJECT_NUMBER=${PROJECT_NUMBER}"
+echo "  WIF_POOL_ID=${POOL_ID}"
+echo "  WIF_PROVIDER_ID=${PROVIDER_ID}"
+echo "  SERVICE_ACCOUNT_EMAIL=${SERVICE_ACCOUNT_EMAIL}"
 
 # Create Artifact Registry repository (Docker) in us-east1 if not present
 echo "Creating Artifact Registry repository..."

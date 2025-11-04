@@ -60,11 +60,22 @@ pnpm format
 
 ## Environment Variables
 
-### Frontend (`frontend/.env.local`)
+### Frontend (`frontend/.env.local` for local dev, Vercel Project Settings for production)
 
+**Local Development:**
+- `CHAT_BACKEND_URL` - (Optional) Backend URL for local development (defaults to `http://localhost:8080`)
+
+**Production (Vercel Environment Variables):**
+- `GCP_PROJECT_NUMBER` - GCP project number (from `gcloud projects describe PROJECT_ID --format='value(projectNumber)'`)
+- `WIF_POOL_ID` - Workload Identity Pool ID (default: `vercel-pool`, set by `infra/setup.sh`)
+- `WIF_PROVIDER_ID` - Workload Identity Provider ID (default: `vercel-oidc`, set by `infra/setup.sh`)
+- `SERVICE_ACCOUNT_EMAIL` - Service account email that WIF impersonates (e.g., `mcp-sa@PROJECT_ID.iam.gserviceaccount.com`)
+- `CLOUD_RUN_URL` - Cloud Run service URL (ending in `.run.app`, used as ID token audience)
 - `AI_GATEWAY_API_KEY` - Vercel AI Gateway API key for authentication (required)
 - `LLM_MODEL_ID` - (Optional) Model identifier for API calls (defaults to `gpt-4o`)
 - `MCP_SERVER_URL` - (Optional) URL of MCP backend server for tool integration. Defaults to `http://localhost:8080/mcp` for local development. If not set or server unavailable, chatbot will gracefully continue without MCP tools.
+
+**Note:** The frontend uses Workload Identity Federation (WIF) to authenticate with Cloud Run. When `CLOUD_RUN_URL` is set, the BFF exchanges Vercel OIDC tokens for Google ID tokens via WIF. If `CLOUD_RUN_URL` is not set, it falls back to calling the local backend without authentication.
 
 ### Backend (`backend/.env`)
 

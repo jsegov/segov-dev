@@ -59,6 +59,31 @@ if [ -n "${SERVICE_ACCOUNT}" ]; then
       --project ${PROJECT_ID}
 fi
 
+# Ensure authentication is required (remove allUsers binding if present)
+echo "Ensuring Cloud Run service requires authentication..."
+gcloud run services remove-iam-policy-binding ${SERVICE_NAME} \
+  --member="allUsers" \
+  --role="roles/run.invoker" \
+  --region ${REGION} \
+  --project ${PROJECT_ID} 2>/dev/null || echo "allUsers binding not present (already secure)"
+
+# Grant run.invoker to the service account that WIF will impersonate
+if [ -n "${SERVICE_ACCOUNT}" ]; then
+    echo "Granting run.invoker role to service account..."
+    gcloud run services add-iam-policy-binding ${SERVICE_NAME} \
+      --member="serviceAccount:${SERVICE_ACCOUNT}" \
+      --role="roles/run.invoker" \
+      --region ${REGION} \
+      --project ${PROJECT_ID} || echo "Invoker binding may already exist"
+fi
+
+# Get and display the service URL (needed for CLOUD_RUN_URL env var)
+CLOUD_RUN_URL=$(gcloud run services describe ${SERVICE_NAME} --region ${REGION} --project ${PROJECT_ID} --format 'value(status.url)')
+
+echo ""
 echo "Deployment complete!"
-echo "Service URL: $(gcloud run services describe ${SERVICE_NAME} --region ${REGION} --project ${PROJECT_ID} --format 'value(status.url)')"
+echo "Service URL: ${CLOUD_RUN_URL}"
+echo ""
+echo "Add this to your Vercel environment variables:"
+echo "  CLOUD_RUN_URL=${CLOUD_RUN_URL}"
 
