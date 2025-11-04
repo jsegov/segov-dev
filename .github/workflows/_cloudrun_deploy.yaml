@@ -67,7 +67,7 @@ jobs:
           cp infra/backend/Dockerfile .Dockerfile.backend
           
           # Create Cloud Build config
-          cat > .cloudbuild-backend.yaml << EOF
+          sed 's/^          //' > .cloudbuild-backend.yaml << EOF
           steps:
           - name: 'gcr.io/cloud-builders/docker'
             args: ['build', '-f', '.Dockerfile.backend', '-t', '${IMAGE_TAG}', '.']
