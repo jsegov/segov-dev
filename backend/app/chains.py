@@ -1,13 +1,14 @@
 """LangChain chain configuration for chat."""
+from pathlib import Path
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import StrOutputParser
 from langchain_openai import ChatOpenAI
 from app.config import settings
 
 
-SYSTEM_PROMPT = (
-    "You are a helpful, terse assistant. Answer clearly."
-)
+# Load system prompt from file
+_PROMPT_FILE = Path(__file__).parent / "prompts" / "system_prompt.md"
+SYSTEM_PROMPT = _PROMPT_FILE.read_text().strip()
 
 
 def create_chain(model: str | None = None, temperature: float | None = None):

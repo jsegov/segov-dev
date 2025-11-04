@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server"
-import { getChatbotPrompt } from "@/lib/content"
 
 const CHAT_BACKEND_URL = process.env.CHAT_BACKEND_URL || 'http://localhost:8080'
 
@@ -17,15 +16,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid question format" }, { status: 400 })
     }
 
-    const basePrompt = await getChatbotPrompt()
-    if (!basePrompt) {
-      console.error("[CHATBOT API] Failed to load chatbot prompt")
-      return new Response(
-        "Error: Configuration issue. Please contact the site administrator.",
-        { status: 500 },
-      )
-    }
-
     // Call backend chat API
     const backendUrl = `${CHAT_BACKEND_URL}/v1/chat`
     console.log("[CHATBOT API] Calling backend:", backendUrl)
@@ -38,7 +28,6 @@ export async function POST(req: Request) {
       body: JSON.stringify({
         session_id: 'anon',
         input: question,
-        system: basePrompt,
       }),
     })
 

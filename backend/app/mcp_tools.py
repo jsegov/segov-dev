@@ -1,7 +1,72 @@
 """MCP tools for Vertex AI RAG operations (read-only)."""
 from typing import Any, Optional
+from pathlib import Path
 from vertexai import rag
 from app.config import settings
+
+# Whitelist of allowed file paths that can be accessed via MCP tools
+# Only files in this list can be retrieved using the 'path' parameter
+ALLOWED_MCP_PATHS = {
+    'resume.md',  # Only resume.md is allowed for MCP tool access
+}
+
+
+def _validate_path(path: str) -> tuple[bool, str | None]:
+    """
+    Validate that a path is safe and allowed for MCP tool access.
+    
+    Args:
+        path: Path to validate
+        
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    if not path:
+        return False, 'Path cannot be empty'
+    
+    # Normalize the path
+    normalized = Path(path).as_posix()
+    
+    # Prevent path traversal
+    if '..' in normalized or normalized.startswith('/'):
+        return False, 'Path traversal and absolute paths are not allowed'
+    
+    # Check if path is in the whitelist
+    if normalized not in ALLOWED_MCP_PATHS:
+        return False, f'Path "{normalized}" is not in the allowed whitelist for MCP tools'
+    
+    return True, None
+
+
+def _validate_gcs_uri(gcs_uri: str) -> tuple[bool, str | None]:
+    """
+    Validate that a GCS URI is safe and within the allowed bucket.
+    
+    Args:
+        gcs_uri: GCS URI to validate
+        
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    if not gcs_uri.startswith('gs://'):
+        return False, 'GCS URI must start with gs://'
+    
+    # Extract bucket and path
+    gcs_path = gcs_uri.replace('gs://', '')
+    if '/' in gcs_path:
+        bucket_name, blob_path = gcs_path.split('/', 1)
+    else:
+        return False, 'GCS URI must include a path component'
+    
+    # Ensure bucket matches the configured bucket
+    if bucket_name != settings.gcs_bucket_name:
+        return False, f'GCS URI must use the configured bucket: {settings.gcs_bucket_name}'
+    
+    # Prevent path traversal in blob path
+    if '..' in blob_path:
+        return False, 'Path traversal in GCS URI is not allowed'
+    
+    return True, None
 
 
 async def vector_search(
@@ -57,23 +122,38 @@ async def doc_get(
 ) -> dict[str, Any]:
     """
     Retrieve a document by RAG file ID or GCS URI.
+    
+    Security: Only whitelisted paths are allowed when using the 'path' parameter.
+    This prevents access to internal files and unauthorized documents.
 
     Args:
         rag_file_id: The RAG file ID
         gcs_uri: The full GCS URI of the document (e.g., 'gs://bucket/path/to/file.md')
-        path: Relative path within the default bucket (e.g., 'documents/file.md')
-        bucket: Bucket name to use if path is provided without bucket
+        path: Relative path within the default bucket (e.g., 'resume.md')
+               Must be in the ALLOWED_MCP_PATHS whitelist
+        bucket: Bucket name to use if path is provided (ignored - uses configured bucket)
 
     Returns:
-        Dictionary containing document content and metadata
+        Dictionary containing document content and metadata, or error message
     """
     if not rag_file_id and not gcs_uri and not path:
         return {'error': 'Either rag_file_id, gcs_uri, or path must be provided'}
 
-    if path and not gcs_uri:
-        bucket_name = bucket or settings.gcs_bucket_name
+    # Validate path if provided
+    if path:
+        is_valid, error_msg = _validate_path(path)
+        if not is_valid:
+            return {'error': f'Invalid path: {error_msg}'}
+        
+        # Construct GCS URI from validated path
         path = path.lstrip('/')
-        gcs_uri = f'gs://{bucket_name}/{path}'
+        gcs_uri = f'gs://{settings.gcs_bucket_name}/{path}'
+    
+    # Validate GCS URI if provided
+    if gcs_uri:
+        is_valid, error_msg = _validate_gcs_uri(gcs_uri)
+        if not is_valid:
+            return {'error': f'Invalid GCS URI: {error_msg}'}
 
     if gcs_uri:
         from google.cloud import storage
@@ -103,6 +183,9 @@ async def doc_get(
         }
 
     if rag_file_id:
+        # RAG file IDs are managed by Vertex AI RAG Engine
+        # They can only reference files that were ingested into the RAG corpus
+        # No additional validation needed as Vertex AI controls the namespace
         return {
             'rag_file_id': rag_file_id,
             'note': 'RAG file retrieval by ID requires additional RAG API calls',

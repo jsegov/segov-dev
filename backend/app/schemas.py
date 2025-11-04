@@ -1,16 +1,17 @@
 """Pydantic schemas for chat API requests and responses."""
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class ChatRequest(BaseModel):
     """Request schema for chat endpoint."""
+    model_config = ConfigDict(extra='forbid')
+    
     session_id: str
     input: str
     stream: bool = False
     model: Optional[str] = None
     temperature: Optional[float] = None
-    system: Optional[str] = None
 
 
 class ChatResponse(BaseModel):

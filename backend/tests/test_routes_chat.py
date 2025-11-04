@@ -32,7 +32,6 @@ def test_chat_endpoint_success(mock_settings, client, mock_openai_key):
             json={
                 "session_id": "test-session",
                 "input": "Hello",
-                "system": "You are a test assistant",
             },
         )
         
@@ -135,7 +134,6 @@ def test_chat_endpoint_with_mcp_agent(mock_settings, client, mock_openai_key):
                 json={
                     "session_id": "test-session",
                     "input": "Hello",
-                    "system": "You are a test assistant",
                 },
             )
             
@@ -209,7 +207,6 @@ def test_chat_endpoint_mcp_agent_with_messages(mock_settings, client, mock_opena
                 json={
                     "session_id": "test-session",
                     "input": "Hello",
-                    "system": "You are a test assistant",
                 },
             )
             
@@ -220,4 +217,18 @@ def test_chat_endpoint_mcp_agent_with_messages(mock_settings, client, mock_opena
             # Verify history was updated
             mock_history.add_user_message.assert_called_once_with("Hello")
             mock_history.add_ai_message.assert_called_once_with("Response from AIMessage in messages")
+
+
+def test_chat_endpoint_rejects_system_field(client, mock_openai_key):
+    """Test chat endpoint rejects system field in request."""
+    response = client.post(
+        "/v1/chat",
+        json={
+            "session_id": "test-session",
+            "input": "Hello",
+            "system": "You are a test assistant",
+        },
+    )
+    
+    assert response.status_code == 422  # Validation error - extra field not allowed
 

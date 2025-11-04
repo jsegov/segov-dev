@@ -176,6 +176,14 @@ The backend also provides chat endpoints that integrate with the MCP server, all
 - `POST /v1/chat` - Non-streaming chat endpoint
 - `POST /v1/chat/stream` - Streaming chat endpoint (SSE)
 
+**Request Schema:**
+- `session_id` (required): Session identifier for maintaining conversation history
+- `input` (required): User's message/query
+- `model` (optional): Model ID override
+- `temperature` (optional): Temperature override for model generation
+
+**Note:** The `system` field is not accepted. The system prompt is managed server-side in `app/prompts/system_prompt.md`.
+
 ### MCP Integration in Chat
 
 When `USE_MCP_IN_CHAT=true` (default), the chat endpoints use a LangChain agent that has access to MCP tools. The agent can automatically:
@@ -206,6 +214,16 @@ MCP_TRANSPORT=streamable_http
 USE_MCP_IN_CHAT=true
 ```
 
+### System Prompt
+
+The system prompt is managed in the backend and is not client-overridable. It is loaded from `app/prompts/system_prompt.md` at startup. The prompt includes instructions for the assistant to:
+
+- Answer questions about Jonathan Segovia (the site owner)
+- Use MCP tools (when available) to retrieve work history and project information
+- **If MCP tools are unavailable or resume.md cannot be retrieved for work history or project questions, do not make anything up. Instead, direct the user to the Career or Projects tabs on the website for accurate information.**
+
+This ensures consistent behavior and prevents the model from fabricating information when data cannot be retrieved.
+
 ### Example Chat Request
 
 ```bash
@@ -213,10 +231,11 @@ curl -X POST http://localhost:8080/v1/chat \
   -H "Content-Type: application/json" \
   -d '{
     "session_id": "user-123",
-    "input": "What documents mention machine learning?",
-    "system": "You are a helpful assistant."
+    "input": "What documents mention machine learning?"
   }'
 ```
+
+**Note:** The `system` field is not accepted in the request. The system prompt is managed server-side.
 
 The agent will automatically use `vector_search` to find relevant documents when needed.
 
@@ -287,25 +306,32 @@ ingest_from_gcs(prefix="gs://other-bucket/docs/")
 
 Retrieve a document by RAG file ID, GCS URI, or relative path.
 
+**Security:** 
+- When using the `path` parameter, only whitelisted files are allowed (currently only `resume.md`)
+- Path traversal attacks are prevented (e.g., `../` is blocked)
+- GCS URIs must use the configured bucket and cannot contain path traversal
+- Internal backend files (like system prompts) are never exposed
+
 **Parameters:**
-- `rag_file_id` (str, optional): The RAG file ID
+- `rag_file_id` (str, optional): The RAG file ID (managed by Vertex AI RAG Engine)
 - `gcs_uri` (str, optional): The full GCS URI of the document (e.g., `'gs://bucket/path/to/file.md'`)
-- `path` (str, optional): Relative path within the default bucket (e.g., `'documents/file.md'`)
-- `bucket` (str, optional): Bucket name to use if path is provided (defaults to `segov-dev-bucket`)
+  - Must use the configured `GCS_BUCKET_NAME`
+  - Path traversal is blocked
+- `path` (str, optional): Relative path within the default bucket (e.g., `'resume.md'`)
+  - **Must be in the whitelist** (currently only `resume.md` is allowed)
+  - Path traversal and absolute paths are blocked
+- `bucket` (str, optional): **Ignored** - always uses the configured bucket for security
 
 **Examples:**
 ```python
-# Retrieve using relative path (uses default bucket)
-doc_get(path="documents/my-file.md")
+# Retrieve using whitelisted path (only resume.md is allowed)
+doc_get(path="resume.md")
 
-# Retrieve using full GCS URI
-doc_get(gcs_uri="gs://segov-dev-bucket/documents/my-file.md")
-
-# Retrieve from different bucket using path
-doc_get(path="docs/file.md", bucket="other-bucket")
+# Retrieve using full GCS URI (must use configured bucket)
+doc_get(gcs_uri="gs://segov-dev-bucket/resume.md")
 ```
 
-**Returns:** Dictionary containing document content and metadata (size, content_type, updated timestamp)
+**Returns:** Dictionary containing document content and metadata (size, content_type, updated timestamp), or error message if path is not whitelisted or validation fails
 
 ## Testing
 

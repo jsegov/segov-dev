@@ -36,8 +36,7 @@ async def chat(req: ChatRequest):
                 ) as agent:
                     history = get_session_history(req.session_id)
                     messages = []
-                    if req.system or SYSTEM_PROMPT:
-                        messages.append(SystemMessage(content=req.system or SYSTEM_PROMPT))
+                    messages.append(SystemMessage(content=SYSTEM_PROMPT))
                     for msg in history.messages:
                         messages.append(msg)
                     messages.append(HumanMessage(content=req.input))
@@ -88,7 +87,7 @@ async def chat(req: ChatRequest):
                 history_messages_key="history",
             )
         
-        input_data = {"input": req.input, "system": req.system or SYSTEM_PROMPT}
+        input_data = {"input": req.input, "system": SYSTEM_PROMPT}
         
         out = await chain.ainvoke(
             input_data,
@@ -122,8 +121,7 @@ async def chat_stream(req: ChatRequest):
                     ) as agent:
                         history = get_session_history(req.session_id)
                         messages = []
-                        if req.system or SYSTEM_PROMPT:
-                            messages.append(SystemMessage(content=req.system or SYSTEM_PROMPT))
+                        messages.append(SystemMessage(content=SYSTEM_PROMPT))
                         for msg in history.messages:
                             messages.append(msg)
                         messages.append(HumanMessage(content=req.input))
@@ -179,7 +177,7 @@ async def chat_stream(req: ChatRequest):
                     history_messages_key="history",
                 )
             
-            input_data = {"input": req.input, "system": req.system or SYSTEM_PROMPT}
+            input_data = {"input": req.input, "system": SYSTEM_PROMPT}
             
             async for chunk in chain.astream(
                 input_data,
