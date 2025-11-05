@@ -15,30 +15,40 @@ const IAM_CREDENTIALS_URL = 'https://iamcredentials.googleapis.com/v1'
  * Get the Vercel OIDC token from the runtime environment.
  * 
  * Uses @vercel/oidc if available, otherwise falls back to reading
- * from environment variables or headers if Vercel exposes them.
+ * from request headers (x-vercel-oidc-token) or environment variables.
+ * 
+ * @param opts - Optional object with headers to check for token
  */
-export async function getVercelOidcToken(): Promise<string> {
+export async function getVercelOidcToken(opts?: { headers?: Headers }): Promise<string> {
+  // Try 1: @vercel/oidc package
   try {
-    // Try to use @vercel/oidc package
     const { getToken } = await import('@vercel/oidc')
     const token = await getToken()
-    if (!token) {
-      throw new Error('Failed to get OIDC token from @vercel/oidc')
+    if (token && token.trim().length > 0) {
+      return token
     }
-    return token
   } catch (error) {
-    // Fallback: check if token is available in environment
-    // Vercel may expose it via headers or env vars
-    const envToken = process.env.VERCEL_OIDC_TOKEN
-    if (envToken) {
-      return envToken
-    }
-    
-    throw new Error(
-      'Could not retrieve Vercel OIDC token. Ensure @vercel/oidc is installed ' +
-      'and OIDC is enabled in your Vercel project settings.'
-    )
+    // Continue to fallbacks
   }
+
+  // Try 2: Request header (how Vercel injects token in serverless functions)
+  if (opts?.headers) {
+    const headerToken = opts.headers.get('x-vercel-oidc-token') || 
+                       opts.headers.get('X-Vercel-Oidc-Token')
+    if (headerToken && headerToken.trim().length > 0) {
+      return headerToken
+    }
+  }
+
+  // Try 3: Environment variable (for local dev or builds)
+  const envToken = process.env.VERCEL_OIDC_TOKEN
+  if (envToken && envToken.trim().length > 0) {
+    return envToken
+  }
+  
+  throw new Error(
+    'Could not retrieve Vercel OIDC token. Ensure OIDC is enabled in Vercel project settings.'
+  )
 }
 
 export interface WifConfig {
@@ -168,16 +178,20 @@ export async function fetchCloudRun(
  * This is a convenience function that combines all steps.
  * 
  * @param cfg - WIF configuration and service account details
+ * @param opts - Optional object with headers to pass for OIDC token retrieval
  * @returns Google ID token ready to use with Cloud Run
  */
-export async function getCloudRunIdToken(cfg: {
-  projectNumber: string
-  poolId: string
-  providerId: string
-  serviceAccountEmail: string
-  audience: string
-}): Promise<string> {
-  const vercelOidc = await getVercelOidcToken()
+export async function getCloudRunIdToken(
+  cfg: {
+    projectNumber: string
+    poolId: string
+    providerId: string
+    serviceAccountEmail: string
+    audience: string
+  },
+  opts?: { headers?: Headers }
+): Promise<string> {
+  const vercelOidc = await getVercelOidcToken(opts)
   const accessToken = await exchangeOidcForAccessToken(vercelOidc, {
     projectNumber: cfg.projectNumber,
     poolId: cfg.poolId,
