@@ -86,7 +86,7 @@ This script (idempotent, safe to rerun) sets up:
 **Optional environment variables for setup:**
 - `OPENAI_API_KEY` - If set, creates/updates the secret automatically
 - `RAG_CORPUS_NAME` or `CORPUS_ID` - If set, creates/updates the secret automatically
-- `VERCEL_TEAM_SLUG` - If using Vercel team accounts
+- `VERCEL_TEAM_SLUG` - Vercel team slug (defaults to `jonathan-segovias-projects`, can be overridden)
 
 ### Backend Deployment
 

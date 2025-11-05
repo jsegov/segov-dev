@@ -50,14 +50,10 @@ SERVICE_ACCOUNT_EMAIL="${SERVICE_ACCOUNT_NAME}@${PROJECT_ID}.iam.gserviceaccount
 POOL_ID="vercel-pool"
 PROVIDER_ID="vercel-oidc"
 
-# Get Vercel team slug (optional, can be set via env)
-VERCEL_TEAM_SLUG=${VERCEL_TEAM_SLUG:-""}
-if [ -z "${VERCEL_TEAM_SLUG}" ]; then
-  echo "Warning: VERCEL_TEAM_SLUG not set. Using default issuer."
-  VERCEL_ISSUER="https://oidc.vercel.com"
-else
-  VERCEL_ISSUER="https://oidc.vercel.com/${VERCEL_TEAM_SLUG}"
-fi
+# Get Vercel team slug (defaults to jonathan-segovias-projects, can be overridden via env)
+VERCEL_TEAM_SLUG=${VERCEL_TEAM_SLUG:-"jonathan-segovias-projects"}
+VERCEL_ISSUER="https://oidc.vercel.com/${VERCEL_TEAM_SLUG}"
+echo "Using Vercel issuer: ${VERCEL_ISSUER}"
 
 # Create workload identity pool (idempotent)
 echo "Creating workload identity pool..."
@@ -68,8 +64,9 @@ gcloud iam workload-identity-pools create ${POOL_ID} \
   --description="Workload Identity Pool for Vercel OIDC federation" || \
   echo "Workload identity pool may already exist"
 
-# Create OIDC provider in the pool (idempotent)
-echo "Creating OIDC provider..."
+# Create or update OIDC provider in the pool (idempotent)
+echo "Creating or updating OIDC provider..."
+# Try to create first, if it fails because it exists, update it
 gcloud iam workload-identity-pools providers create-oidc ${PROVIDER_ID} \
   --project=${PROJECT_ID} \
   --location="global" \
@@ -77,8 +74,14 @@ gcloud iam workload-identity-pools providers create-oidc ${PROVIDER_ID} \
   --display-name="Vercel OIDC Provider" \
   --issuer-uri=${VERCEL_ISSUER} \
   --allowed-audiences="https://vercel.com" \
-  --attribute-mapping="google.subject=assertion.sub,attribute.project_id=assertion.project_id,attribute.branch=assertion.branch" || \
-  echo "OIDC provider may already exist"
+  --attribute-mapping="google.subject=assertion.sub,attribute.project_id=assertion.project_id,attribute.branch=assertion.branch" 2>/dev/null || \
+  gcloud iam workload-identity-pools providers update-oidc ${PROVIDER_ID} \
+    --project=${PROJECT_ID} \
+    --location="global" \
+    --workload-identity-pool=${POOL_ID} \
+    --issuer-uri=${VERCEL_ISSUER} \
+    --allowed-audiences="https://vercel.com" || \
+  echo "Failed to create or update OIDC provider"
 
 # Grant the pool permission to impersonate the service account
 echo "Granting token creator role to WIF pool..."
