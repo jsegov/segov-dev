@@ -78,6 +78,8 @@ Error: Missing required environment variables: ${missingVars.join(', ')}. Please
           providerId: providerId as string,
           serviceAccountEmail: serviceAccountEmail as string,
           audience: CLOUD_RUN_URL,
+        }, {
+          headers: req.headers
         })
         
         const backendUrl = `${CLOUD_RUN_URL}/v1/chat`
