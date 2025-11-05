@@ -2,7 +2,7 @@
 
 A personal portfolio site with an integrated AI "Ask Me Anything" page and a simple blog.
 
-**Note:** This repository has been restructured as a monorepo. See [docs/monorepo.md](docs/monorepo.md) for the new structure.
+**Note:** This repository has been restructured as a monorepo.
 
 ## Features
 
@@ -99,11 +99,8 @@ segov-dev/
 ├── frontend/          # Next.js portfolio application
 ├── backend/           # FastAPI MCP server
 ├── infra/             # Cloud Run deployment configs
-├── docs/              # Documentation
 └── packages/          # Shared packages (future)
 ```
-
-See [docs/monorepo.md](docs/monorepo.md) for detailed information about the monorepo structure and workflows.
 
 ## Development
 
@@ -189,8 +186,6 @@ See [AGENTS.md](AGENTS.md) and [infra/README.md](infra/README.md) for detailed d
 ## Documentation
 
 - [AGENTS.md](AGENTS.md) - Guide for AI coding agents (includes setup, deployment, and environment variables)
-- [Monorepo Structure](docs/monorepo.md) - Detailed monorepo information
-- [MCP GCP Implementation](docs/mcp_gcp.md) - Architecture and implementation guide
 - [Infrastructure](infra/README.md) - Deployment and infrastructure setup
 - [Backend README](backend/README.md) - Backend service documentation
 

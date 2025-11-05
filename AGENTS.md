@@ -9,8 +9,6 @@ This is a monorepo containing:
 - **Backend**: FastAPI-based MCP server for Vertex AI RAG Engine operations, deployed on Google Cloud Run. All LLM calls are made directly from the backend to OpenAI API (no AI Gateway).
 - **Infrastructure**: Cloud Run deployment configurations and one-time bootstrap scripts for GCP infrastructure setup
 
-See [docs/monorepo.md](docs/monorepo.md) for detailed structure information.
-
 ## Setup Commands
 
 Install dependencies:

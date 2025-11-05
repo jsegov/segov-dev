@@ -259,8 +259,6 @@ The response streams tokens as SSE events:
 
 ### More Information
 
-For detailed implementation guide, see [docs/langchain_fast_api.md](../docs/langchain_fast_api.md).
-
 For LangChain MCP integration documentation, see: https://docs.langchain.com/oss/python/langchain/mcp
 
 ## MCP Tools
