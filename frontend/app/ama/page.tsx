@@ -33,7 +33,7 @@ export default function AMAPage() {
       {
         role: "assistant",
         content:
-          "segov@terminal:~$ ./ama \nAsking me anything about Jonathan.",
+          "segov@terminal:~$ ./ama \nAsk me anything about Jonathan.",
         id: "initial",
       },
     ])
