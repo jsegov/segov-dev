@@ -3,6 +3,9 @@ import { cookies } from "next/headers"
 import { randomUUID } from "crypto"
 import { getCloudRunIdToken, fetchCloudRun } from "@/lib/gcp-wif"
 
+// Force Node.js runtime for @vercel/oidc compatibility
+export const runtime = 'nodejs'
+
 const CHAT_BACKEND_URL = process.env.CHAT_BACKEND_URL || 'http://localhost:8080'
 const CLOUD_RUN_URL = process.env.CLOUD_RUN_URL
 const SESSION_COOKIE_NAME = 'chat_session_id'
@@ -88,9 +91,10 @@ Error: Missing required environment variables: ${missingVars.join(', ')}. Please
         })
       } catch (authError) {
         console.error("[CHATBOT API] Authentication error:", authError)
+        const message = authError instanceof Error ? authError.message : String(authError)
         return new Response(
           `segov@terminal:~$ echo "Error: Authentication failed"
-Error: Failed to authenticate with backend service. Please check configuration.`,
+Error: ${message}`,
           { status: 500 },
         )
       }
