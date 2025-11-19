@@ -52,7 +52,7 @@ export default async function CareerPage() {
                 const endDate = entry.endDate ? new Date(entry.endDate) : null
 
                 return (
-                  <div key={index} className="border border-terminal-green/30 rounded p-6 bg-terminal-black/30">
+                  <div key={index} className="border border-text-muted-foreground/foreground/30 rounded p-6 bg-card/30">
                     <div className="flex flex-col md:flex-row md:justify-between md:items-start mb-3">
                       <h2 className="text-2xl font-bold">{entry.title}</h2>
                       <div className="text-sm text-terminal-text/70">
@@ -60,14 +60,14 @@ export default async function CareerPage() {
                       </div>
                     </div>
                     <div className="text-lg mb-4">{entry.companyName}</div>
-                    <p className="text-terminal-green/90 mb-4">{entry.description}</p>
-                    
+                    <p className="text-text-muted-foreground/foreground/90 mb-4">{entry.description}</p>
+
                     {entry.skills && entry.skills.length > 0 && (
                       <div className="flex flex-wrap gap-2">
                         {entry.skills.map((skill, skillIndex) => (
                           <span
                             key={skillIndex}
-                            className="text-xs px-2 py-1 bg-terminal-black border border-terminal-green/30 rounded"
+                            className="text-xs px-2 py-1 bg-muted text-muted-foreground border border-border/30 rounded"
                           >
                             {skill}
                           </span>

@@ -110,10 +110,10 @@ export default function AMAPage() {
         prev.map((msg) =>
           msg.id === assistantMessageId
             ? {
-                ...msg,
-                content:
-                  "Error: API call failed. Please try again later.",
-              }
+              ...msg,
+              content:
+                "Error: API call failed. Please try again later.",
+            }
             : msg,
         ),
       )
@@ -138,21 +138,21 @@ export default function AMAPage() {
             {messages.map((message) => (
               <div key={message.id} className="mb-4">
                 {message.role === "user" ? (
-                  <div className="text-terminal-text">
-                    <span className="text-terminal-text/80">segov@terminal:~$ </span>
+                  <div className="text-foreground">
+                    <span className="text-muted-foreground">segov@terminal:~$ </span>
                     <span>{message.content}</span>
                   </div>
                 ) : (
-                  <div className="text-terminal-text whitespace-pre-line">{message.content}</div>
+                  <div className="text-foreground whitespace-pre-line">{message.content}</div>
                 )}
               </div>
             ))}
             <div ref={messagesEndRef} />
           </div>
 
-          <form onSubmit={handleSubmit} className="border-t border-terminal-text/30 p-4">
+          <form onSubmit={handleSubmit} className="border-t border-border/30 p-4">
             <div className="flex items-center">
-              <span className="text-terminal-text mr-2">$</span>
+              <span className="text-foreground mr-2">$</span>
               <input
                 type="text"
                 value={input}

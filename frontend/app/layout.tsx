@@ -16,7 +16,7 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "Jonathan Segovia | Portfolio",
   description: "Personal portfolio of Jonathan Segovia - Developer, Creator, Innovator",
-    generator: 'v0.dev'
+  generator: 'v0.dev'
 }
 
 export default function RootLayout({
@@ -26,7 +26,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.variable} ${jetbrainsMono.variable} font-mono bg-terminal-black text-terminal-text`}>
+      <body className={`${inter.variable} ${jetbrainsMono.variable} font-mono bg-background text-foreground`}>
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange>
           <Suspense>
             <main className="min-h-screen">{children}</main>

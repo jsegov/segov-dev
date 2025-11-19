@@ -28,7 +28,7 @@ export function Analytics() {
   }
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 bg-terminal-black border border-terminal-green/30 p-3 rounded-md text-xs">
+    <div className="fixed bottom-4 right-4 z-50 bg-card border border-border/30 rounded-md p-2 text-xs text-muted-foreground shadow-lg">
       <div className="flex items-center space-x-2">
         <Switch id="analytics-mode" checked={analyticsEnabled} onCheckedChange={handleToggleAnalytics} />
         <Label htmlFor="analytics-mode">Analytics</Label>

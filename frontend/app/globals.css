@@ -2,24 +2,88 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --terminal-black: #0a0a0a;
-  --terminal-text: #e0e0e0; /* Changed from terminal-green to terminal-text */
+@layer base {
+  :root {
+    /* Light Mode - Terminal Aesthetic (Paper/Ink style) */
+    --background: 45 29% 97%; /* #fbfaf5 - Warm off-white paper */
+    --foreground: 0 0% 10%; /* #1a1a1a - Soft black ink */
+    
+    --card: 45 29% 97%;
+    --card-foreground: 0 0% 10%;
+    
+    --popover: 45 29% 97%;
+    --popover-foreground: 0 0% 10%;
+    
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 98%;
+    
+    --secondary: 0 0% 96.1%;
+    --secondary-foreground: 0 0% 9%;
+    
+    --muted: 0 0% 96.1%;
+    --muted-foreground: 0 0% 45.1%;
+    
+    --accent: 0 0% 96.1%;
+    --accent-foreground: 0 0% 9%;
+    
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 0 0% 10%; /* Dark border for contrast in light mode */
+    --input: 0 0% 10%;
+    --ring: 0 0% 10%;
+    
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    /* Dark Mode - Original Terminal Aesthetic */
+    --background: 0 0% 3.9%; /* #0a0a0a */
+    --foreground: 0 0% 87.8%; /* #e0e0e0 */
+    
+    --card: 0 0% 3.9%;
+    --card-foreground: 0 0% 87.8%;
+    
+    --popover: 0 0% 3.9%;
+    --popover-foreground: 0 0% 87.8%;
+    
+    --primary: 0 0% 98%;
+    --primary-foreground: 0 0% 9%;
+    
+    --secondary: 0 0% 14.9%;
+    --secondary-foreground: 0 0% 98%;
+    
+    --muted: 0 0% 14.9%;
+    --muted-foreground: 0 0% 63.9%;
+    
+    --accent: 0 0% 14.9%;
+    --accent-foreground: 0 0% 98%;
+    
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    
+    --border: 0 0% 87.8%; /* Light border for contrast in dark mode */
+    --input: 0 0% 87.8%;
+    --ring: 0 0% 83.1%;
+  }
 }
 
 @layer base {
+  * {
+    @apply border-border;
+  }
   body {
-    @apply bg-terminal-black text-terminal-text font-mono;
+    @apply bg-background text-foreground font-mono;
   }
 }
 
 @layer components {
   .terminal-container {
-    @apply p-4 md:p-6 lg:p-8 bg-terminal-black border border-terminal-text/30 rounded-md;
+    @apply p-4 md:p-6 lg:p-8 bg-background border border-border/30 rounded-md;
   }
 
   .terminal-header {
-    @apply flex items-center mb-4 pb-2 border-b border-terminal-text/30;
+    @apply flex items-center mb-4 pb-2 border-b border-border/30;
   }
 
   .terminal-title {
@@ -31,23 +95,23 @@
   }
 
   .terminal-prompt-symbol {
-    @apply mr-2 text-terminal-text;
+    @apply mr-2 text-foreground;
   }
 
   .terminal-input {
-    @apply bg-transparent border-none outline-none text-terminal-text w-full;
+    @apply bg-transparent border-none outline-none text-foreground w-full;
   }
 
   .blinking-cursor {
-    @apply inline-block w-2 h-5 bg-terminal-text ml-1 animate-blink;
+    @apply inline-block w-2 h-5 bg-foreground ml-1 animate-blink;
   }
 
   .nav-link {
-    @apply hover:text-white transition-colors duration-200;
+    @apply hover:text-foreground/70 transition-colors duration-200;
   }
 
   .card {
-    @apply border border-terminal-text/30 rounded-md p-4 hover:border-terminal-text transition-colors duration-200;
+    @apply border border-border/30 rounded-md p-4 hover:border-border transition-colors duration-200 bg-card text-card-foreground;
   }
 }
 
@@ -66,11 +130,11 @@
 }
 
 .terminal-window {
-  @apply bg-terminal-black border border-terminal-text/30 rounded-md overflow-hidden;
+  @apply bg-background border border-border/30 rounded-md overflow-hidden;
 }
 
 .terminal-window-header {
-  @apply bg-terminal-black/80 p-2 border-b border-terminal-text/30 flex items-center;
+  @apply bg-muted p-2 border-b border-border/30 flex items-center;
 }
 
 .terminal-window-circle {
@@ -86,9 +150,9 @@
 }
 
 .terminal-command {
-  @apply text-terminal-text;
+  @apply text-foreground;
 }
 
 .terminal-response {
-  @apply text-white/80;
+  @apply text-muted-foreground;
 }

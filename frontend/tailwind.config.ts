@@ -50,8 +50,6 @@ const config = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
-        "terminal-black": "#0a0a0a",
-        "terminal-text": "#e0e0e0", // Changed from terminal-green to terminal-text with a white-ish/grey-ish tone
       },
       borderRadius: {
         lg: "var(--radius)",

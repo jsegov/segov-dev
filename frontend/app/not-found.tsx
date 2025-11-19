@@ -8,7 +8,7 @@ export default function NotFound() {
 
       <div className="flex-1 container mx-auto px-4 py-12 flex flex-col justify-center items-center">
         <div className="terminal-container max-w-3xl w-full">
-          <pre className="text-terminal-green text-center mb-6 text-xs sm:text-sm md:text-base">
+          <pre className="text-primary/foreground text-center mb-6 text-xs sm:text-sm md:text-base">
             {`
   _____                                          _   _   _       _     ______                       _ 
  / ____|                                        | | | \\ | |     | |   |  ____|                     | |
