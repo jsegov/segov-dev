@@ -36,40 +36,40 @@ export default async function ProjectsPage() {
           </div>
 
           {error ? (
-            <div className="mt-8 p-4 border border-red-500/30 bg-red-500/10 text-red-400 rounded">
+            <div className="mt-8 p-4 border border-destructive/30 bg-destructive/10 text-destructive rounded">
               <p>{error}</p>
             </div>
           ) : projects.length === 0 ? (
-            <div className="mt-8 p-4 border border-terminal-green/30 rounded">
+            <div className="mt-8 p-4 border border-border/30 rounded">
               <p>No projects found.</p>
             </div>
           ) : (
             <div className="mt-8 space-y-8">
               {projects.map((project, index) => (
-                <div key={index} className="border border-terminal-green/30 rounded p-6 bg-terminal-black/30">
+                <div key={index} className="border border-border/30 rounded p-6 bg-card text-card-foreground">
                   <h2 className="text-2xl font-bold mb-3">{project.name}</h2>
-                  <p className="text-terminal-green/90 mb-4">{project.description}</p>
-                  
+                  <p className="text-muted-foreground mb-4">{project.description}</p>
+
                   {project.skills.length > 0 && (
                     <div className="flex flex-wrap gap-2 mb-4">
                       {project.skills.map((skill, idx) => (
                         <span
                           key={idx}
-                          className="text-xs px-2 py-1 bg-terminal-black border border-terminal-green/30 rounded"
+                          className="text-xs px-2 py-1 bg-muted text-muted-foreground border border-border/30 rounded"
                         >
                           {skill}
                         </span>
                       ))}
                     </div>
                   )}
-                  
+
                   {project.githubUrl && (
                     <div className="mt-3">
-                      <a 
-                        href={project.githubUrl} 
-                        target="_blank" 
+                      <a
+                        href={project.githubUrl}
+                        target="_blank"
                         rel="noopener noreferrer"
-                        className="text-terminal-green hover:text-white flex items-center gap-2 w-fit"
+                        className="text-muted-foreground hover:text-foreground dark:hover:text-white flex items-center gap-2 w-fit transition-colors"
                       >
                         <Github size={16} />
                         <span>View on GitHub</span>

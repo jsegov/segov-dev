@@ -51,7 +51,7 @@ export default async function BlogPage() {
               <p>{error}</p>
             </div>
           ) : posts.length === 0 ? (
-            <div className="mt-8 p-4 border border-terminal-green/30 rounded">
+            <div className="mt-8 p-4 border border-border/30 rounded">
               <p>No blog posts found.</p>
             </div>
           ) : (
@@ -77,13 +77,13 @@ export default async function BlogPage() {
                       <div className="md:w-2/3">
                         <h2 className="text-xl font-bold mb-2">{post.title}</h2>
 
-                        <div className="flex items-center text-sm text-terminal-green/70 mb-3">
+                        <div className="flex items-center text-muted-foreground/70 mb-3">
                           <span>{format(publishedDate, "MMMM d, yyyy")}</span>
                           <span className="mx-2">•</span>
                           <span>{readingTime} min read</span>
                         </div>
 
-                        <p className="text-terminal-green/80">{post.excerpt}</p>
+                        <p className="text-muted-foreground/80">{post.excerpt}</p>
                       </div>
                     </div>
                   </Link>

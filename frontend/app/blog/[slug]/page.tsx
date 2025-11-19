@@ -53,7 +53,7 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
       <div className="container mx-auto px-4 py-12">
         <div className="terminal-container max-w-4xl mx-auto">
           <div className="mb-6">
-            <Link href="/blog" className="text-terminal-green hover:text-white flex items-center">
+            <Link href="/blog" className="inline-flex items-center text-muted-foreground hover:text-foreground mb-6 transition-colors">
               <span>← Back to Blog</span>
             </Link>
           </div>
@@ -61,7 +61,7 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
           <article>
             <h1 className="text-3xl font-bold mb-4">{post.title}</h1>
 
-            <div className="flex items-center text-sm text-terminal-green/70 mb-6">
+            <div className="flex items-center text-sm text-muted-foreground mb-8 space-x-4 pb-4 border-b border-border/30">
               <span>{format(publishedDate, "MMMM d, yyyy")}</span>
               <span className="mx-2">•</span>
               <span>{readingTime} min read</span>

@@ -50,52 +50,52 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
         p: ({ children }) => <p className="mb-4">{children}</p>,
 
         // Lists
-        ul: ({ children }) => <ul className="list-disc list-inside mb-4 ml-4">{children}</ul>,
-        ol: ({ children }) => <ol className="list-decimal list-inside mb-4 ml-4">{children}</ol>,
-        li: ({ children }) => <li className="mb-1">{children}</li>,
+        ul: ({ node, ...props }) => <ul className="list-disc list-outside ml-6 my-4 space-y-2 text-foreground" {...props} />,
+        ol: ({ node, ...props }) => <ol className="list-decimal list-outside ml-6 my-4 space-y-2 text-foreground" {...props} />,
+        li: ({ node, ...props }) => <li className="leading-relaxed" {...props} />,
 
         // Blockquote
-        blockquote: ({ children }) => (
-          <blockquote className="border-l-4 border-terminal-green pl-4 italic my-4">{children}</blockquote>
+        blockquote: ({ node, ...props }) => (
+          <blockquote className="border-l-4 border-primary pl-4 py-1 my-6 italic text-muted-foreground bg-muted/50 rounded-r" {...props} />
         ),
 
         // Horizontal rule
-        hr: () => <hr className="my-6 border-terminal-green/30" />,
+        hr: () => <div className="relative group my-6 rounded-lg overflow-hidden border border-border/30" />,
 
         // Code blocks
         code: ({ className, children, ...props }) => {
           const isInline = !className
           if (isInline) {
             return (
-              <code className="bg-terminal-black/30 px-1 py-0.5 rounded font-mono text-sm" {...props}>
+              <code className={`${className} bg-muted text-foreground px-1 py-0.5 rounded font-mono text-sm`} {...props}>
                 {children}
               </code>
             )
           }
           return (
-            <pre className="bg-terminal-black/30 p-4 rounded-md overflow-x-auto my-4 text-sm">
+            <pre className="bg-muted p-4 rounded-md overflow-x-auto my-4 text-sm">
               <code {...props}>{children}</code>
             </pre>
           )
         },
 
         // Links
-        a: ({ href, children }) => {
+        a: ({ href, children, node, ...props }) => {
           if (!href) {
-            return <span className="text-terminal-green">{children}</span>
+            return <span className="text-primary">{children}</span>
           }
 
           const sanitizedHref = sanitizeUrl(href)
           if (!sanitizedHref) {
             console.warn(`[MarkdownRenderer] Blocked or invalid hyperlink URL: ${href}`)
-            return <span className="text-terminal-green">{children}</span>
+            return <span className="text-primary">{children}</span>
           }
 
           const isInternal = sanitizedHref.startsWith('/')
 
           if (isInternal) {
             return (
-              <Link href={sanitizedHref} className="text-terminal-green underline hover:text-white">
+              <Link href={sanitizedHref} className="text-primary hover:underline underline-offset-4 transition-colors" {...props}>
                 {children}
               </Link>
             )
@@ -106,7 +106,8 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
               href={sanitizedHref}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-terminal-green underline hover:text-white"
+              className="text-primary hover:underline underline-offset-4 transition-colors"
+              {...props}
             >
               {children}
             </a>
@@ -114,10 +115,10 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
         },
 
         // Images
-        img: ({ src, alt, title }) => {
+        img: ({ src, alt, title, node, ...props }) => {
           if (!src) return null
 
-          const sanitizedSrc = sanitizeUrl(src)
+          const sanitizedSrc = sanitizeUrl(src as string)
           if (!sanitizedSrc) {
             console.warn(`[MarkdownRenderer] Blocked or invalid image URL: ${src}`)
             return null
@@ -135,7 +136,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
                 height={450}
                 className="rounded-md"
               />
-              {title && <p className="text-sm text-terminal-green/70 mt-1">{title}</p>}
+              {title && <p className="text-sm text-muted-foreground mt-1">{title}</p>}
             </div>
           )
         },
