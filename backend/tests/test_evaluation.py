@@ -40,3 +40,4 @@ def test_chat_evaluation(input_text, expected_behavior, expected_content):
         key="correctness",
         score=score
     )
+    assert score == 1.0, f"Evaluation failed: Expected behavior '{expected_behavior}' not met in output: {output}"
