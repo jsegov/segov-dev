@@ -13,4 +13,6 @@ sse-starlette>=2.2.0
 langchain-mcp-adapters>=0.1.0
 langgraph>=0.2.0
 langgraph-prebuilt>=0.1.0
+langsmith>=0.1.0
+pytest>=8.0.0
 
