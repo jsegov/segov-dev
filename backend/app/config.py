@@ -76,6 +76,16 @@ class Settings(BaseSettings):
         alias='USE_MCP_IN_CHAT',
         description='Enable MCP tools in chat endpoints (default: True)'
     )
+    langchain_api_key: str | None = Field(
+        default=None,
+        alias='LANGCHAIN_API_KEY',
+        description='LangChain API key for tracing'
+    )
+    langchain_tracing_v2: str | None = Field(
+        default=None,
+        alias='LANGCHAIN_TRACING_V2',
+        description='Enable LangChain Tracing V2'
+    )
 
     class Config:
         env_file = '.env'
