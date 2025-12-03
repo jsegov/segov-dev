@@ -31,7 +31,7 @@ jobs:
         env:
           LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
           LANGCHAIN_TRACING_V2: 'true'
-          OPENAI_BASE_URL: ${{ secrets.VLLM_ENDPOINT_URL }}
+          OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
           OPENAI_API_KEY: 'EMPTY'
         run: pytest tests/test_evaluation.py -v --tb=short
 
