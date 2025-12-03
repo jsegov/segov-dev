@@ -45,5 +45,5 @@ spec:
                   name: OPENAI_API_KEY
                   key: latest
             - name: OPENAI_BASE_URL
-              value: ${OPENAI_BASE_URL}
+              value: "${OPENAI_BASE_URL}"
 
