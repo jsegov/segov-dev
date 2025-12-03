@@ -73,7 +73,7 @@ A personal portfolio site with an integrated AI "Ask Me Anything" page and a sim
    LOCATION=us-east1  # Default, can be overridden
    RAG_CORPUS_NAME=projects/segov-dev-model/locations/us-east1/ragCorpora/YOUR_CORPUS_ID
    OPENAI_API_KEY=EMPTY  # Use 'EMPTY' for vLLM if no auth
-   OPENAI_BASE_URL=http://34.148.221.35:8000/v1
+   OPENAI_BASE_URL=http://YOUR_VLLM_IP:8000/v1
    CHAT_MODEL_ID=Qwen/Qwen3-8B  # Optional, defaults to Qwen/Qwen3-8B
    GCS_BUCKET_NAME=segov-dev-bucket  # Optional, defaults to segov-dev-bucket
    ```

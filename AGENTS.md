@@ -121,7 +121,7 @@ The deploy script uses the same defaults as the setup script. No environment var
 - `LOCATION` - Vertex AI region (default: `us-east1`)
 - `RAG_CORPUS_NAME` - Full resource name of the RAG corpus (stored in Secret Manager)
 - `OPENAI_API_KEY` - OpenAI API key (use `EMPTY` for vLLM)
-- `OPENAI_BASE_URL` - Base URL for vLLM (e.g., `http://34.148.221.35:8000/v1`)
+- `OPENAI_BASE_URL` - Base URL for vLLM (e.g., `http://YOUR_VLLM_IP:8000/v1`)
 - `CHAT_MODEL_ID` - Model ID (default: `Qwen/Qwen3-8B`)
 - `GCS_BUCKET_NAME` - GCS bucket for document ingestion (default: `segov-dev-bucket`)
 - `USE_MCP_IN_CHAT` - Enable MCP tools in chat (default: `true`)

@@ -1,0 +1,144 @@
+name: vLLM Infrastructure Provisioning
+
+on:
+  push:
+    paths:
+      - 'infra/gcp-vllm/create_vm.sh'
+      - 'infra/gcp-vllm/create_firewall.sh'
+      - 'infra/gcp-vllm/setup_host.sh'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  provision-infra:
+    runs-on: ubuntu-latest
+    environment: prod
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+      
+      - name: Set infrastructure variables
+        id: vars
+        run: |
+          PROJECT_ID="${{ vars.GCP_PROJECT_ID }}"
+          ZONE="${{ vars.VLLM_ZONE }}"
+          INSTANCE_NAME="${{ vars.VLLM_INSTANCE_NAME }}"
+          
+          if [ -z "$ZONE" ]; then
+            ZONE="us-east1-b"
+          fi
+          if [ -z "$INSTANCE_NAME" ]; then
+            INSTANCE_NAME="qwen3-inference-node"
+          fi
+          
+          echo "PROJECT_ID=${PROJECT_ID}" >> $GITHUB_ENV
+          echo "ZONE=${ZONE}" >> $GITHUB_ENV
+          echo "INSTANCE_NAME=${INSTANCE_NAME}" >> $GITHUB_ENV
+      
+      - name: Create VM instance (idempotent)
+        run: |
+          if gcloud compute instances describe $INSTANCE_NAME \
+            --project=$PROJECT_ID \
+            --zone=$ZONE &>/dev/null; then
+            echo "VM instance $INSTANCE_NAME already exists, skipping creation."
+          else
+            echo "Creating VM instance: $INSTANCE_NAME"
+            gcloud compute instances create $INSTANCE_NAME \
+              --project=$PROJECT_ID \
+              --zone=$ZONE \
+              --machine-type=g2-standard-12 \
+              --network-interface=network-tier=PREMIUM,stack-type=IPV4_ONLY,subnet=default \
+              --maintenance-policy=TERMINATE \
+              --provisioning-model=STANDARD \
+              --service-account=default \
+              --scopes=https://www.googleapis.com/auth/cloud-platform \
+              --accelerator=count=1,type=nvidia-l4 \
+              --create-disk=auto-delete=yes,boot=yes,device-name=$INSTANCE_NAME,image-family=pytorch-2-4-gpu-debian-11,image-project=ml-images,mode=rw,size=100,type=projects/$PROJECT_ID/zones/$ZONE/diskTypes/pd-balanced \
+              --labels=goog-ec-src=vm_add-gcloud \
+              --reservation-affinity=any \
+              --tags=vllm-server
+          fi
+      
+      - name: Create firewall rule (idempotent)
+        run: |
+          if gcloud compute firewall-rules describe allow-vllm-ingress \
+            --project=$PROJECT_ID &>/dev/null; then
+            echo "Firewall rule allow-vllm-ingress already exists, skipping creation."
+          else
+            echo "Creating firewall rule allow-vllm-ingress"
+            PORTFOLIO_BACKEND_IP="${PORTFOLIO_BACKEND_IP:-0.0.0.0/0}"
+            gcloud compute firewall-rules create allow-vllm-ingress \
+              --project=$PROJECT_ID \
+              --direction=INGRESS \
+              --priority=1000 \
+              --network=default \
+              --action=ALLOW \
+              --rules=tcp:8000 \
+              --source-ranges=$PORTFOLIO_BACKEND_IP \
+              --target-tags=vllm-server
+          fi
+      
+      - name: Wait for VM to be ready
+        run: |
+          echo "Waiting for VM to be ready..."
+          max_attempts=30
+          attempt=0
+          while [ $attempt -lt $max_attempts ]; do
+            STATUS=$(gcloud compute instances describe $INSTANCE_NAME \
+              --project=$PROJECT_ID \
+              --zone=$ZONE \
+              --format='value(status)')
+            
+            if [ "$STATUS" = "RUNNING" ]; then
+              echo "VM is running."
+              break
+            fi
+            
+            attempt=$((attempt + 1))
+            echo "VM status: $STATUS (attempt $attempt/$max_attempts)"
+            sleep 5
+          done
+          
+          if [ "$STATUS" != "RUNNING" ]; then
+            echo "VM failed to start within timeout period."
+            exit 1
+          fi
+          
+          sleep 30
+      
+      - name: Copy setup_host.sh to VM
+        run: |
+          gcloud compute scp infra/gcp-vllm/setup_host.sh \
+            $INSTANCE_NAME:~/setup_host.sh \
+            --project=$PROJECT_ID \
+            --zone=$ZONE
+      
+      - name: Run setup_host.sh on VM
+        run: |
+          gcloud compute ssh $INSTANCE_NAME \
+            --project=$PROJECT_ID \
+            --zone=$ZONE \
+            --command="chmod +x ~/setup_host.sh && ~/setup_host.sh"
+      
+      - name: Output completion info
+        run: |
+          echo "::notice title=Infrastructure Provisioned::VM $INSTANCE_NAME is ready for vLLM deployment"
+          echo ""
+          echo "VM Details:"
+          echo "  Instance: $INSTANCE_NAME"
+          echo "  Zone: $ZONE"
+          echo "  Project: $PROJECT_ID"
+

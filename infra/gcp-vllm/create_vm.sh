@@ -7,6 +7,13 @@ PROJECT_ID=${PROJECT_ID:-"segov-dev-model"}
 ZONE=${ZONE:-"us-east1-b"}
 INSTANCE_NAME=${INSTANCE_NAME:-"qwen3-inference-node"}
 
+if gcloud compute instances describe $INSTANCE_NAME \
+    --project=$PROJECT_ID \
+    --zone=$ZONE &>/dev/null; then
+    echo "VM instance $INSTANCE_NAME already exists in project $PROJECT_ID, zone $ZONE. Skipping creation."
+    exit 0
+fi
+
 echo "Creating VM instance: $INSTANCE_NAME in project: $PROJECT_ID, zone: $ZONE"
 
 gcloud compute instances create $INSTANCE_NAME \

@@ -54,6 +54,23 @@ docker run -d \
     --tool-call-parser hermes \
     $EXTRA_ARGS
 
-echo "[INFO] Deployment initiated. Tailing logs for startup confirmation..."
-sleep 5
-docker logs -f $CONTAINER_NAME
+echo "[INFO] Waiting for container to be healthy..."
+
+sleep 10
+
+max_attempts=60
+attempt=0
+
+while [ $attempt -lt $max_attempts ]; do
+  if curl -f -s http://localhost:$PORT/health > /dev/null 2>&1; then
+    echo "[INFO] Container is ready."
+    exit 0
+  fi
+  
+  attempt=$((attempt + 1))
+  sleep 10
+done
+
+echo "[ERROR] Container did not become healthy within timeout period."
+docker logs --tail 50 $CONTAINER_NAME 2>&1
+exit 1

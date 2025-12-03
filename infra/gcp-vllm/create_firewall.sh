@@ -3,9 +3,13 @@
 # Creates firewall rules for vLLM ingress
 
 PROJECT_ID=${PROJECT_ID:-"segov-dev-model"}
-# Replace with your actual frontend/backend IP or range
-# For development/testing, you might want to be more permissive or use IAP
 PORTFOLIO_BACKEND_IP=${PORTFOLIO_BACKEND_IP:-"0.0.0.0/0"} 
+
+if gcloud compute firewall-rules describe allow-vllm-ingress \
+    --project=$PROJECT_ID &>/dev/null; then
+    echo "Firewall rule allow-vllm-ingress already exists in project $PROJECT_ID. Skipping creation."
+    exit 0
+fi
 
 echo "Creating firewall rule allow-vllm-ingress in project: $PROJECT_ID"
 
