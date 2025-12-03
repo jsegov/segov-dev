@@ -50,12 +50,18 @@ jobs:
             SERVICE_ACCOUNT="mcp-sa@${PROJECT_ID}.iam.gserviceaccount.com"
           fi
           
+          if [ -z "${OPENAI_BASE_URL}" ]; then
+            unset OPENAI_BASE_URL
+          fi
+          
           echo "PROJECT_ID=${PROJECT_ID}" >> $GITHUB_ENV
           echo "REGION=${REGION}" >> $GITHUB_ENV
           echo "SERVICE_NAME=${SERVICE_NAME}" >> $GITHUB_ENV
           echo "ARTIFACT_REPO=${ARTIFACT_REPO}" >> $GITHUB_ENV
           echo "CHAT_MODEL_ID=${CHAT_MODEL_ID}" >> $GITHUB_ENV
-          echo "OPENAI_BASE_URL=${OPENAI_BASE_URL}" >> $GITHUB_ENV
+          if [ -n "${OPENAI_BASE_URL:-}" ]; then
+            echo "OPENAI_BASE_URL=${OPENAI_BASE_URL}" >> $GITHUB_ENV
+          fi
           echo "GCS_BUCKET_NAME=${GCS_BUCKET_NAME}" >> $GITHUB_ENV
           echo "SERVICE_ACCOUNT=${SERVICE_ACCOUNT}" >> $GITHUB_ENV
       
@@ -98,10 +104,14 @@ jobs:
           export SERVICE_NAME="${SERVICE_NAME}"
           export SERVICE_ACCOUNT="${SERVICE_ACCOUNT}"
           export CHAT_MODEL_ID="${CHAT_MODEL_ID}"
-          export OPENAI_BASE_URL="${OPENAI_BASE_URL}"
           export GCS_BUCKET_NAME="${GCS_BUCKET_NAME}"
+          export OPENAI_BASE_URL="${OPENAI_BASE_URL:-}"
           
           envsubst < cloudrun.yaml > ../../backend/cloudrun.rendered.yaml
+          
+          if [ -z "${OPENAI_BASE_URL:-}" ]; then
+            sed -i '/name: OPENAI_BASE_URL/,+1d' ../../backend/cloudrun.rendered.yaml
+          fi
       
       - name: Deploy to Cloud Run
         run: |

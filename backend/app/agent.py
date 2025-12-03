@@ -36,13 +36,16 @@ async def build_agent_with_mcp(model: str | None = None, temperature: float | No
     model_name = model or settings.chat_model_id
     temp = temperature if temperature is not None else 0.2
     
-    llm = ChatOpenAI(
-        model=model_name,
-        temperature=temp,
-        streaming=True,
-        api_key=settings.openai_api_key,
-        base_url=settings.openai_base_url,
-    )
+    llm_kwargs = {
+        'model': model_name,
+        'temperature': temp,
+        'streaming': True,
+        'api_key': settings.openai_api_key,
+    }
+    if settings.openai_base_url:
+        llm_kwargs['base_url'] = settings.openai_base_url
+    
+    llm = ChatOpenAI(**llm_kwargs)
     
     client = build_mcp_client()
     async with client.session('vertex-rag') as session:
