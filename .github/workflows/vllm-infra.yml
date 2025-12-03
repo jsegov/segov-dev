@@ -37,6 +37,7 @@ jobs:
           PROJECT_ID="${{ vars.GCP_PROJECT_ID }}"
           ZONE="${{ vars.VLLM_ZONE }}"
           INSTANCE_NAME="${{ vars.VLLM_INSTANCE_NAME }}"
+          PORTFOLIO_BACKEND_IP="${{ vars.PORTFOLIO_BACKEND_IP }}"
           
           if [ -z "$ZONE" ]; then
             ZONE="us-east1-b"
@@ -45,9 +46,15 @@ jobs:
             INSTANCE_NAME="qwen3-inference-node"
           fi
           
+          if [ -z "$PORTFOLIO_BACKEND_IP" ]; then
+            echo "::error title=Security Configuration Missing::PORTFOLIO_BACKEND_IP variable must be set in GitHub repository settings. Do not use 0.0.0.0/0 as it exposes the endpoint to the entire internet."
+            exit 1
+          fi
+          
           echo "PROJECT_ID=${PROJECT_ID}" >> $GITHUB_ENV
           echo "ZONE=${ZONE}" >> $GITHUB_ENV
           echo "INSTANCE_NAME=${INSTANCE_NAME}" >> $GITHUB_ENV
+          echo "PORTFOLIO_BACKEND_IP=${PORTFOLIO_BACKEND_IP}" >> $GITHUB_ENV
       
       - name: Create VM instance (idempotent)
         run: |
@@ -80,7 +87,6 @@ jobs:
             echo "Firewall rule allow-vllm-ingress already exists, skipping creation."
           else
             echo "Creating firewall rule allow-vllm-ingress"
-            PORTFOLIO_BACKEND_IP="${PORTFOLIO_BACKEND_IP:-0.0.0.0/0}"
             gcloud compute firewall-rules create allow-vllm-ingress \
               --project=$PROJECT_ID \
               --direction=INGRESS \
@@ -125,15 +131,13 @@ jobs:
           gcloud compute scp infra/gcp-vllm/setup_host.sh \
             $INSTANCE_NAME:~/setup_host.sh \
             --project=$PROJECT_ID \
-            --zone=$ZONE \
-            --internal-ip
+            --zone=$ZONE
       
       - name: Run setup_host.sh on VM
         run: |
           gcloud compute ssh $INSTANCE_NAME \
             --project=$PROJECT_ID \
             --zone=$ZONE \
-            --internal-ip \
             --command="chmod +x ~/setup_host.sh && ~/setup_host.sh"
       
       - name: Output completion info
