@@ -21,6 +21,7 @@ gcloud services enable \
   artifactregistry.googleapis.com \
   iam.googleapis.com \
   sts.googleapis.com \
+  vpcaccess.googleapis.com \
   --project ${PROJECT_ID}
 
 # Create service account for MCP backend

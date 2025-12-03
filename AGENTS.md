@@ -67,7 +67,7 @@ cd infra && ./setup.sh
 ```
 
 This script (idempotent, safe to rerun) sets up:
-- Required GCP APIs
+- Required GCP APIs (including Serverless VPC Access API)
 - Artifact Registry for container images
 - Service account with minimal IAM roles
 - Workload Identity Federation (WIF) for Vercel authentication
@@ -86,6 +86,52 @@ This script (idempotent, safe to rerun) sets up:
 - `RAG_CORPUS_NAME` or `CORPUS_ID` - If set, creates/updates the secret automatically
 - `VERCEL_TEAM_SLUG` - If using Vercel team accounts
 
+### Cloud Run Static Outbound IP Setup
+
+Before deploying the backend, set up VPC connector and Cloud NAT for static outbound IP:
+
+```bash
+cd infra/gcp-vllm && ./setup_static_egress.sh
+```
+
+This script (idempotent, safe to rerun) creates:
+- Subnet for VPC connector (`cloudrun-egress-subnet`)
+- Serverless VPC Access Connector (`cloudrun-connector`)
+- Cloud Router (`cloudrun-router`)
+- Cloud NAT with reserved static IP (`segov-dev-static-ip-east1`)
+
+**Default values (can be overridden via environment variables):**
+- `PROJECT_ID`: `segov-dev-model`
+- `REGION`: `us-east1`
+- `STATIC_IP_NAME`: `segov-dev-static-ip-east1`
+
+**Note:** The Cloud Run service is configured to use the VPC connector via annotations in `infra/backend/cloudrun.yaml`. This enables all outbound traffic to egress through the static IP, allowing secure firewall rules on the vLLM VM.
+
+### GitHub Actions Setup
+
+For GitHub Actions workflows to deploy infrastructure and vLLM models, set up Workload Identity Federation:
+
+```bash
+cd scripts && ./get-github-secrets.sh
+```
+
+This script outputs the required GitHub secrets and variables. The `github-actions-sa` service account needs the following IAM roles:
+- `roles/artifactregistry.writer` - For pushing container images
+- `roles/run.admin` - For Cloud Run deployments
+- `roles/iam.serviceAccountUser` - To impersonate service accounts
+- `roles/compute.instanceAdmin.v1` - For VM operations (SSH, SCP, instance management)
+
+**Required GitHub Secrets (prod environment):**
+- `WIF_PROVIDER` - Workload Identity Provider resource name
+- `WIF_SERVICE_ACCOUNT` - Service account email (e.g., `github-actions-sa@segov-dev-model.iam.gserviceaccount.com`)
+- `HF_TOKEN` - Hugging Face token for model downloads
+
+**Required GitHub Variables (prod environment):**
+- `GCP_PROJECT_ID` - GCP project ID (`segov-dev-model`)
+- `VLLM_ZONE` - VM zone (default: `us-east1-b`)
+- `VLLM_INSTANCE_NAME` - VM instance name (default: `qwen3-inference-node`)
+- `PORTFOLIO_BACKEND_IP` - Static IP for Cloud Run egress in CIDR format (e.g., `35.237.115.157/32`)
+
 ### Backend Deployment
 
 Deploy the backend to Cloud Run:
@@ -95,6 +141,10 @@ cd backend && ../infra/backend/deploy.sh
 ```
 
 The deploy script uses the same defaults as the setup script. No environment variables required unless overriding defaults.
+
+**Prerequisites:**
+- Run `cd infra && ./setup.sh` first (one-time infrastructure setup)
+- Run `cd infra/gcp-vllm && ./setup_static_egress.sh` (VPC connector and NAT setup)
 
 ## Environment Variables
 
@@ -172,6 +222,7 @@ Write tests for components in the `tests/` directory mirroring the `components/`
 1. **Initial setup**: 
    - Run `pnpm install` to install dependencies
    - Set up GCP infrastructure: `cd infra && ./setup.sh`
+   - Set up Cloud Run static egress: `cd infra/gcp-vllm && ./setup_static_egress.sh`
    - Export environment variables from `backend/.env` if needed (see Environment Variables section)
 2. **Start dev servers**: 
    - Run `pnpm dev` to start all development servers
