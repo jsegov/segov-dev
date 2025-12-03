@@ -1,7 +1,11 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from openai import AsyncOpenAI
+from openai import APIError, APIConnectionError, APITimeoutError, RateLimitError
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
@@ -17,13 +21,46 @@ class ChatRequest(BaseModel):
 
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
-    response = await client.chat.completions.create(
-        model=DEFAULT_MODEL,
-        messages=request.messages,
-        temperature=0.6,
-        top_p=0.95,
-        max_tokens=2048
-    )
+    try:
+        response = await client.chat.completions.create(
+            model=DEFAULT_MODEL,
+            messages=request.messages,
+            temperature=0.6,
+            top_p=0.95,
+            max_tokens=2048
+        )
+    except APIConnectionError as e:
+        logger.error(f"Failed to connect to vLLM service at {VLLM_API_URL}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=503,
+            detail=f"vLLM service is unreachable: {str(e)}"
+        )
+    except APITimeoutError as e:
+        logger.error(f"Request to vLLM service timed out: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=504,
+            detail=f"vLLM service request timed out: {str(e)}"
+        )
+    except RateLimitError as e:
+        logger.warning(f"Rate limit exceeded for vLLM service: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded: {str(e)}"
+        )
+    except APIError as e:
+        logger.error(f"vLLM API error: {e}", exc_info=True)
+        # Use status code from error if available, otherwise 502
+        status_code = getattr(e, 'status_code', 502)
+        raise HTTPException(
+            status_code=status_code,
+            detail=f"vLLM API error: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error calling vLLM service: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal error: {str(e)}"
+        )
     
     if not response.choices:
         raise HTTPException(
