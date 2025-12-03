@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from openai import AsyncOpenAI
 import os
@@ -24,6 +24,12 @@ async def chat_endpoint(request: ChatRequest):
         top_p=0.95,
         max_tokens=2048
     )
+    
+    if not response.choices:
+        raise HTTPException(
+            status_code=502,
+            detail='vLLM returned empty choices list'
+        )
     
     message = response.choices[0].message
     reasoning = getattr(message, 'reasoning_content', None)
