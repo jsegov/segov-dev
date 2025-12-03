@@ -35,6 +35,7 @@ def create_chain(model: str | None = None, temperature: float | None = None):
         temperature=temp,
         streaming=True,
         api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
     )
     
     return prompt | llm | StrOutputParser()

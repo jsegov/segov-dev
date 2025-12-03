@@ -41,6 +41,7 @@ async def build_agent_with_mcp(model: str | None = None, temperature: float | No
         temperature=temp,
         streaming=True,
         api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
     )
     
     client = build_mcp_client()

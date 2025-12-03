@@ -56,6 +56,11 @@ class Settings(BaseSettings):
         alias='OPENAI_API_KEY',
         description='OpenAI API key for chat model access'
     )
+    openai_base_url: str | None = Field(
+        default=None,
+        alias='OPENAI_BASE_URL',
+        description='Base URL for OpenAI-compatible API (e.g. vLLM)'
+    )
     chat_model_id: str = Field(
         default='gpt-4o-mini',
         alias='CHAT_MODEL_ID',
