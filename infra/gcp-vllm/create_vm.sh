@@ -19,7 +19,7 @@ gcloud compute instances create $INSTANCE_NAME \
     --service-account=default \
     --scopes=https://www.googleapis.com/auth/cloud-platform \
     --accelerator=count=1,type=nvidia-l4 \
-    --create-disk=auto-delete=yes,boot=yes,device-name=$INSTANCE_NAME,image=projects/ml-images/global/images/c0-deeplearning-common-cu123-v20240417-debian-11,mode=rw,size=100,type=projects/$PROJECT_ID/zones/$ZONE/diskTypes/pd-balanced \
+    --create-disk=auto-delete=yes,boot=yes,device-name=$INSTANCE_NAME,image-family=pytorch-2-4-gpu-debian-11,image-project=ml-images,mode=rw,size=100,type=projects/$PROJECT_ID/zones/$ZONE/diskTypes/pd-balanced \
     --labels=goog-ec-src=vm_add-gcloud \
     --reservation-affinity=any \
     --tags=vllm-server
