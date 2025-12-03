@@ -12,6 +12,7 @@ SERVICE_ACCOUNT=${SERVICE_ACCOUNT:-"mcp-sa@${PROJECT_ID}.iam.gserviceaccount.com
 # Optional envs passed through
 CHAT_MODEL_ID=${CHAT_MODEL_ID:-"gpt-5-nano-2025-08-07"}
 GCS_BUCKET_NAME=${GCS_BUCKET_NAME:-"segov-dev-bucket"}
+CONNECTOR_NAME=${CONNECTOR_NAME:-"cloudrun-connector"}
 
 # Build and deploy
 echo "Building and deploying ${SERVICE_NAME} to Cloud Run..."
@@ -31,6 +32,7 @@ export SERVICE_NAME
 export SERVICE_ACCOUNT
 export CHAT_MODEL_ID
 export GCS_BUCKET_NAME
+export CONNECTOR_NAME
 
 # First, build and push the image if not already built
 if [ -z "${SKIP_BUILD:-}" ]; then
