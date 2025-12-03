@@ -107,7 +107,7 @@ jobs:
           export GCS_BUCKET_NAME="${GCS_BUCKET_NAME}"
           
           if [ -z "${OPENAI_BASE_URL:-}" ]; then
-            sed '/- name: OPENAI_BASE_URL/,+1d' cloudrun.yaml | envsubst > ../../backend/cloudrun.rendered.yaml
+            sed '/^[[:space:]]*- name: OPENAI_BASE_URL/,+1d' cloudrun.yaml | envsubst > ../../backend/cloudrun.rendered.yaml
           else
             export OPENAI_BASE_URL="${OPENAI_BASE_URL}"
             envsubst < cloudrun.yaml > ../../backend/cloudrun.rendered.yaml

@@ -2,6 +2,7 @@ name: vLLM Infrastructure Provisioning
 
 on:
   push:
+    branches: [main]
     paths:
       - 'infra/gcp-vllm/create_vm.sh'
       - 'infra/gcp-vllm/create_firewall.sh'
@@ -124,13 +125,15 @@ jobs:
           gcloud compute scp infra/gcp-vllm/setup_host.sh \
             $INSTANCE_NAME:~/setup_host.sh \
             --project=$PROJECT_ID \
-            --zone=$ZONE
+            --zone=$ZONE \
+            --internal-ip
       
       - name: Run setup_host.sh on VM
         run: |
           gcloud compute ssh $INSTANCE_NAME \
             --project=$PROJECT_ID \
             --zone=$ZONE \
+            --internal-ip \
             --command="chmod +x ~/setup_host.sh && ~/setup_host.sh"
       
       - name: Output completion info

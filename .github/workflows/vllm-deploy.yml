@@ -2,6 +2,7 @@ name: vLLM Model Deployment
 
 on:
   push:
+    branches: [main]
     paths:
       - 'infra/gcp-vllm/deploy_model.sh'
   workflow_dispatch:
@@ -108,7 +109,8 @@ jobs:
           gcloud compute scp infra/gcp-vllm/deploy_model.sh \
             $INSTANCE_NAME:~/deploy_model.sh \
             --project=$PROJECT_ID \
-            --zone=$ZONE
+            --zone=$ZONE \
+            --internal-ip
       
       - name: Deploy model on VM
         env:
@@ -122,6 +124,7 @@ jobs:
           gcloud compute ssh $INSTANCE_NAME \
             --project=$PROJECT_ID \
             --zone=$ZONE \
+            --internal-ip \
             --command="chmod +x ~/deploy_model.sh && ~/deploy_model.sh '$HF_TOKEN' '$MODEL_ID'"
       
       - name: Verify deployment
@@ -133,6 +136,7 @@ jobs:
             HEALTH_CHECK=$(gcloud compute ssh $INSTANCE_NAME \
               --project=$PROJECT_ID \
               --zone=$ZONE \
+              --internal-ip \
               --command="curl -f -s http://localhost:8000/health 2>/dev/null && echo 'OK' || echo 'FAILED'" \
               --quiet 2>/dev/null || echo "SSH_ERROR")
             
