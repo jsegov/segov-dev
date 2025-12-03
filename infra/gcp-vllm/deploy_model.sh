@@ -61,6 +61,8 @@ docker run -d \
     --trust-remote-code \
     --enforce-eager \
     --disable-log-stats \
+    --enable-auto-tool-choice \
+    --tool-call-parser hermes \
     $EXTRA_ARGS
 
 echo "[INFO] Deployment initiated. Tailing logs for startup confirmation..."
