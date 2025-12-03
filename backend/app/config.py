@@ -62,9 +62,9 @@ class Settings(BaseSettings):
         description='Base URL for OpenAI-compatible API (e.g. vLLM)'
     )
     chat_model_id: str = Field(
-        default='gpt-4o-mini',
+        default='Qwen/Qwen3-8B',
         alias='CHAT_MODEL_ID',
-        description='OpenAI model ID for chat (default: gpt-4o-mini)'
+        description='OpenAI model ID for chat (default: Qwen/Qwen3-8B)'
     )
     mcp_server_url: str = Field(
         default='http://localhost:8080/mcp',

@@ -112,7 +112,7 @@ def test_chat_endpoint_with_mcp_agent(mock_settings, client, mock_openai_key):
     mock_agent.ainvoke = AsyncMock(return_value={"output": "MCP agent response"})
     
     mock_settings.use_mcp_in_chat = True
-    mock_settings.chat_model_id = 'gpt-4o-mini'
+    mock_settings.chat_model_id = 'Qwen/Qwen3-8B'
     
     # Mock async context manager (build_agent_with_mcp is now an async context manager)
     # Create a mock that acts as an async context manager
@@ -147,7 +147,7 @@ def test_chat_endpoint_with_mcp_agent(mock_settings, client, mock_openai_key):
 def test_chat_endpoint_mcp_fallback(mock_settings, client, mock_openai_key):
     """Test chat endpoint falls back to chain when MCP fails."""
     mock_settings.use_mcp_in_chat = True
-    mock_settings.chat_model_id = 'gpt-4o-mini'
+    mock_settings.chat_model_id = 'Qwen/Qwen3-8B'
     
     # Patch at the import location in routes_chat
     # build_agent_with_mcp is now an async context manager, so we need to raise on __aenter__
@@ -187,7 +187,7 @@ def test_chat_endpoint_mcp_agent_with_messages(mock_settings, client, mock_opena
     })
     
     mock_settings.use_mcp_in_chat = True
-    mock_settings.chat_model_id = 'gpt-4o-mini'
+    mock_settings.chat_model_id = 'Qwen/Qwen3-8B'
     
     # Mock async context manager
     mock_context_manager = MagicMock()
