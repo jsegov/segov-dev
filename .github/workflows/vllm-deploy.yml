@@ -1,0 +1,173 @@
+name: vLLM Model Deployment
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'infra/gcp-vllm/deploy_model.sh'
+  workflow_dispatch:
+    inputs:
+      model_id:
+        description: 'Model ID to deploy (default: Qwen/Qwen3-8B)'
+        required: false
+        default: 'Qwen/Qwen3-8B'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-model:
+    runs-on: ubuntu-latest
+    environment: prod
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+      
+      - name: Set deployment variables
+        id: vars
+        run: |
+          PROJECT_ID="${{ vars.GCP_PROJECT_ID }}"
+          ZONE="${{ vars.VLLM_ZONE }}"
+          INSTANCE_NAME="${{ vars.VLLM_INSTANCE_NAME }}"
+          MODEL_ID="${{ inputs.model_id }}"
+          
+          if [ -z "$ZONE" ]; then
+            ZONE="us-east1-b"
+          fi
+          if [ -z "$INSTANCE_NAME" ]; then
+            INSTANCE_NAME="qwen3-inference-node"
+          fi
+          if [ -z "$MODEL_ID" ]; then
+            MODEL_ID="Qwen/Qwen3-8B"
+          fi
+          
+          echo "PROJECT_ID=${PROJECT_ID}" >> $GITHUB_ENV
+          echo "ZONE=${ZONE}" >> $GITHUB_ENV
+          echo "INSTANCE_NAME=${INSTANCE_NAME}" >> $GITHUB_ENV
+          echo "MODEL_ID=${MODEL_ID}" >> $GITHUB_ENV
+      
+      - name: Ensure VM is running
+        run: |
+          STATUS=$(gcloud compute instances describe $INSTANCE_NAME \
+            --project=$PROJECT_ID \
+            --zone=$ZONE \
+            --format='value(status)' 2>/dev/null || echo "NOT_FOUND")
+          
+          if [ "$STATUS" = "NOT_FOUND" ]; then
+            echo "Error: VM instance $INSTANCE_NAME not found. Please run infrastructure provisioning first."
+            exit 1
+          fi
+          
+          if [ "$STATUS" != "RUNNING" ]; then
+            echo "VM is not running (status: $STATUS). Starting VM..."
+            gcloud compute instances start $INSTANCE_NAME \
+              --project=$PROJECT_ID \
+              --zone=$ZONE
+            
+            echo "Waiting for VM to start..."
+            max_attempts=30
+            attempt=0
+            while [ $attempt -lt $max_attempts ]; do
+              STATUS=$(gcloud compute instances describe $INSTANCE_NAME \
+                --project=$PROJECT_ID \
+                --zone=$ZONE \
+                --format='value(status)')
+              
+              if [ "$STATUS" = "RUNNING" ]; then
+                echo "VM is running."
+                break
+              fi
+              
+              attempt=$((attempt + 1))
+              echo "VM status: $STATUS (attempt $attempt/$max_attempts)"
+              sleep 5
+            done
+            
+            if [ "$STATUS" != "RUNNING" ]; then
+              echo "VM failed to start within timeout period."
+              exit 1
+            fi
+            
+            sleep 30
+          else
+            echo "VM is already running."
+          fi
+      
+      - name: Copy deploy_model.sh to VM
+        run: |
+          gcloud compute scp infra/gcp-vllm/deploy_model.sh \
+            $INSTANCE_NAME:~/deploy_model.sh \
+            --project=$PROJECT_ID \
+            --zone=$ZONE
+      
+      - name: Deploy model on VM
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo "Error: HF_TOKEN secret is not set in GitHub repository settings."
+            exit 1
+          fi
+          
+          gcloud compute ssh $INSTANCE_NAME \
+            --project=$PROJECT_ID \
+            --zone=$ZONE \
+            --command="chmod +x ~/deploy_model.sh && ~/deploy_model.sh '$HF_TOKEN' '$MODEL_ID'"
+      
+      - name: Verify deployment
+        run: |
+          max_attempts=12
+          attempt=0
+          
+          while [ $attempt -lt $max_attempts ]; do
+            HEALTH_CHECK=$(gcloud compute ssh $INSTANCE_NAME \
+              --project=$PROJECT_ID \
+              --zone=$ZONE \
+              --command="curl -f -s http://localhost:8000/health 2>/dev/null && echo 'OK' || echo 'FAILED'" \
+              --quiet 2>/dev/null || echo "SSH_ERROR")
+            
+            if echo "$HEALTH_CHECK" | grep -q "OK\|ok\|status"; then
+              echo "::notice title=Deployment Successful::vLLM model deployed successfully"
+              
+              VM_IP=$(gcloud compute instances describe $INSTANCE_NAME \
+                --project=$PROJECT_ID \
+                --zone=$ZONE \
+                --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
+              
+              echo "Service is available at: http://${VM_IP}:8000"
+              exit 0
+            fi
+            
+            attempt=$((attempt + 1))
+            sleep 10
+          done
+          
+          echo "::error title=Deployment Verification Failed::Container did not become healthy within timeout period"
+          exit 1
+      
+      - name: Output deployment info
+        run: |
+          VM_IP=$(gcloud compute instances describe $INSTANCE_NAME \
+            --project=$PROJECT_ID \
+            --zone=$ZONE \
+            --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
+          
+          echo "::notice title=Deployment Complete::vLLM model deployed to VM"
+          echo ""
+          echo "Deployment Details:"
+          echo "  Instance: $INSTANCE_NAME"
+          echo "  Zone: $ZONE"
+          echo "  Model: $MODEL_ID"
+          echo "  Service URL: http://${VM_IP}:8000"
+

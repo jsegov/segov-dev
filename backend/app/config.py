@@ -1,6 +1,6 @@
 """Configuration settings for the MCP backend."""
 from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic import Field, field_validator
 import warnings
 
 
@@ -56,10 +56,23 @@ class Settings(BaseSettings):
         alias='OPENAI_API_KEY',
         description='OpenAI API key for chat model access'
     )
+    openai_base_url: str | None = Field(
+        default=None,
+        alias='OPENAI_BASE_URL',
+        description='Base URL for OpenAI-compatible API (e.g. vLLM)'
+    )
+    
+    @field_validator('openai_base_url')
+    @classmethod
+    def normalize_empty_base_url(cls, v: str | None) -> str | None:
+        """Convert empty strings to None to avoid invalid URLs."""
+        if v == '':
+            return None
+        return v
     chat_model_id: str = Field(
-        default='gpt-4o-mini',
+        default='Qwen/Qwen3-8B',
         alias='CHAT_MODEL_ID',
-        description='OpenAI model ID for chat (default: gpt-4o-mini)'
+        description='OpenAI model ID for chat (default: Qwen/Qwen3-8B)'
     )
     mcp_server_url: str = Field(
         default='http://localhost:8080/mcp',

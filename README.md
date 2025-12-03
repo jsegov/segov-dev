@@ -28,7 +28,7 @@ A personal portfolio site with an integrated AI "Ask Me Anything" page and a sim
 ### Backend
 - **Framework**: FastAPI
 - **MCP**: FastMCP for Model Context Protocol
-- **AI**: Direct OpenAI API calls (no AI Gateway)
+- **AI**: Self-hosted Qwen3-8B on GCP vLLM (OpenAI-compatible API)
 - **RAG**: Vertex AI RAG Engine with Vector Search
 - **Deployment**: Google Cloud Run (us-east1)
 
@@ -72,9 +72,9 @@ A personal portfolio site with an integrated AI "Ask Me Anything" page and a sim
    PROJECT_ID=segov-dev-model  # Default, can be overridden
    LOCATION=us-east1  # Default, can be overridden
    RAG_CORPUS_NAME=projects/segov-dev-model/locations/us-east1/ragCorpora/YOUR_CORPUS_ID
-   OPENAI_API_KEY=your-openai-api-key  # Required, stored in Secret Manager in production
-   PORT=8080  # Optional, Cloud Run sets this automatically
-   CHAT_MODEL_ID=gpt-5-nano-2025-08-07  # Optional, defaults to gpt-5-nano-2025-08-07
+   OPENAI_API_KEY=EMPTY  # Use 'EMPTY' for vLLM if no auth
+   OPENAI_BASE_URL=http://YOUR_VLLM_IP:8000/v1
+   CHAT_MODEL_ID=Qwen/Qwen3-8B  # Optional, defaults to Qwen/Qwen3-8B
    GCS_BUCKET_NAME=segov-dev-bucket  # Optional, defaults to segov-dev-bucket
    ```
    
@@ -156,7 +156,7 @@ This sets up:
 - `REGION`: `us-east1`
 - `SERVICE_ACCOUNT_NAME`: `mcp-sa`
 - `GCS_BUCKET_NAME`: `segov-dev-bucket`
-- `CHAT_MODEL_ID`: `gpt-5-nano-2025-08-07`
+- `CHAT_MODEL_ID`: `Qwen/Qwen3-8B`
 
 ### Deploy Services
 

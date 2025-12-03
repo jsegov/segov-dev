@@ -30,12 +30,16 @@ def create_chain(model: str | None = None, temperature: float | None = None):
     model_name = model or settings.chat_model_id
     temp = temperature if temperature is not None else 0.2
     
-    llm = ChatOpenAI(
-        model=model_name,
-        temperature=temp,
-        streaming=True,
-        api_key=settings.openai_api_key,
-    )
+    llm_kwargs = {
+        'model': model_name,
+        'temperature': temp,
+        'streaming': True,
+        'api_key': settings.openai_api_key,
+    }
+    if settings.openai_base_url:
+        llm_kwargs['base_url'] = settings.openai_base_url
+    
+    llm = ChatOpenAI(**llm_kwargs)
     
     return prompt | llm | StrOutputParser()
 
