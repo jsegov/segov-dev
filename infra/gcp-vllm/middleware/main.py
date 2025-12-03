@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from pydantic import BaseModel
 from openai import AsyncOpenAI
 import os
@@ -17,35 +17,29 @@ class ChatRequest(BaseModel):
 
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
-    try:
-        temperature = 0.6
-        
-        response = await client.chat.completions.create(
-            model=DEFAULT_MODEL,
-            messages=request.messages,
-            temperature=temperature,
-            top_p=0.95,
-            max_tokens=2048
+    response = await client.chat.completions.create(
+        model=DEFAULT_MODEL,
+        messages=request.messages,
+        temperature=0.6,
+        top_p=0.95,
+        max_tokens=2048
+    )
+    
+    message = response.choices[0].message
+    reasoning = getattr(message, 'reasoning_content', None)
+    final_content = message.content
+    
+    if SHOW_REASONING and reasoning:
+        normalized_content = (
+            f"<details>\n<summary>Thinking Process</summary>\n\n"
+            f"{reasoning}\n\n"
+            f"</details>\n\n"
+            f"{final_content}"
         )
+    else:
+        normalized_content = final_content
         
-        message = response.choices[0].message
-        reasoning = getattr(message, 'reasoning_content', None)
-        final_content = message.content
-        
-        if SHOW_REASONING and reasoning:
-            normalized_content = (
-                f"<details>\n<summary>Thinking Process</summary>\n\n"
-                f"{reasoning}\n\n"
-                f"</details>\n\n"
-                f"{final_content}"
-            )
-        else:
-            normalized_content = final_content
-            
-        return {"role": "assistant", "content": normalized_content}
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return {"role": "assistant", "content": normalized_content}
 
 @app.get("/health")
 async def health_check():

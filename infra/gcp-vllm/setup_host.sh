@@ -19,7 +19,6 @@ else
 fi
 
 # 3. Configure Docker for NVIDIA Runtime
-# Ensure the Docker daemon knows how to access the GPU
 sudo nvidia-ctk runtime configure --runtime=docker
 sudo systemctl restart docker
 

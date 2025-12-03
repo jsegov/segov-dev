@@ -3,11 +3,11 @@
 # Creates firewall rules for vLLM ingress
 
 PROJECT_ID=${PROJECT_ID:-"segov-dev-model"}
-PORTFOLIO_BACKEND_IP=${PORTFOLIO_BACKEND_IP:-"0.0.0.0/0"}
 
-if [ "$PORTFOLIO_BACKEND_IP" = "0.0.0.0/0" ]; then
-    echo "WARNING: Using default PORTFOLIO_BACKEND_IP=0.0.0.0/0 exposes the vLLM endpoint to the entire internet."
-    echo "This is insecure and should only be used for testing. Set PORTFOLIO_BACKEND_IP to a specific IP range in production."
+if [ -z "$PORTFOLIO_BACKEND_IP" ]; then
+    echo "ERROR: PORTFOLIO_BACKEND_IP environment variable must be set."
+    echo "Set PORTFOLIO_BACKEND_IP to a specific IP range (e.g., your Cloud Run service IP range)."
+    exit 1
 fi 
 
 if gcloud compute firewall-rules describe allow-vllm-ingress \

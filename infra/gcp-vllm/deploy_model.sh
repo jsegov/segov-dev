@@ -24,7 +24,6 @@ fi
 echo "[INFO] Pulling Docker Image: $IMAGE_TAG..."
 docker pull $IMAGE_TAG
 
-# Check and remove existing container
 if [ "$(docker ps -aq -f name=$CONTAINER_NAME)" ]; then
     echo "[INFO] Stopping existing container..."
     docker stop $CONTAINER_NAME
