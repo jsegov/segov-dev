@@ -27,7 +27,7 @@ async def chat_endpoint(request: ChatRequest):
     
     message = response.choices[0].message
     reasoning = getattr(message, 'reasoning_content', None)
-    final_content = message.content
+    final_content = message.content or ""
     
     if SHOW_REASONING and reasoning:
         normalized_content = (
@@ -37,7 +37,8 @@ async def chat_endpoint(request: ChatRequest):
             f"{final_content}"
         )
     else:
-        normalized_content = final_content
+        # If content is None but reasoning exists, use reasoning as fallback
+        normalized_content = final_content if final_content else (reasoning or "")
         
     return {"role": "assistant", "content": normalized_content}
 

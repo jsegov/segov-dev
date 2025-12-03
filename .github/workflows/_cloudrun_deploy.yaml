@@ -50,10 +50,6 @@ jobs:
             SERVICE_ACCOUNT="mcp-sa@${PROJECT_ID}.iam.gserviceaccount.com"
           fi
           
-          if [ -z "${OPENAI_BASE_URL}" ]; then
-            unset OPENAI_BASE_URL
-          fi
-          
           echo "PROJECT_ID=${PROJECT_ID}" >> $GITHUB_ENV
           echo "REGION=${REGION}" >> $GITHUB_ENV
           echo "SERVICE_NAME=${SERVICE_NAME}" >> $GITHUB_ENV
