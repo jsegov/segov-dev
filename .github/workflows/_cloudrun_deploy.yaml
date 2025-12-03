@@ -42,6 +42,7 @@ jobs:
           SERVICE_NAME="${{ vars.SERVICE_NAME }}"
           ARTIFACT_REPO="${{ vars.ARTIFACT_REPO }}"
           CHAT_MODEL_ID="${{ vars.CHAT_MODEL_ID }}"
+          OPENAI_BASE_URL="${{ vars.OPENAI_BASE_URL }}"
           GCS_BUCKET_NAME="${{ vars.GCS_BUCKET_NAME }}"
           SERVICE_ACCOUNT="${{ vars.SERVICE_ACCOUNT }}"
           
@@ -54,6 +55,7 @@ jobs:
           echo "SERVICE_NAME=${SERVICE_NAME}" >> $GITHUB_ENV
           echo "ARTIFACT_REPO=${ARTIFACT_REPO}" >> $GITHUB_ENV
           echo "CHAT_MODEL_ID=${CHAT_MODEL_ID}" >> $GITHUB_ENV
+          echo "OPENAI_BASE_URL=${OPENAI_BASE_URL}" >> $GITHUB_ENV
           echo "GCS_BUCKET_NAME=${GCS_BUCKET_NAME}" >> $GITHUB_ENV
           echo "SERVICE_ACCOUNT=${SERVICE_ACCOUNT}" >> $GITHUB_ENV
       
@@ -96,6 +98,7 @@ jobs:
           export SERVICE_NAME="${SERVICE_NAME}"
           export SERVICE_ACCOUNT="${SERVICE_ACCOUNT}"
           export CHAT_MODEL_ID="${CHAT_MODEL_ID}"
+          export OPENAI_BASE_URL="${OPENAI_BASE_URL}"
           export GCS_BUCKET_NAME="${GCS_BUCKET_NAME}"
           
           envsubst < cloudrun.yaml > ../../backend/cloudrun.rendered.yaml
