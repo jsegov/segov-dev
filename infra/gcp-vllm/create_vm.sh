@@ -4,7 +4,7 @@
 
 # Default values
 PROJECT_ID=${PROJECT_ID:-"segov-dev-model"}
-ZONE=${ZONE:-"us-central1-a"}
+ZONE=${ZONE:-"us-east1-b"}
 INSTANCE_NAME=${INSTANCE_NAME:-"qwen3-inference-node"}
 
 echo "Creating VM instance: $INSTANCE_NAME in project: $PROJECT_ID, zone: $ZONE"
