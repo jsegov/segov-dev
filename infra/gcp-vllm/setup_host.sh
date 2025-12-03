@@ -24,7 +24,6 @@ sudo nvidia-ctk runtime configure --runtime=docker
 sudo systemctl restart docker
 
 # 4. Create Persistent Model Cache Directory
-# We map this to the container so we don't re-download 16GB on every restart.
 mkdir -p ~/hf_cache
 sudo chmod 777 ~/hf_cache
 

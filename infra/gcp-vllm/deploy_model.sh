@@ -11,21 +11,10 @@ if [ -z "$HF_TOKEN" ]; then
     exit 1
 fi
 
-# Configuration Variables
-# vLLM 0.9.0+ required for Qwen3 reasoning parser
-IMAGE_TAG="vllm/vllm-openai:v0.9.0"  
+IMAGE_TAG="vllm/vllm-openai:v0.9.0"
 CONTAINER_NAME="vllm-service"
 PORT=8000
 
-# vLLM Argument Tuning
-# --------------------
-# --max-model-len 16384: Caps context to prevent OOM on 24GB L4.
-# --gpu-memory-utilization 0.95: Gives 95% of VRAM to vLLM.
-# --enable-reasoning: Activates the chain-of-thought generation.
-# --reasoning-parser qwen3: Uses the specific parser for Qwen3 tokens.
-# --dtype bfloat16: Forces BF16 precision (native to L4).
-
-# Determine specific flags based on model
 EXTRA_ARGS=""
 if [[ "$MODEL_ID" == *"Qwen3"* ]]; then
     echo "[INFO] Configuring for Qwen3..."
