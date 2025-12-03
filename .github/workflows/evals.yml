@@ -10,6 +10,7 @@ on:
 jobs:
   evals:
     runs-on: ubuntu-latest
+    environment: prod
     defaults:
       run:
         working-directory: backend
