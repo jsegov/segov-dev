@@ -8,7 +8,7 @@ spec:
       annotations:
         run.googleapis.com/cpu-throttling: 'true'
         run.googleapis.com/execution-environment: gen2
-        run.googleapis.com/vpc-access-connector: projects/${PROJECT_ID}/locations/${REGION}/connectors/cloudrun-connector
+        run.googleapis.com/vpc-access-connector: projects/${PROJECT_ID}/locations/${REGION}/connectors/${CONNECTOR_NAME}
         run.googleapis.com/vpc-access-egress: all-traffic
     spec:
       serviceAccountName: ${SERVICE_ACCOUNT}
