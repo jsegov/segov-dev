@@ -78,3 +78,6 @@ gcloud-service-account.json
 # Misc
 *.pem
 .cache/
+
+# Ship Spec
+.ship-spec/

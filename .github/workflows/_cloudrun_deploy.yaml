@@ -45,15 +45,7 @@ jobs:
           OPENAI_BASE_URL="${{ vars.OPENAI_BASE_URL }}"
           GCS_BUCKET_NAME="${{ vars.GCS_BUCKET_NAME }}"
           SERVICE_ACCOUNT="${{ vars.SERVICE_ACCOUNT }}"
-          CONNECTOR_NAME="${{ vars.CONNECTOR_NAME }}"
           
-          if [ -z "${SERVICE_ACCOUNT}" ]; then
-            SERVICE_ACCOUNT="mcp-sa@${PROJECT_ID}.iam.gserviceaccount.com"
-          fi
-          
-          if [ -z "${CONNECTOR_NAME}" ]; then
-            CONNECTOR_NAME="cloudrun-connector"
-          fi
           
           echo "PROJECT_ID=${PROJECT_ID}" >> $GITHUB_ENV
           echo "REGION=${REGION}" >> $GITHUB_ENV
@@ -65,7 +57,6 @@ jobs:
           fi
           echo "GCS_BUCKET_NAME=${GCS_BUCKET_NAME}" >> $GITHUB_ENV
           echo "SERVICE_ACCOUNT=${SERVICE_ACCOUNT}" >> $GITHUB_ENV
-          echo "CONNECTOR_NAME=${CONNECTOR_NAME}" >> $GITHUB_ENV
       
       - name: Build container image
         working-directory: .

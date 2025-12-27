@@ -3,7 +3,7 @@ from typing import Dict
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_community.chat_message_histories import ChatMessageHistory
-from app.chains import base_chain
+from app.chains import create_chain
 
 
 # In-memory session cache (dev only; for prod, use Redis)
@@ -27,11 +27,27 @@ def get_session_history(session_id: str) -> BaseChatMessageHistory:
     return hist
 
 
-# Wrap base chain with message history
-with_history = RunnableWithMessageHistory(
-    base_chain,
-    get_session_history=get_session_history,
-    input_messages_key="input",
-    history_messages_key="history",
-)
+def create_chain_with_history(
+    model: str | None = None,
+    temperature: float | None = None
+) -> RunnableWithMessageHistory:
+    """Create a chain wrapped with message history.
+    
+    Creates a fresh chain on each call to ensure auth tokens are refreshed.
+    This prevents token expiration issues with long-running services.
+    
+    Args:
+        model: Model name override
+        temperature: Temperature override
+    
+    Returns:
+        RunnableWithMessageHistory wrapping a fresh chain
+    """
+    chain = create_chain(model=model, temperature=temperature)
+    return RunnableWithMessageHistory(
+        chain,
+        get_session_history=get_session_history,
+        input_messages_key="input",
+        history_messages_key="history",
+    )
 

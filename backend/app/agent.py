@@ -7,6 +7,7 @@ try:
     from langchain_mcp_adapters.tools import load_mcp_tools
     from app.mcp_client import build_mcp_client
     from app.config import settings
+    from app.cloudrun_auth import get_auth_headers
     _AGENT_IMPORTS_AVAILABLE = True
 except ImportError as e:
     _AGENT_IMPORTS_AVAILABLE = False
@@ -44,7 +45,8 @@ async def build_agent_with_mcp(model: str | None = None, temperature: float | No
     }
     if settings.openai_base_url:
         llm_kwargs['base_url'] = settings.openai_base_url
-    
+        llm_kwargs['default_headers'] = get_auth_headers(settings.openai_base_url)
+
     llm = ChatOpenAI(**llm_kwargs)
     
     client = build_mcp_client()

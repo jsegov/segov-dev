@@ -4,6 +4,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import StrOutputParser
 from langchain_openai import ChatOpenAI
 from app.config import settings
+from app.cloudrun_auth import get_auth_headers
 
 
 # Load system prompt from file
@@ -38,11 +39,9 @@ def create_chain(model: str | None = None, temperature: float | None = None):
     }
     if settings.openai_base_url:
         llm_kwargs['base_url'] = settings.openai_base_url
-    
+        llm_kwargs['default_headers'] = get_auth_headers(settings.openai_base_url)
+
     llm = ChatOpenAI(**llm_kwargs)
     
     return prompt | llm | StrOutputParser()
-
-
-base_chain = create_chain()
 

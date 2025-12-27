@@ -24,9 +24,10 @@ def test_chat_endpoint_success(mock_settings, client, mock_openai_key):
     # Disable MCP to test chain path directly
     mock_settings.use_mcp_in_chat = False
     
-    with patch('app.routes_chat.with_history') as mock_chain:
-        mock_chain.ainvoke = AsyncMock(return_value="Test response")
-        
+    mock_chain = MagicMock()
+    mock_chain.ainvoke = AsyncMock(return_value="Test response")
+    
+    with patch('app.routes_chat.create_chain_with_history', return_value=mock_chain):
         response = client.post(
             "/v1/chat",
             json={
@@ -60,9 +61,10 @@ def test_chat_endpoint_error_handling(mock_settings, client, mock_openai_key):
     # Disable MCP to test chain path directly
     mock_settings.use_mcp_in_chat = False
     
-    with patch('app.routes_chat.with_history') as mock_chain:
-        mock_chain.ainvoke = AsyncMock(side_effect=Exception("Test error"))
-        
+    mock_chain = MagicMock()
+    mock_chain.ainvoke = AsyncMock(side_effect=Exception("Test error"))
+    
+    with patch('app.routes_chat.create_chain_with_history', return_value=mock_chain):
         response = client.post(
             "/v1/chat",
             json={
@@ -87,10 +89,11 @@ def test_chat_stream_endpoint_success(mock_settings, client, mock_openai_key):
         yield "token2"
         yield "token3"
     
-    with patch('app.routes_chat.with_history') as mock_chain:
-        # astream should return an async generator, not a coroutine
-        mock_chain.astream = lambda *args, **kwargs: mock_stream()
-        
+    mock_chain = MagicMock()
+    # astream should return an async generator, not a coroutine
+    mock_chain.astream = lambda *args, **kwargs: mock_stream()
+    
+    with patch('app.routes_chat.create_chain_with_history', return_value=mock_chain):
         response = client.post(
             "/v1/chat/stream",
             json={
@@ -122,25 +125,18 @@ def test_chat_endpoint_with_mcp_agent(mock_settings, client, mock_openai_key):
     
     # Patch at the import location in routes_chat
     with patch('app.agent.build_agent_with_mcp', return_value=mock_context_manager):
-        # Mock RunnableWithMessageHistory
-        mock_runnable = AsyncMock()
-        mock_runnable.ainvoke = AsyncMock(return_value={"output": "MCP agent response"})
+        response = client.post(
+            "/v1/chat",
+            json={
+                "session_id": "test-session",
+                "input": "Hello",
+            },
+        )
         
-        with patch('app.routes_chat.RunnableWithMessageHistory') as mock_rwmh:
-            mock_rwmh.return_value = mock_runnable
-            
-            response = client.post(
-                "/v1/chat",
-                json={
-                    "session_id": "test-session",
-                    "input": "Hello",
-                },
-            )
-            
-            assert response.status_code == 200
-            data = response.json()
-            assert "text" in data
-            assert data["text"] == "MCP agent response"
+        assert response.status_code == 200
+        data = response.json()
+        assert "text" in data
+        assert data["text"] == "MCP agent response"
 
 
 @patch('app.routes_chat.settings')
@@ -155,11 +151,12 @@ def test_chat_endpoint_mcp_fallback(mock_settings, client, mock_openai_key):
     mock_context_manager.__aenter__ = AsyncMock(side_effect=Exception("MCP connection failed"))
     mock_context_manager.__aexit__ = AsyncMock(return_value=None)
     
+    mock_chain = MagicMock()
+    mock_chain.ainvoke = AsyncMock(return_value="Fallback response")
+    
     with patch('app.agent.build_agent_with_mcp', return_value=mock_context_manager):
         # Should fall back to chain
-        with patch('app.routes_chat.with_history') as mock_chain:
-            mock_chain.ainvoke = AsyncMock(return_value="Fallback response")
-            
+        with patch('app.routes_chat.create_chain_with_history', return_value=mock_chain):
             response = client.post(
                 "/v1/chat",
                 json={
