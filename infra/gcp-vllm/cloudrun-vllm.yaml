@@ -1,0 +1,54 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: ${SERVICE_NAME}
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/cpu-throttling: 'false'
+        run.googleapis.com/execution-environment: gen2
+        run.googleapis.com/startup-cpu-boost: 'true'
+        run.googleapis.com/gpu-zonal-redundancy-disabled: 'true'
+        autoscaling.knative.dev/minScale: '0'
+        autoscaling.knative.dev/maxScale: '1'
+    spec:
+      serviceAccountName: ${SERVICE_ACCOUNT}
+      containerConcurrency: 10
+      timeoutSeconds: 300
+      nodeSelector:
+        run.googleapis.com/accelerator: nvidia-l4
+      containers:
+        - image: ${CONTAINER_IMAGE}
+          ports:
+            - name: http1
+              containerPort: 8000
+          resources:
+            limits:
+              cpu: '8'
+              memory: 32Gi
+              nvidia.com/gpu: '1'
+          # Startup probe: wait for model to fully load (up to 30 minutes)
+          # Uses /v1/models which only returns 200 when model is ready
+          startupProbe:
+            httpGet:
+              path: /v1/models
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 60
+          # Liveness probe: basic health check once running
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          env:
+            - name: HUGGING_FACE_HUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: HF_TOKEN
+                  key: latest

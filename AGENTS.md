@@ -5,8 +5,8 @@ A guide for AI coding agents working on segov-dev.
 ## Project Overview
 
 This is a monorepo containing:
-- **Frontend**: Next.js 15 portfolio site with TypeScript strict mode, Tailwind CSS, file-based content management (JSON and Markdown). The site features a terminal-inspired design, blog functionality, and an "Ask Me Anything" chatbot page. The chatbot calls a FastAPI backend deployed on Cloud Run, which handles all LLM interactions with a self-hosted Qwen3-8B model on GCP vLLM.
-- **Backend**: FastAPI-based MCP server for Vertex AI RAG Engine operations, deployed on Google Cloud Run. All LLM calls are made to the self-hosted vLLM instance.
+- **Frontend**: Next.js 15 portfolio site with TypeScript strict mode, Tailwind CSS, file-based content management (JSON and Markdown). The site features a terminal-inspired design, blog functionality, and an "Ask Me Anything" chatbot page. The chatbot calls a FastAPI backend deployed on Cloud Run, which handles all LLM interactions with a self-hosted Qwen3-8B model on Cloud Run with GPU.
+- **Backend**: FastAPI-based MCP server for Vertex AI RAG Engine operations, deployed on Google Cloud Run. All LLM calls are made to the self-hosted vLLM Cloud Run GPU instance.
 - **Infrastructure**: Cloud Run deployment configurations and one-time bootstrap scripts for GCP infrastructure setup
 
 ## Setup Commands
@@ -67,45 +67,49 @@ cd infra && ./setup.sh
 ```
 
 This script (idempotent, safe to rerun) sets up:
-- Required GCP APIs (including Serverless VPC Access API)
+- Required GCP APIs
 - Artifact Registry for container images
 - Service account with minimal IAM roles
 - Workload Identity Federation (WIF) for Vercel authentication
 - GCS bucket for document ingestion
-- Secret Manager secrets (`OPENAI_API_KEY`, `RAG_CORPUS_NAME`)
+- Secret Manager secrets (`OPENAI_API_KEY`, `RAG_CORPUS_NAME`, `HF_TOKEN`)
 
 **Default values (can be overridden via environment variables):**
 - `PROJECT_ID`: `segov-dev-model` (hardcoded)
 - `REGION`: `us-east1`
 - `SERVICE_ACCOUNT_NAME`: `mcp-sa`
 - `GCS_BUCKET_NAME`: `segov-dev-bucket`
-- `CHAT_MODEL_ID`: `gpt-5-nano-2025-08-07`
+- `CHAT_MODEL_ID`: `Qwen/Qwen3-8B`
 
 **Optional environment variables for setup:**
 - `OPENAI_API_KEY` - If set, creates/updates the secret automatically
 - `RAG_CORPUS_NAME` or `CORPUS_ID` - If set, creates/updates the secret automatically
+- `HF_TOKEN` - If set, creates/updates the Hugging Face token secret
 - `VERCEL_TEAM_SLUG` - If using Vercel team accounts
 
-### Cloud Run Static Outbound IP Setup
+### vLLM Cloud Run GPU Deployment
 
-Before deploying the backend, set up VPC connector and Cloud NAT for static outbound IP:
+Deploy vLLM with GPU support to Cloud Run in us-east4:
 
 ```bash
-cd infra/gcp-vllm && ./setup_static_egress.sh
+cd infra/gcp-vllm && ./deploy-cloudrun.sh
 ```
 
-This script (idempotent, safe to rerun) creates:
-- Subnet for VPC connector (`cloudrun-egress-subnet`)
-- Serverless VPC Access Connector (`cloudrun-connector`)
-- Cloud Router (`cloudrun-router`)
-- Cloud NAT with reserved static IP (`segov-dev-static-ip-east1`)
+This script:
+- Builds vLLM container with Qwen3-8B model
+- Deploys to Cloud Run with NVIDIA L4 GPU in us-east4
+- Configures scale-to-zero for cost optimization
+- Sets up IAM for backend service account to invoke
 
-**Default values (can be overridden via environment variables):**
+**Default values:**
 - `PROJECT_ID`: `segov-dev-model`
-- `REGION`: `us-east1`
-- `STATIC_IP_NAME`: `segov-dev-static-ip-east1`
+- `REGION`: `us-east4` (Cloud Run GPU available here)
+- `SERVICE_NAME`: `vllm-inference`
+- `MODEL_ID`: `Qwen/Qwen3-8B`
 
-**Note:** The Cloud Run service is configured to use the VPC connector via annotations in `infra/backend/cloudrun.yaml`. This enables all outbound traffic to egress through the static IP, allowing secure firewall rules on the vLLM VM.
+**Cost:** Pay-per-use with scale-to-zero (~$0.67/hour when active, $0 when idle)
+
+**Cold Start:** ~30-60 seconds for model loading on first request
 
 ### GitHub Actions Setup
 
@@ -119,7 +123,6 @@ This script outputs the required GitHub secrets and variables. The `github-actio
 - `roles/artifactregistry.writer` - For pushing container images
 - `roles/run.admin` - For Cloud Run deployments
 - `roles/iam.serviceAccountUser` - To impersonate service accounts
-- `roles/compute.instanceAdmin.v1` - For VM operations (SSH, SCP, instance management)
 
 **Required GitHub Secrets (prod environment):**
 - `WIF_PROVIDER` - Workload Identity Provider resource name
@@ -128,9 +131,11 @@ This script outputs the required GitHub secrets and variables. The `github-actio
 
 **Required GitHub Variables (prod environment):**
 - `GCP_PROJECT_ID` - GCP project ID (`segov-dev-model`)
-- `VLLM_ZONE` - VM zone (default: `us-east1-b`)
-- `VLLM_INSTANCE_NAME` - VM instance name (default: `qwen3-inference-node`)
-- `PORTFOLIO_BACKEND_IP` - Static IP for Cloud Run egress in CIDR format (e.g., `35.237.115.157/32`)
+- `OPENAI_BASE_URL` - vLLM Cloud Run service URL (e.g., `https://vllm-inference-xxxxx-ue.a.run.app/v1`)
+
+**Optional GitHub Variables:**
+- `VLLM_REGION` - Override default region (default: `us-east4`)
+- `VLLM_SERVICE_NAME` - Override service name (default: `vllm-inference`)
 
 ### Backend Deployment
 
@@ -144,7 +149,7 @@ The deploy script uses the same defaults as the setup script. No environment var
 
 **Prerequisites:**
 - Run `cd infra && ./setup.sh` first (one-time infrastructure setup)
-- Run `cd infra/gcp-vllm && ./setup_static_egress.sh` (VPC connector and NAT setup)
+- Deploy vLLM: `cd infra/gcp-vllm && ./deploy-cloudrun.sh`
 
 ## Environment Variables
 
@@ -162,7 +167,7 @@ The deploy script uses the same defaults as the setup script. No environment var
 
 **Note:** The frontend uses Workload Identity Federation (WIF) to authenticate with Cloud Run. When `CLOUD_RUN_URL` is set, the BFF (`frontend/app/api/chatbot/route.ts`) exchanges Vercel OIDC tokens for Google ID tokens via WIF and calls the Cloud Run backend. If `CLOUD_RUN_URL` is not set, it falls back to calling the local backend without authentication.
 
-**Architecture:** Frontend → Backend API route → Cloud Run backend → GCP vLLM (Qwen3-8B)
+**Architecture:** Frontend → Backend API route → Cloud Run backend → Cloud Run vLLM GPU (Qwen3-8B)
 
 ### Backend (`backend/.env`)
 
@@ -171,13 +176,13 @@ The deploy script uses the same defaults as the setup script. No environment var
 - `LOCATION` - Vertex AI region (default: `us-east1`)
 - `RAG_CORPUS_NAME` - Full resource name of the RAG corpus (stored in Secret Manager)
 - `OPENAI_API_KEY` - OpenAI API key (use `EMPTY` for vLLM)
-- `OPENAI_BASE_URL` - Base URL for vLLM (e.g., `http://YOUR_VLLM_IP:8000/v1`)
+- `OPENAI_BASE_URL` - Base URL for vLLM Cloud Run (e.g., `https://vllm-inference-xxxxx-ue.a.run.app/v1`)
 - `CHAT_MODEL_ID` - Model ID (default: `Qwen/Qwen3-8B`)
 - `GCS_BUCKET_NAME` - GCS bucket for document ingestion (default: `segov-dev-bucket`)
 - `USE_MCP_IN_CHAT` - Enable MCP tools in chat (default: `true`)
 - `MCP_REQUIRE_AUTH` - Require MCP authentication (default: `false`)
 
-**Note:** The backend makes calls to the self-hosted vLLM instance. All LLM interactions are handled server-side.
+**Note:** The backend makes calls to the self-hosted vLLM Cloud Run GPU instance. All LLM interactions are handled server-side with scale-to-zero cost optimization.
 
 **Never commit `.env.local`, `.env`, or any `.env*` files to version control.**
 
@@ -222,7 +227,7 @@ Write tests for components in the `tests/` directory mirroring the `components/`
 1. **Initial setup**: 
    - Run `pnpm install` to install dependencies
    - Set up GCP infrastructure: `cd infra && ./setup.sh`
-   - Set up Cloud Run static egress: `cd infra/gcp-vllm && ./setup_static_egress.sh`
+   - Deploy vLLM: `cd infra/gcp-vllm && ./deploy-cloudrun.sh`
    - Export environment variables from `backend/.env` if needed (see Environment Variables section)
 2. **Start dev servers**: 
    - Run `pnpm dev` to start all development servers

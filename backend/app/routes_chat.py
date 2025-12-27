@@ -3,10 +3,9 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
 from app.schemas import ChatRequest, ChatResponse
-from app.memory import with_history, get_session_history
-from app.chains import create_chain, SYSTEM_PROMPT
+from app.memory import create_chain_with_history, get_session_history
+from app.chains import SYSTEM_PROMPT
 from app.config import settings
-from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 import logging
 
@@ -73,16 +72,11 @@ async def chat(req: ChatRequest):
                 # Fall through to non-MCP chain
         
         # Fallback to non-MCP chain
-        chain = with_history
-        if req.model or req.temperature is not None:
-            # Create new chain with overrides
-            new_base = create_chain(model=req.model, temperature=req.temperature)
-            chain = RunnableWithMessageHistory(
-                new_base,
-                get_session_history=get_session_history,
-                input_messages_key="input",
-                history_messages_key="history",
-            )
+        # Always create fresh chain to ensure auth tokens are refreshed
+        chain = create_chain_with_history(
+            model=req.model,
+            temperature=req.temperature
+        )
         
         input_data = {"input": req.input, "system": SYSTEM_PROMPT}
         
@@ -166,15 +160,11 @@ async def chat_stream(req: ChatRequest):
                     # Fall through to non-MCP chain
             
             # Fallback to non-MCP chain
-            chain = with_history
-            if req.model or req.temperature is not None:
-                new_base = create_chain(model=req.model, temperature=req.temperature)
-                chain = RunnableWithMessageHistory(
-                    new_base,
-                    get_session_history=get_session_history,
-                    input_messages_key="input",
-                    history_messages_key="history",
-                )
+            # Always create fresh chain to ensure auth tokens are refreshed
+            chain = create_chain_with_history(
+                model=req.model,
+                temperature=req.temperature
+            )
             
             input_data = {"input": req.input, "system": SYSTEM_PROMPT}
             
