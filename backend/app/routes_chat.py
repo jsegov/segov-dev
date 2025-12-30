@@ -1,4 +1,5 @@
 """Chat API routes with streaming support."""
+import re
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
@@ -10,6 +11,97 @@ from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Pattern to match <think>...</think> blocks (including multiline)
+_THINK_PATTERN = re.compile(r'<think>.*?</think>\s*', re.DOTALL)
+
+
+def strip_thinking_tags(text: str) -> str:
+    """Strip <think>...</think> reasoning blocks from model output.
+    
+    Qwen3 and similar models use these tags for chain-of-thought reasoning
+    that should not be exposed to end users.
+    """
+    return _THINK_PATTERN.sub('', text).strip()
+
+
+class StreamingThinkFilter:
+    """Streaming filter to remove <think>...</think> blocks from token stream.
+    
+    Buffers tokens while inside thinking blocks and yields only non-thinking content.
+    """
+    
+    def __init__(self):
+        self.buffer = ""
+        self.in_thinking = False
+    
+    def process(self, token: str) -> str:
+        """Process a token and return the portion that should be yielded to user.
+        
+        Args:
+            token: The next token from the model
+            
+        Returns:
+            Content that should be sent to the user (empty if inside thinking block)
+        """
+        self.buffer += token
+        
+        # If we're in a thinking block, check for closing tag
+        if self.in_thinking:
+            if "</think>" in self.buffer:
+                # Found end of thinking block
+                end_idx = self.buffer.find("</think>") + len("</think>")
+                # Discard thinking content, keep anything after
+                remaining = self.buffer[end_idx:].lstrip()
+                self.buffer = ""
+                self.in_thinking = False
+                return remaining
+            return ""  # Still inside thinking block, yield nothing
+        
+        # Check for start of thinking block
+        if "<think>" in self.buffer:
+            start_idx = self.buffer.find("<think>")
+            # Yield everything before the thinking block
+            to_yield = self.buffer[:start_idx]
+            self.buffer = self.buffer[start_idx:]
+            self.in_thinking = True
+            
+            # Check if thinking block also closes in this token
+            if "</think>" in self.buffer:
+                end_idx = self.buffer.find("</think>") + len("</think>")
+                remaining = self.buffer[end_idx:].lstrip()
+                self.buffer = ""
+                self.in_thinking = False
+                return to_yield + remaining
+            return to_yield
+        
+        # Check for partial tag at end that might be start of <think>
+        for i in range(1, min(len("<think>"), len(self.buffer) + 1)):
+            if self.buffer.endswith("<think>"[:i]):
+                # Potential partial tag, hold it back
+                to_yield = self.buffer[:-i]
+                self.buffer = self.buffer[-i:]
+                return to_yield
+        
+        # No thinking tags, yield everything
+        to_yield = self.buffer
+        self.buffer = ""
+        return to_yield
+    
+    def flush(self) -> str:
+        """Flush any remaining buffered content.
+        
+        Call this after all tokens have been processed.
+        Returns any non-thinking content that was buffered.
+        """
+        if self.in_thinking:
+            # Unclosed thinking block, discard it
+            self.buffer = ""
+            self.in_thinking = False
+            return ""
+        result = self.buffer
+        self.buffer = ""
+        return result
 
 router = APIRouter(prefix="/v1")
 
@@ -57,7 +149,10 @@ async def chat(req: ChatRequest):
                                     text = msg.content
                                     break
                     
-                    # Only add to history if we have a valid, non-empty response
+                    # Strip <think>...</think> reasoning blocks before validation
+                    text = strip_thinking_tags(text) if text else text
+                    
+                    # Validate AFTER stripping - response might be only thinking blocks
                     if not text or not text.strip():
                         raise ValueError("Agent returned empty response")
                     
@@ -84,6 +179,13 @@ async def chat(req: ChatRequest):
             input_data,
             config={"configurable": {"session_id": req.session_id}},
         )
+        # Strip <think>...</think> reasoning blocks from fallback chain too
+        out = strip_thinking_tags(out)
+        
+        # Validate AFTER stripping - response might be only thinking blocks
+        if not out or not out.strip():
+            raise ValueError("Chain returned empty response after stripping thinking blocks")
+        
         return JSONResponse({"text": out})
     except Exception as e:
         logger.error(f"Chat error: {e}", exc_info=True)
@@ -119,6 +221,7 @@ async def chat_stream(req: ChatRequest):
                         
                         emitted = False
                         full_response_content = ""
+                        think_filter = StreamingThinkFilter()
                         
                         async for event in agent.astream_events(
                             {"messages": messages},
@@ -129,29 +232,46 @@ async def chat_stream(req: ChatRequest):
                                 if "chunk" in event.get("data", {}):
                                     chunk = event["data"]["chunk"]
                                     if hasattr(chunk, "content") and chunk.content:
-                                        yield {"event": "token", "data": chunk.content}
+                                        # Filter out thinking blocks before yielding
+                                        filtered = think_filter.process(chunk.content)
+                                        if filtered:
+                                            yield {"event": "token", "data": filtered}
+                                            emitted = True
                                         full_response_content += chunk.content
-                                        emitted = True
                             elif event.get("event") == "on_chain_end" and event.get("name") == "AgentExecutor":
                                 if "output" in event.get("data", {}):
                                     output = event["data"]["output"]
                                     if isinstance(output, str) and output:
-                                        yield {"event": "token", "data": output}
+                                        filtered = think_filter.process(output)
+                                        if filtered:
+                                            yield {"event": "token", "data": filtered}
+                                            emitted = True
                                         full_response_content += output
-                                        emitted = True
                                     elif isinstance(output, dict) and "output" in output:
-                                        yield {"event": "token", "data": output["output"]}
+                                        filtered = think_filter.process(output["output"])
+                                        if filtered:
+                                            yield {"event": "token", "data": filtered}
+                                            emitted = True
                                         full_response_content += output["output"]
-                                        emitted = True
                         
-                        # Only add to history if we have valid, non-empty response
-                        if not emitted or not full_response_content.strip():
-                            raise ValueError("Agent produced no tokens or empty response")
+                        # Flush any remaining content from the filter
+                        remaining = think_filter.flush()
+                        if remaining:
+                            yield {"event": "token", "data": remaining}
+                            emitted = True
+                            full_response_content += remaining
+                        
+                        # Strip thinking tags from full content before saving to history
+                        clean_response = strip_thinking_tags(full_response_content)
+                        
+                        # Validate AFTER stripping - response might be only thinking blocks
+                        if not emitted or not clean_response.strip():
+                            raise ValueError("Agent produced no tokens or empty response after stripping thinking blocks")
                         
                         # Add messages to history only after confirming valid response
                         # Add both atomically to prevent inconsistency
                         history.add_user_message(req.input)
-                        history.add_ai_message(full_response_content)
+                        history.add_ai_message(clean_response)
                     
                     yield {"event": "done", "data": req.session_id}
                     return
@@ -160,19 +280,47 @@ async def chat_stream(req: ChatRequest):
                     # Fall through to non-MCP chain
             
             # Fallback to non-MCP chain
-            # Always create fresh chain to ensure auth tokens are refreshed
-            chain = create_chain_with_history(
+            # Use base chain (not history-wrapped) so we can manually save cleaned history
+            from app.chains import create_chain
+            chain = create_chain(
                 model=req.model,
                 temperature=req.temperature
             )
             
-            input_data = {"input": req.input, "system": SYSTEM_PROMPT}
+            history = get_session_history(req.session_id)
+            input_data = {
+                "input": req.input,
+                "system": SYSTEM_PROMPT,
+                "history": history.messages,
+            }
+            think_filter = StreamingThinkFilter()
+            emitted = False
+            full_response_content = ""
             
-            async for chunk in chain.astream(
-                input_data,
-                config={"configurable": {"session_id": req.session_id}},
-            ):
-                yield {"event": "token", "data": chunk}
+            async for chunk in chain.astream(input_data):
+                full_response_content += chunk
+                # Filter out thinking blocks before yielding
+                filtered = think_filter.process(chunk)
+                if filtered:
+                    yield {"event": "token", "data": filtered}
+                    emitted = True
+            
+            # Flush any remaining content from the filter
+            remaining = think_filter.flush()
+            if remaining:
+                yield {"event": "token", "data": remaining}
+                emitted = True
+                full_response_content += remaining
+            
+            # Strip thinking tags and validate
+            clean_response = strip_thinking_tags(full_response_content)
+            
+            if not emitted or not clean_response.strip():
+                raise ValueError("Chain produced no tokens after stripping thinking blocks")
+            
+            # Save cleaned response to history
+            history.add_user_message(req.input)
+            history.add_ai_message(clean_response)
             
             yield {"event": "done", "data": req.session_id}
         except Exception as e:
