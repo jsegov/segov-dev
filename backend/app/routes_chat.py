@@ -4,8 +4,8 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
 from app.schemas import ChatRequest, ChatResponse
-from app.memory import create_chain_with_history, get_session_history
-from app.chains import SYSTEM_PROMPT
+from app.memory import get_session_history
+from app.chains import create_chain, SYSTEM_PROMPT
 from app.config import settings
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 import logging
@@ -13,6 +13,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Pattern to match <think>...</think> blocks (including multiline)
+# Uses \s* to consume whitespace after closing tag (consistent with StreamingThinkFilter.lstrip())
 _THINK_PATTERN = re.compile(r'<think>.*?</think>\s*', re.DOTALL)
 
 
@@ -21,19 +22,24 @@ def strip_thinking_tags(text: str) -> str:
     
     Qwen3 and similar models use these tags for chain-of-thought reasoning
     that should not be exposed to end users.
+    
+    Note: Does NOT strip leading/trailing whitespace from the full result to maintain
+    consistency with StreamingThinkFilter which only strips whitespace after </think> tags.
     """
-    return _THINK_PATTERN.sub('', text).strip()
+    return _THINK_PATTERN.sub('', text)
 
 
 class StreamingThinkFilter:
     """Streaming filter to remove <think>...</think> blocks from token stream.
     
     Buffers tokens while inside thinking blocks and yields only non-thinking content.
+    Strips leading whitespace after closing </think> tags to match strip_thinking_tags().
     """
     
     def __init__(self):
         self.buffer = ""
         self.in_thinking = False
+        self.strip_leading_ws = False  # Strip whitespace after exiting thinking block
     
     def process(self, token: str) -> str:
         """Process a token and return the portion that should be yielded to user.
@@ -46,18 +52,39 @@ class StreamingThinkFilter:
         """
         self.buffer += token
         
+        # If we just exited a thinking block, strip leading whitespace
+        if self.strip_leading_ws:
+            self.buffer = self.buffer.lstrip()
+            if self.buffer:
+                # Found non-whitespace, stop stripping
+                self.strip_leading_ws = False
+            else:
+                # All whitespace, continue stripping on next token
+                return ""
+        
         # If we're in a thinking block, check for closing tag
         if self.in_thinking:
             if "</think>" in self.buffer:
                 # Found end of thinking block
                 end_idx = self.buffer.find("</think>") + len("</think>")
-                # Discard thinking content, keep anything after
+                # Discard thinking content, keep anything after (stripped)
                 remaining = self.buffer[end_idx:].lstrip()
                 self.buffer = ""
                 self.in_thinking = False
-                return remaining
+                if remaining:
+                    # Check for another thinking block in remaining
+                    self.buffer = remaining
+                    return self._process_non_thinking()
+                else:
+                    # No content after tag yet, strip whitespace on next tokens
+                    self.strip_leading_ws = True
+                    return ""
             return ""  # Still inside thinking block, yield nothing
         
+        return self._process_non_thinking()
+    
+    def _process_non_thinking(self) -> str:
+        """Process buffer when not inside a thinking block."""
         # Check for start of thinking block
         if "<think>" in self.buffer:
             start_idx = self.buffer.find("<think>")
@@ -72,7 +99,14 @@ class StreamingThinkFilter:
                 remaining = self.buffer[end_idx:].lstrip()
                 self.buffer = ""
                 self.in_thinking = False
-                return to_yield + remaining
+                if remaining:
+                    # Check for another thinking block in remaining
+                    self.buffer = remaining
+                    return to_yield + self._process_non_thinking()
+                else:
+                    # No content after tag yet, strip whitespace on next tokens
+                    self.strip_leading_ws = True
+                    return to_yield
             return to_yield
         
         # Check for partial tag at end that might be start of <think>
@@ -98,9 +132,11 @@ class StreamingThinkFilter:
             # Unclosed thinking block, discard it
             self.buffer = ""
             self.in_thinking = False
+            self.strip_leading_ws = False
             return ""
         result = self.buffer
         self.buffer = ""
+        self.strip_leading_ws = False
         return result
 
 router = APIRouter(prefix="/v1")
@@ -167,24 +203,31 @@ async def chat(req: ChatRequest):
                 # Fall through to non-MCP chain
         
         # Fallback to non-MCP chain
-        # Always create fresh chain to ensure auth tokens are refreshed
-        chain = create_chain_with_history(
+        # Use base chain (not history-wrapped) so we can manually save cleaned history
+        # This prevents RunnableWithMessageHistory from auto-saving unstripped content
+        chain = create_chain(
             model=req.model,
             temperature=req.temperature
         )
         
-        input_data = {"input": req.input, "system": SYSTEM_PROMPT}
+        history = get_session_history(req.session_id)
+        input_data = {
+            "input": req.input,
+            "system": SYSTEM_PROMPT,
+            "history": history.messages,
+        }
         
-        out = await chain.ainvoke(
-            input_data,
-            config={"configurable": {"session_id": req.session_id}},
-        )
+        out = await chain.ainvoke(input_data)
         # Strip <think>...</think> reasoning blocks from fallback chain too
         out = strip_thinking_tags(out)
         
         # Validate AFTER stripping - response might be only thinking blocks
         if not out or not out.strip():
             raise ValueError("Chain returned empty response after stripping thinking blocks")
+        
+        # Save cleaned response to history (after stripping, not before)
+        history.add_user_message(req.input)
+        history.add_ai_message(out)
         
         return JSONResponse({"text": out})
     except Exception as e:
@@ -281,7 +324,6 @@ async def chat_stream(req: ChatRequest):
             
             # Fallback to non-MCP chain
             # Use base chain (not history-wrapped) so we can manually save cleaned history
-            from app.chains import create_chain
             chain = create_chain(
                 model=req.model,
                 temperature=req.temperature
