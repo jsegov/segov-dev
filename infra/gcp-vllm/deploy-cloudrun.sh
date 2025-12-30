@@ -72,10 +72,10 @@ gcloud secrets add-iam-policy-binding HMAC_SECRET_KEY \
 # Step 2: Verify model weights exist in GCS bucket
 echo ""
 echo "2. Verifying model weights in GCS bucket..."
-if gsutil ls gs://${MODEL_WEIGHTS_BUCKET}/Qwen/Qwen3-8B/ &>/dev/null; then
-    echo "   Model weights found in gs://${MODEL_WEIGHTS_BUCKET}/Qwen/Qwen3-8B/"
+if gsutil ls gs://${MODEL_WEIGHTS_BUCKET}/${MODEL_ID}/ &>/dev/null; then
+    echo "   Model weights found in gs://${MODEL_WEIGHTS_BUCKET}/${MODEL_ID}/"
 else
-    echo "   Warning: Model weights not found in gs://${MODEL_WEIGHTS_BUCKET}/Qwen/Qwen3-8B/"
+    echo "   Warning: Model weights not found in gs://${MODEL_WEIGHTS_BUCKET}/${MODEL_ID}/"
     echo "   Please upload model weights before deployment."
 fi
 
