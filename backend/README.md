@@ -174,7 +174,6 @@ The backend also provides chat endpoints that integrate with the MCP server, all
 ### Chat Endpoints
 
 - `POST /v1/chat` - Non-streaming chat endpoint
-- `POST /v1/chat/stream` - Streaming chat endpoint (SSE)
 
 **Request Schema:**
 - `session_id` (required): Session identifier for maintaining conversation history
@@ -238,24 +237,6 @@ curl -X POST http://localhost:8080/v1/chat \
 **Note:** The `system` field is not accepted in the request. The system prompt is managed server-side.
 
 The agent will automatically use `vector_search` to find relevant documents when needed.
-
-### Streaming Chat
-
-```bash
-curl -X POST http://localhost:8080/v1/chat/stream \
-  -H "Content-Type: application/json" \
-  -d '{
-    "session_id": "user-123",
-    "input": "Tell me about machine learning",
-    "stream": true
-  }' \
-  -N
-```
-
-The response streams tokens as SSE events:
-- `event: token` - A token chunk
-- `event: done` - Stream complete
-- `event: error` - Error occurred
 
 ### More Information
 

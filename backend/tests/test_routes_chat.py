@@ -92,41 +92,6 @@ def test_chat_endpoint_error_handling(mock_settings, client, mock_openai_key):
 
 
 @patch('app.routes_chat.settings')
-def test_chat_stream_endpoint_success(mock_settings, client, mock_openai_key):
-    """Test successful streaming chat request."""
-    # Disable MCP to test chain path directly
-    mock_settings.use_mcp_in_chat = False
-    
-    async def mock_stream():
-        yield "token1"
-        yield "token2"
-        yield "token3"
-    
-    mock_chain = MagicMock()
-    # astream should return an async generator, not a coroutine
-    mock_chain.astream = lambda *args, **kwargs: mock_stream()
-    
-    mock_history = MagicMock()
-    mock_history.messages = []
-    mock_history.add_user_message = MagicMock()
-    mock_history.add_ai_message = MagicMock()
-    
-    with patch('app.routes_chat.create_chain', return_value=mock_chain):
-        with patch('app.routes_chat.get_session_history', return_value=mock_history):
-            response = client.post(
-                "/v1/chat/stream",
-                json={
-                    "session_id": "test-session",
-                    "input": "Hello",
-                },
-            )
-            
-            assert response.status_code == 200
-            # Note: SSE streams are harder to test with TestClient,
-            # but we verify the endpoint doesn't crash
-
-
-@patch('app.routes_chat.settings')
 def test_chat_endpoint_with_mcp_agent(mock_settings, client, mock_openai_key):
     """Test chat endpoint with MCP agent enabled."""
     # Mock MCP agent
@@ -293,46 +258,5 @@ class TestThinkingTagStripping:
         text = "<think>reasoning</think>   response"
         result = strip_thinking_tags(text)
         # The \s* in the regex removes whitespace after </think>
-        assert result == "response"
-    
-    def test_streaming_filter_consistency_with_strip(self):
-        """Test that StreamingThinkFilter produces same result as strip_thinking_tags."""
-        from app.routes_chat import strip_thinking_tags, StreamingThinkFilter
-        
-        test_cases = [
-            "<think>reasoning</think>response",
-            "<think>line1\nline2</think>  response after spaces",
-            "before<think>middle</think>after",
-            "<think>first</think>between<think>second</think>final",
-        ]
-        
-        for text in test_cases:
-            # Simulate streaming by processing character by character
-            filter_obj = StreamingThinkFilter()
-            streamed_result = ""
-            for char in text:
-                streamed_result += filter_obj.process(char)
-            streamed_result += filter_obj.flush()
-            
-            # Compare with batch stripping
-            batch_result = strip_thinking_tags(text)
-            
-            assert streamed_result == batch_result, \
-                f"Mismatch for '{text}': streamed='{streamed_result}', batch='{batch_result}'"
-    
-    def test_streaming_filter_with_token_chunks(self):
-        """Test StreamingThinkFilter with realistic token chunks."""
-        from app.routes_chat import StreamingThinkFilter
-        
-        filter_obj = StreamingThinkFilter()
-        
-        # Simulate tokens like: ["<th", "ink>", "reasoning", "</thi", "nk>", "response"]
-        tokens = ["<th", "ink>", "reasoning", "</thi", "nk>", "  response"]
-        result = ""
-        for token in tokens:
-            result += filter_obj.process(token)
-        result += filter_obj.flush()
-        
-        # Should strip whitespace after </think> just like the regex does
         assert result == "response"
 

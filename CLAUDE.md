@@ -71,8 +71,6 @@ Frontend (Vercel) → BFF API Route → Cloud Run Backend → Cloud Run vLLM GPU
 
 **LangChain Agent**: The backend uses LangChain for orchestration (`backend/app/agent.py`). The agent is built with `create_react_agent` and supports MCP tool calling. Chat history is managed via `RunnableWithMessageHistory`.
 
-**Streaming Chat**: SSE events (`token`, `done`, `error`) for real-time responses.
-
 **Qwen3 Reasoning**: The model outputs `<think>...</think>` blocks for chain-of-thought reasoning. These are stripped in `routes_chat.py:strip_thinking_tags()` before returning to users.
 
 ### Directory Structure
@@ -86,7 +84,7 @@ frontend/           # Next.js 15 app (TypeScript, Tailwind, shadcn/ui)
 backend/            # FastAPI MCP server (Python 3.11+)
 ├── app/
 │   ├── main.py         # FastAPI + MCP server setup
-│   ├── routes_chat.py  # Chat endpoints (SSE streaming)
+│   ├── routes_chat.py  # Chat endpoints
 │   ├── mcp_tools.py    # MCP tool implementations
 │   ├── agent.py        # LangChain agent orchestration
 │   └── prompts/        # System prompts (markdown)
