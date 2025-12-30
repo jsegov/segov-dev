@@ -76,3 +76,8 @@ spec:
                 secretKeyRef:
                   name: HMAC_SECRET_KEY
                   key: latest
+            # Model configuration
+            - name: MODEL_ID
+              value: ${MODEL_ID}
+            - name: MODEL_WEIGHTS_BUCKET
+              value: ${MODEL_WEIGHTS_BUCKET}

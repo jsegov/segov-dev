@@ -129,6 +129,8 @@ export PROJECT_ID
 export REGION
 export SERVICE_NAME
 export SERVICE_ACCOUNT
+export MODEL_ID
+export MODEL_WEIGHTS_BUCKET
 
 RENDERED_YAML="${SCRIPT_DIR}/cloudrun-vllm.rendered.yaml"
 envsubst < "${SCRIPT_DIR}/cloudrun-vllm.yaml" > "${RENDERED_YAML}"

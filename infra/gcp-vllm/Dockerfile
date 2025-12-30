@@ -25,4 +25,28 @@ EXPOSE 8000
 # NOTE: --reasoning-parser=qwen3 was removed due to a known bug in vLLM v0.9.0
 # where streaming with implicit enable_thinking=False causes the function call
 # parser to fail. See: https://github.com/vllm-project/vllm/issues/17655
-CMD ["--model", "s3://segov-dev-model-weights/Qwen/Qwen3-8B", "--load-format", "runai_streamer", "--model-loader-extra-config", "{\"concurrency\":8}", "--dtype", "bfloat16", "--max-model-len", "8192", "--gpu-memory-utilization", "0.90", "--trust-remote-code", "--enforce-eager", "--enable-auto-tool-choice", "--tool-call-parser", "hermes", "--host", "0.0.0.0", "--port", "8000"]
+
+# Create entrypoint script to construct model path from environment variables
+RUN cat > /entrypoint.sh << 'EOF'
+#!/bin/bash
+MODEL_ID=${MODEL_ID:-"Qwen/Qwen3-8B"}
+MODEL_WEIGHTS_BUCKET=${MODEL_WEIGHTS_BUCKET:-"segov-dev-model-weights"}
+MODEL_PATH="s3://${MODEL_WEIGHTS_BUCKET}/${MODEL_ID}"
+
+exec vllm serve "$MODEL_PATH" \
+  --load-format runai_streamer \
+  --model-loader-extra-config "{\"concurrency\":8}" \
+  --dtype bfloat16 \
+  --max-model-len 8192 \
+  --gpu-memory-utilization 0.90 \
+  --trust-remote-code \
+  --enforce-eager \
+  --enable-auto-tool-choice \
+  --tool-call-parser hermes \
+  --host 0.0.0.0 \
+  --port 8000
+EOF
+
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
