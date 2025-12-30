@@ -67,7 +67,10 @@ async def chat(req: ChatRequest):
                     if isinstance(out, str):
                         text = out
                     elif isinstance(out, dict):
-                        text = out.get("output")
+                        # Validate that output value is a string before using it
+                        output_value = out.get("output")
+                        if isinstance(output_value, str):
+                            text = output_value
                         if not text and "messages" in out:
                             for msg in reversed(out["messages"]):
                                 if isinstance(msg, AIMessage):
