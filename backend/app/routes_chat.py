@@ -71,8 +71,22 @@ async def chat(req: ChatRequest):
                         if not text and "messages" in out:
                             for msg in reversed(out["messages"]):
                                 if isinstance(msg, AIMessage):
-                                    text = msg.content
-                                    break
+                                    # AIMessage.content can be str or List[Union[str, Dict]]
+                                    # (list when containing tool calls). Only use string content.
+                                    if isinstance(msg.content, str):
+                                        text = msg.content
+                                        break
+                                    elif isinstance(msg.content, list):
+                                        # Extract string parts from list content
+                                        extracted = "".join(
+                                            item if isinstance(item, str) else ""
+                                            for item in msg.content
+                                        )
+                                        # Only use if we found actual text (not just tool calls)
+                                        if extracted:
+                                            text = extracted
+                                            break
+                                        # Otherwise continue searching earlier messages
                     
                     # Strip <think>...</think> reasoning blocks before validation
                     text = strip_thinking_tags(text) if text else text
