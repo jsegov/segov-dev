@@ -24,6 +24,7 @@ export interface ProjectEntry {
   description: string
   skills: string[]
   githubUrl: string
+  websiteUrl?: string
 }
 
 export interface BlogPost {
@@ -169,5 +170,3 @@ export async function getAllBlogSlugs(): Promise<string[]> {
     return []
   }
 }
-
-

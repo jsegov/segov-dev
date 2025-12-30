@@ -9,7 +9,6 @@ class ChatRequest(BaseModel):
     
     session_id: str
     input: str
-    stream: bool = False
     model: Optional[str] = None
     temperature: Optional[float] = None
 
@@ -17,10 +16,4 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     """Response schema for non-streaming chat endpoint."""
     text: str
-
-
-class ChatChunk(BaseModel):
-    """SSE event chunk schema."""
-    event: str  # token | done | error
-    data: str
 

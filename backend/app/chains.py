@@ -34,7 +34,7 @@ def create_chain(model: str | None = None, temperature: float | None = None):
     llm_kwargs = {
         'model': model_name,
         'temperature': temp,
-        'streaming': True,
+        'streaming': False,
         'api_key': settings.openai_api_key,
     }
     if settings.openai_base_url:

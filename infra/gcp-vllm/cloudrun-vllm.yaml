@@ -47,8 +47,37 @@ spec:
             timeoutSeconds: 10
             failureThreshold: 3
           env:
-            - name: HUGGING_FACE_HUB_TOKEN
+            # Run:ai Model Streamer S3-compatible config for GCS
+            # Both AWS_ENDPOINT_URL and RUNAI_STREAMER_S3_ENDPOINT needed for full compatibility
+            - name: RUNAI_STREAMER_S3_USE_VIRTUAL_ADDRESSING
+              value: '0'
+            - name: AWS_EC2_METADATA_DISABLED
+              value: 'true'
+            - name: AWS_ENDPOINT_URL
+              value: 'https://storage.googleapis.com'
+            - name: RUNAI_STREAMER_S3_ENDPOINT
+              value: 'https://storage.googleapis.com'
+            # AWS SDK requires a region even for S3-compatible endpoints
+            - name: AWS_DEFAULT_REGION
+              value: 'auto'
+            # Debug logging (remove after successful deployment)
+            - name: RUNAI_STREAMER_S3_TRACE
+              value: '1'
+            - name: RUNAI_STREAMER_LOG_LEVEL
+              value: 'DEBUG'
+            # HMAC credentials for GCS S3-compatible access
+            - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: HF_TOKEN
+                  name: HMAC_ACCESS_KEY
                   key: latest
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: HMAC_SECRET_KEY
+                  key: latest
+            # Model configuration
+            - name: MODEL_ID
+              value: ${MODEL_ID}
+            - name: MODEL_WEIGHTS_BUCKET
+              value: ${MODEL_WEIGHTS_BUCKET}

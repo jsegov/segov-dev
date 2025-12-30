@@ -27,20 +27,29 @@ def test_chat_endpoint_success(mock_settings, client, mock_openai_key):
     mock_chain = MagicMock()
     mock_chain.ainvoke = AsyncMock(return_value="Test response")
     
-    with patch('app.routes_chat.create_chain_with_history', return_value=mock_chain):
-        response = client.post(
-            "/v1/chat",
-            json={
-                "session_id": "test-session",
-                "input": "Hello",
-            },
-        )
-        
-        assert response.status_code == 200
-        data = response.json()
-        assert "text" in data
-        assert data["text"] == "Test response"
-        mock_chain.ainvoke.assert_called_once()
+    mock_history = MagicMock()
+    mock_history.messages = []
+    mock_history.add_user_message = MagicMock()
+    mock_history.add_ai_message = MagicMock()
+    
+    with patch('app.routes_chat.create_chain', return_value=mock_chain):
+        with patch('app.routes_chat.get_session_history', return_value=mock_history):
+            response = client.post(
+                "/v1/chat",
+                json={
+                    "session_id": "test-session",
+                    "input": "Hello",
+                },
+            )
+            
+            assert response.status_code == 200
+            data = response.json()
+            assert "text" in data
+            assert data["text"] == "Test response"
+            mock_chain.ainvoke.assert_called_once()
+            # Verify cleaned response was saved to history
+            mock_history.add_user_message.assert_called_once_with("Hello")
+            mock_history.add_ai_message.assert_called_once_with("Test response")
 
 
 def test_chat_endpoint_missing_input(client, mock_openai_key):
@@ -64,47 +73,22 @@ def test_chat_endpoint_error_handling(mock_settings, client, mock_openai_key):
     mock_chain = MagicMock()
     mock_chain.ainvoke = AsyncMock(side_effect=Exception("Test error"))
     
-    with patch('app.routes_chat.create_chain_with_history', return_value=mock_chain):
-        response = client.post(
-            "/v1/chat",
-            json={
-                "session_id": "test-session",
-                "input": "Hello",
-            },
-        )
-        
-        assert response.status_code == 500
-        data = response.json()
-        assert "detail" in data
-
-
-@patch('app.routes_chat.settings')
-def test_chat_stream_endpoint_success(mock_settings, client, mock_openai_key):
-    """Test successful streaming chat request."""
-    # Disable MCP to test chain path directly
-    mock_settings.use_mcp_in_chat = False
+    mock_history = MagicMock()
+    mock_history.messages = []
     
-    async def mock_stream():
-        yield "token1"
-        yield "token2"
-        yield "token3"
-    
-    mock_chain = MagicMock()
-    # astream should return an async generator, not a coroutine
-    mock_chain.astream = lambda *args, **kwargs: mock_stream()
-    
-    with patch('app.routes_chat.create_chain_with_history', return_value=mock_chain):
-        response = client.post(
-            "/v1/chat/stream",
-            json={
-                "session_id": "test-session",
-                "input": "Hello",
-            },
-        )
-        
-        assert response.status_code == 200
-        # Note: SSE streams are harder to test with TestClient,
-        # but we verify the endpoint doesn't crash
+    with patch('app.routes_chat.create_chain', return_value=mock_chain):
+        with patch('app.routes_chat.get_session_history', return_value=mock_history):
+            response = client.post(
+                "/v1/chat",
+                json={
+                    "session_id": "test-session",
+                    "input": "Hello",
+                },
+            )
+            
+            assert response.status_code == 500
+            data = response.json()
+            assert "detail" in data
 
 
 @patch('app.routes_chat.settings')
@@ -154,21 +138,30 @@ def test_chat_endpoint_mcp_fallback(mock_settings, client, mock_openai_key):
     mock_chain = MagicMock()
     mock_chain.ainvoke = AsyncMock(return_value="Fallback response")
     
+    mock_history = MagicMock()
+    mock_history.messages = []
+    mock_history.add_user_message = MagicMock()
+    mock_history.add_ai_message = MagicMock()
+    
     with patch('app.agent.build_agent_with_mcp', return_value=mock_context_manager):
         # Should fall back to chain
-        with patch('app.routes_chat.create_chain_with_history', return_value=mock_chain):
-            response = client.post(
-                "/v1/chat",
-                json={
-                    "session_id": "test-session",
-                    "input": "Hello",
-                },
-            )
-            
-            assert response.status_code == 200
-            data = response.json()
-            assert "text" in data
-            assert data["text"] == "Fallback response"
+        with patch('app.routes_chat.create_chain', return_value=mock_chain):
+            with patch('app.routes_chat.get_session_history', return_value=mock_history):
+                response = client.post(
+                    "/v1/chat",
+                    json={
+                        "session_id": "test-session",
+                        "input": "Hello",
+                    },
+                )
+                
+                assert response.status_code == 200
+                data = response.json()
+                assert "text" in data
+                assert data["text"] == "Fallback response"
+                # Verify cleaned response was saved to history
+                mock_history.add_user_message.assert_called_once_with("Hello")
+                mock_history.add_ai_message.assert_called_once_with("Fallback response")
 
 
 @patch('app.routes_chat.settings')
@@ -228,4 +221,85 @@ def test_chat_endpoint_rejects_system_field(client, mock_openai_key):
     )
     
     assert response.status_code == 422  # Validation error - extra field not allowed
+
+
+@patch('app.routes_chat.settings')
+def test_chat_endpoint_mcp_agent_with_non_string_output(mock_settings, client, mock_openai_key):
+    """Test that MCP agent with non-string output value falls back to message extraction."""
+    mock_settings.use_mcp_in_chat = True
+    mock_settings.chat_model_id = "test-model"
+    
+    # Mock agent that returns dict with non-string output value
+    mock_agent = AsyncMock()
+    mock_agent.ainvoke = AsyncMock(return_value={
+        "output": 12345,  # Non-string output value (integer)
+        "messages": [
+            AIMessage(content="Valid string response from messages")
+        ]
+    })
+    
+    mock_context_manager = MagicMock()
+    mock_context_manager.__aenter__ = AsyncMock(return_value=mock_agent)
+    mock_context_manager.__aexit__ = AsyncMock(return_value=None)
+    
+    mock_history = MagicMock()
+    mock_history.messages = []
+    mock_history.add_user_message = MagicMock()
+    mock_history.add_ai_message = MagicMock()
+    
+    with patch('app.agent.build_agent_with_mcp', return_value=mock_context_manager):
+        with patch('app.routes_chat.get_session_history', return_value=mock_history):
+            response = client.post(
+                "/v1/chat",
+                json={
+                    "session_id": "test-session",
+                    "input": "Hello",
+                },
+            )
+            
+            assert response.status_code == 200
+            data = response.json()
+            assert "text" in data
+            # Should extract from messages since output is not a string
+            assert data["text"] == "Valid string response from messages"
+            mock_history.add_user_message.assert_called_once_with("Hello")
+            mock_history.add_ai_message.assert_called_once_with("Valid string response from messages")
+
+
+class TestThinkingTagStripping:
+    """Tests for thinking tag stripping functions to ensure consistency."""
+    
+    def test_strip_thinking_tags_basic(self):
+        """Test basic thinking tag removal."""
+        from app.routes_chat import strip_thinking_tags
+        
+        text = "<think>reasoning here</think>actual response"
+        result = strip_thinking_tags(text)
+        assert result == "actual response"
+    
+    def test_strip_thinking_tags_multiline(self):
+        """Test multiline thinking tag removal."""
+        from app.routes_chat import strip_thinking_tags
+        
+        text = "<think>line1\nline2\nline3</think>response"
+        result = strip_thinking_tags(text)
+        assert result == "response"
+    
+    def test_strip_thinking_tags_preserves_leading_space(self):
+        """Test that leading whitespace before think tags is preserved."""
+        from app.routes_chat import strip_thinking_tags
+        
+        # Whitespace before content should be preserved
+        text = "  <think>reasoning</think>response"
+        result = strip_thinking_tags(text)
+        assert result == "  response"
+    
+    def test_strip_thinking_tags_removes_trailing_whitespace_after_tag(self):
+        """Test that whitespace AFTER </think> is removed (matches StreamingThinkFilter)."""
+        from app.routes_chat import strip_thinking_tags
+        
+        text = "<think>reasoning</think>   response"
+        result = strip_thinking_tags(text)
+        # The \s* in the regex removes whitespace after </think>
+        assert result == "response"
 

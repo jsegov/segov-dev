@@ -1,9 +1,33 @@
 [
   {
     "name": "segov.dev",
-    "description": "A portfolio website built with Next.js and deployed on Vercel. It features information about my professional experience and side projects. It includes an AI-powered chatbot with a FastAPI backend deployed on Cloud Run that integrates LangChain, Vertex AI RAG, and MCP (Model Context Protocol) tools for document retrieval and vector search.",
-    "skills": ["Next.js", "React", "Tailwind CSS", "FastAPI", "LangChain", "Vertex AI", "Cloud Run", "MCP"],
+    "description": "A portfolio website built with Next.js and deployed on Vercel. It features information about my professional experience and side projects. Includes AI-powered chatbot with FastAPI backend, featuring self-hosted Qwen3-8B model on Google Cloud Run with NVIDIA L4 GPU using vLLM for high-throughput inference, integrating LangChain, Vertex AI RAG, and MCP (Model Context Protocol) tools for document retrieval and vector search.",
+    "skills": [
+      "Next.js",
+      "React",
+      "Tailwind CSS",
+      "FastAPI",
+      "LangChain",
+      "Vertex AI",
+      "Cloud Run",
+      "vLLM",
+      "MCP"
+    ],
     "githubUrl": "https://github.com/jsegov/segov-dev"
+  },
+  {
+    "name": "Ship Spec CLI",
+    "description": "AI-powered CLI tool for codebase analysis and production readiness evaluation. Features interactive planning workflows with PRD/tech spec generation, semantic chunking via Tree-sitter, and agentic workflows using LangGraph with human-in-the-loop review cycles.",
+    "skills": [
+      "TypeScript",
+      "LangChain",
+      "LangGraph",
+      "Commander",
+      "LanceDB",
+      "Tree-sitter",
+      "Zod"
+    ],
+    "githubUrl": "https://github.com/jsegov/shipspec-cli",
+    "websiteUrl": "https://www.shipspec.ai/"
   }
 ]
-

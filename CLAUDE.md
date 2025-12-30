@@ -35,7 +35,9 @@ pnpm test:e2e:ui      # Playwright UI mode
 cd backend
 pip install -r requirements.txt  # Or: poetry install, uv pip install
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
-pytest                # Run backend tests
+pytest                           # Run all backend tests
+pytest tests/test_routes.py      # Single test file
+pytest -k "test_chat"            # Run tests matching pattern
 ```
 
 ### Infrastructure
@@ -44,6 +46,10 @@ cd infra && ./setup.sh                    # One-time GCP infrastructure bootstra
 cd backend && ../infra/backend/deploy.sh  # Deploy backend to Cloud Run
 cd infra/gcp-vllm && ./deploy-cloudrun.sh # Deploy vLLM with GPU to Cloud Run
 ```
+
+### CI/CD
+- Push to `main` triggers GitHub Actions deployment to Cloud Run
+- Workflows: `.github/workflows/deploy.yml` (backend), `vllm-deploy.yml` (GPU inference)
 
 ## Architecture
 
@@ -63,7 +69,9 @@ Frontend (Vercel) → BFF API Route → Cloud Run Backend → Cloud Run vLLM GPU
 - `doc_get` - Retrieve documents from GCS (whitelisted paths only)
 - `ingest_from_gcs` - Ingest documents into RAG corpus
 
-**Streaming Chat**: SSE events (`token`, `done`, `error`) for real-time responses.
+**LangChain Agent**: The backend uses LangChain for orchestration (`backend/app/agent.py`). The agent is built with `create_react_agent` and supports MCP tool calling. Chat history is managed via `RunnableWithMessageHistory`.
+
+**Qwen3 Reasoning**: The model outputs `<think>...</think>` blocks for chain-of-thought reasoning. These are stripped in `routes_chat.py:strip_thinking_tags()` before returning to users.
 
 ### Directory Structure
 ```
@@ -76,7 +84,7 @@ frontend/           # Next.js 15 app (TypeScript, Tailwind, shadcn/ui)
 backend/            # FastAPI MCP server (Python 3.11+)
 ├── app/
 │   ├── main.py         # FastAPI + MCP server setup
-│   ├── routes_chat.py  # Chat endpoints (SSE streaming)
+│   ├── routes_chat.py  # Chat endpoints
 │   ├── mcp_tools.py    # MCP tool implementations
 │   ├── agent.py        # LangChain agent orchestration
 │   └── prompts/        # System prompts (markdown)
