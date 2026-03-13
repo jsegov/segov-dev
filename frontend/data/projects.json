@@ -1,17 +1,14 @@
 [
   {
     "name": "segov.dev",
-    "description": "A portfolio website built with Next.js and deployed on Vercel. It features information about my professional experience and side projects. Includes AI-powered chatbot with FastAPI backend, featuring self-hosted Qwen3-8B model on Google Cloud Run with NVIDIA L4 GPU using vLLM for high-throughput inference, integrating LangChain, Vertex AI RAG, and MCP (Model Context Protocol) tools for document retrieval and vector search.",
+    "description": "A portfolio website built with Next.js and deployed on Vercel. It features information about my professional experience and side projects, plus an AI-powered AMA chatbot built with Vercel AI SDK Agents. The chat uses AI Gateway for model routing and retrieves resume context from private Vercel Blob storage.",
     "skills": [
       "Next.js",
       "React",
       "Tailwind CSS",
-      "FastAPI",
-      "LangChain",
-      "Vertex AI",
-      "Cloud Run",
-      "vLLM",
-      "MCP"
+      "Vercel AI SDK",
+      "AI Gateway",
+      "Vercel Blob"
     ],
     "githubUrl": "https://github.com/jsegov/segov-dev"
   },

@@ -63,7 +63,7 @@ export default async function Home() {
             </div>
 
             <div className="terminal-line">
-              <span className="terminal-command">$ find / -name "social_links"</span>
+              <span className="terminal-command">$ find / -name &quot;social_links&quot;</span>
             </div>
             <div className="terminal-response">
               <div className="font-mono text-sm">
