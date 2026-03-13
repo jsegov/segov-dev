@@ -1,34 +1,34 @@
-"use client"
+'use client'
 
-import React, { useState, useRef, useEffect } from "react"
-import { Navbar } from "@/components/navbar"
-import { useToast } from "@/components/ui/use-toast"
-import { useChat } from "@ai-sdk/react"
-import { DefaultChatTransport, isTextUIPart } from "ai"
+import React, { useState, useRef, useEffect } from 'react'
+import { Navbar } from '@/components/navbar'
+import { useToast } from '@/components/ui/use-toast'
+import { useChat } from '@ai-sdk/react'
+import { DefaultChatTransport, isTextUIPart } from 'ai'
 
-const INITIAL_ASSISTANT_MESSAGE = "segov@terminal:~$ ./ama \nAsk me anything about Jonathan."
+const INITIAL_ASSISTANT_MESSAGE = 'segov@terminal:~$ ./ama \nAsk me anything about Jonathan.'
 
 export default function AMAPage() {
-  const [input, setInput] = useState("")
+  const [input, setInput] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
   const { messages, sendMessage, status, error } = useChat({
     transport: new DefaultChatTransport({
-      api: "/api/chat",
+      api: '/api/chat',
     }),
     messages: [
       {
-        id: "initial",
-        role: "assistant",
-        parts: [{ type: "text", text: INITIAL_ASSISTANT_MESSAGE }],
+        id: 'initial',
+        role: 'assistant',
+        parts: [{ type: 'text', text: INITIAL_ASSISTANT_MESSAGE }],
       },
     ],
   })
 
-  const isLoading = status === "submitted" || status === "streaming"
+  const isLoading = status === 'submitted' || status === 'streaming'
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
   useEffect(() => {
@@ -36,29 +36,33 @@ export default function AMAPage() {
   }, [messages])
 
   useEffect(() => {
-    if (!error) return
+    if (!error) {
+      return
+    }
     toast({
-      title: "API Error",
-      description: "Failed to get a response from the API. Please try again later.",
-      variant: "destructive",
+      title: 'API Error',
+      description: 'Failed to get a response from the API. Please try again later.',
+      variant: 'destructive',
     })
   }, [error, toast])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
 
-    if (!input.trim() || isLoading) return
+    if (!input.trim() || isLoading) {
+      return
+    }
 
     const text = input
-    setInput("")
+    setInput('')
 
     try {
       await sendMessage({ text })
-    } catch (error) {
+    } catch {
       toast({
-        title: "API Error",
-        description: "Failed to get a response from the API. Please try again later.",
-        variant: "destructive",
+        title: 'API Error',
+        description: 'Failed to get a response from the API. Please try again later.',
+        variant: 'destructive',
       })
     }
   }
@@ -67,8 +71,8 @@ export default function AMAPage() {
     const text = parts
       .filter(isTextUIPart)
       .map((part) => part.text)
-      .join("")
-    return text.trim() ? text : "segov@terminal:~$ processing..."
+      .join('')
+    return text.trim() ? text : 'segov@terminal:~$ processing...'
   }
 
   return (
@@ -80,14 +84,20 @@ export default function AMAPage() {
           <div className="terminal-window-content flex-1 overflow-y-auto font-mono">
             {messages.map((message) => (
               <div key={message.id} className="mb-4">
-                {message.role === "user" ? (
+                {message.role === 'user' ? (
                   <div className="text-foreground">
                     <span className="text-muted-foreground">segov@terminal:~$ </span>
-                    <span>{getMessageText(message.parts as Array<{ type: string } & Record<string, unknown>>)}</span>
+                    <span>
+                      {getMessageText(
+                        message.parts as Array<{ type: string } & Record<string, unknown>>,
+                      )}
+                    </span>
                   </div>
                 ) : (
                   <div className="text-foreground whitespace-pre-line">
-                    {getMessageText(message.parts as Array<{ type: string } & Record<string, unknown>>)}
+                    {getMessageText(
+                      message.parts as Array<{ type: string } & Record<string, unknown>>,
+                    )}
                   </div>
                 )}
               </div>

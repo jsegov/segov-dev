@@ -9,7 +9,9 @@ interface MarkdownRendererProps {
 
 // Sanitize URLs to prevent XSS attacks
 function sanitizeUrl(url: string): string | null {
-  if (!url || typeof url !== 'string') return null
+  if (!url || typeof url !== 'string') {
+    return null
+  }
 
   // Remove any whitespace
   url = url.trim()
@@ -29,7 +31,7 @@ function sanitizeUrl(url: string): string | null {
       return null
     }
     return url
-  } catch (error) {
+  } catch {
     console.warn(`[MarkdownRenderer] Invalid URL format: ${url}`)
     return null
   }
@@ -50,24 +52,39 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
         p: ({ children }) => <p className="mb-4">{children}</p>,
 
         // Lists
-        ul: ({ node, ...props }) => <ul className="list-disc list-outside ml-6 my-4 space-y-2 text-foreground" {...props} />,
-        ol: ({ node, ...props }) => <ol className="list-decimal list-outside ml-6 my-4 space-y-2 text-foreground" {...props} />,
-        li: ({ node, ...props }) => <li className="leading-relaxed" {...props} />,
+        ul: ({ node: _node, ...props }) => (
+          <ul className="list-disc list-outside ml-6 my-4 space-y-2 text-foreground" {...props} />
+        ),
+        ol: ({ node: _node, ...props }) => (
+          <ol
+            className="list-decimal list-outside ml-6 my-4 space-y-2 text-foreground"
+            {...props}
+          />
+        ),
+        li: ({ node: _node, ...props }) => <li className="leading-relaxed" {...props} />,
 
         // Blockquote
-        blockquote: ({ node, ...props }) => (
-          <blockquote className="border-l-4 border-primary pl-4 py-1 my-6 italic text-muted-foreground bg-muted/50 rounded-r" {...props} />
+        blockquote: ({ node: _node, ...props }) => (
+          <blockquote
+            className="border-l-4 border-primary pl-4 py-1 my-6 italic text-muted-foreground bg-muted/50 rounded-r"
+            {...props}
+          />
         ),
 
         // Horizontal rule
-        hr: () => <div className="relative group my-6 rounded-lg overflow-hidden border border-border/30" />,
+        hr: () => (
+          <div className="relative group my-6 rounded-lg overflow-hidden border border-border/30" />
+        ),
 
         // Code blocks
         code: ({ className, children, ...props }) => {
           const isInline = !className
           if (isInline) {
             return (
-              <code className={`${className} bg-muted text-foreground px-1 py-0.5 rounded font-mono text-sm`} {...props}>
+              <code
+                className={`${className} bg-muted text-foreground px-1 py-0.5 rounded font-mono text-sm`}
+                {...props}
+              >
                 {children}
               </code>
             )
@@ -80,7 +97,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
         },
 
         // Links
-        a: ({ href, children, node, ...props }) => {
+        a: ({ href, children, node: _node, ...props }) => {
           if (!href) {
             return <span className="text-primary">{children}</span>
           }
@@ -95,7 +112,11 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
 
           if (isInternal) {
             return (
-              <Link href={sanitizedHref} className="text-primary hover:underline underline-offset-4 transition-colors" {...props}>
+              <Link
+                href={sanitizedHref}
+                className="text-primary hover:underline underline-offset-4 transition-colors"
+                {...props}
+              >
                 {children}
               </Link>
             )
@@ -115,8 +136,10 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
         },
 
         // Images
-        img: ({ src, alt, title, node, ...props }) => {
-          if (!src) return null
+        img: ({ src, alt, title, node: _node }) => {
+          if (!src) {
+            return null
+          }
 
           const sanitizedSrc = sanitizeUrl(src as string)
           if (!sanitizedSrc) {
@@ -146,4 +169,3 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
     </ReactMarkdown>
   )
 }
-

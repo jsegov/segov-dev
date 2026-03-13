@@ -1,17 +1,17 @@
-"use client"
+'use client'
 
-import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { Menu, X } from "lucide-react"
-import { useState } from "react"
-import { ThemeToggle } from "@/components/theme-toggle"
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+import { Menu, X } from 'lucide-react'
+import { useState } from 'react'
+import { ThemeToggle } from '@/components/theme-toggle'
 
 const navItems = [
-  { name: "Home", path: "/" },
-  { name: "Career", path: "/career" },
-  { name: "Projects", path: "/projects" },
-  { name: "Blog", path: "/blog" },
-  { name: "AMA", path: "/ama" },
+  { name: 'Home', path: '/' },
+  { name: 'Career', path: '/career' },
+  { name: 'Projects', path: '/projects' },
+  { name: 'Blog', path: '/blog' },
+  { name: 'AMA', path: '/ama' },
 ]
 
 export function Navbar() {
@@ -20,12 +20,12 @@ export function Navbar() {
 
   // Format the terminal prompt based on current path
   const getTerminalPrompt = () => {
-    if (pathname === "/") {
-      return "~/segov/:$"
+    if (pathname === '/') {
+      return '~/segov/:$'
     }
 
     // Remove the leading slash and get the first segment of the path
-    const pathSegment = pathname.substring(1).split("/")[0]
+    const pathSegment = pathname.substring(1).split('/')[0]
     return `~/segov/${pathSegment}:$`
   }
 
@@ -43,7 +43,7 @@ export function Navbar() {
             <Link
               key={item.path}
               href={item.path}
-              className={`nav-link ${pathname === item.path ? "text-foreground font-bold" : "text-muted-foreground"}`}
+              className={`nav-link ${pathname === item.path ? 'text-foreground font-bold' : 'text-muted-foreground'}`}
             >
               {item.name}
             </Link>
@@ -68,7 +68,7 @@ export function Navbar() {
               <Link
                 key={item.path}
                 href={item.path}
-                className={`nav-link ${pathname === item.path ? "text-foreground font-bold" : "text-muted-foreground"}`}
+                className={`nav-link ${pathname === item.path ? 'text-foreground font-bold' : 'text-muted-foreground'}`}
                 onClick={() => setIsMenuOpen(false)}
               >
                 {item.name}

@@ -26,6 +26,9 @@
     },
     "format": {
       "outputs": []
+    },
+    "format:check": {
+      "outputs": []
     }
   }
 }

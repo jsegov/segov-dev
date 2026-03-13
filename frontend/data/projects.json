@@ -2,14 +2,7 @@
   {
     "name": "segov.dev",
     "description": "A portfolio website built with Next.js and deployed on Vercel. It features information about my professional experience and side projects, plus an AI-powered AMA chatbot built with Vercel AI SDK Agents. The chat uses AI Gateway for model routing and retrieves resume context from private Vercel Blob storage.",
-    "skills": [
-      "Next.js",
-      "React",
-      "Tailwind CSS",
-      "Vercel AI SDK",
-      "AI Gateway",
-      "Vercel Blob"
-    ],
+    "skills": ["Next.js", "React", "Tailwind CSS", "Vercel AI SDK", "AI Gateway", "Vercel Blob"],
     "githubUrl": "https://github.com/jsegov/segov-dev"
   },
   {

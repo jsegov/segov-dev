@@ -9,7 +9,9 @@ vi.mock('ai', () => {
   class ToolLoopAgent {
     tools: Record<string, { execute?: (...args: unknown[]) => Promise<unknown> | unknown }>
 
-    constructor(settings: { tools?: Record<string, { execute?: (...args: unknown[]) => Promise<unknown> | unknown }> }) {
+    constructor(settings: {
+      tools?: Record<string, { execute?: (...args: unknown[]) => Promise<unknown> | unknown }>
+    }) {
       this.tools = settings.tools ?? {}
     }
   }
@@ -18,17 +20,21 @@ vi.mock('ai', () => {
     gateway: (id: string) => id,
     tool: (definition: unknown) => definition,
     ToolLoopAgent,
-    createAgentUIStreamResponse: vi.fn(async ({ agent, messages }: { agent: ToolLoopAgent; messages: unknown[] }) => {
-      const firstMessage = messages[0] as { role?: string; parts?: Array<{ type?: string; text?: string }> } | undefined
-      const firstText = firstMessage?.parts?.find((part) => part.type === 'text')?.text
+    createAgentUIStreamResponse: vi.fn(
+      async ({ agent, messages }: { agent: ToolLoopAgent; messages: unknown[] }) => {
+        const firstMessage = messages[0] as
+          | { role?: string; parts?: Array<{ type?: string; text?: string }> }
+          | undefined
+        const firstText = firstMessage?.parts?.find((part) => part.type === 'text')?.text
 
-      if (firstText === 'RUN_GET_RESUME_TOOL') {
-        const toolOutput = await agent.tools.get_resume.execute?.({})
-        return new Response(JSON.stringify(toolOutput), { status: 200 })
-      }
+        if (firstText === 'RUN_GET_RESUME_TOOL') {
+          const toolOutput = await agent.tools.get_resume.execute?.({})
+          return new Response(JSON.stringify(toolOutput), { status: 200 })
+        }
 
-      return new Response('stream-ok', { status: 200 })
-    }),
+        return new Response('stream-ok', { status: 200 })
+      },
+    ),
   }
 })
 

@@ -1,13 +1,13 @@
-import type { Metadata } from "next"
-import Image from "next/image"
-import Link from "next/link"
-import { Navbar } from "@/components/navbar"
-import { getBlogPosts, type BlogPost } from "@/lib/content"
-import { format } from "date-fns"
+import type { Metadata } from 'next'
+import Image from 'next/image'
+import Link from 'next/link'
+import { Navbar } from '@/components/navbar'
+import { getBlogPosts, type BlogPost } from '@/lib/content'
+import { format } from 'date-fns'
 
 export const metadata: Metadata = {
-  title: "Blog | Jonathan Segovia",
-  description: "Thoughts, tutorials, and insights from Jonathan Segovia",
+  title: 'Blog | Jonathan Segovia',
+  description: 'Thoughts, tutorials, and insights from Jonathan Segovia',
 }
 
 export const revalidate = 86400 // Revalidate every 24 hours
@@ -28,8 +28,8 @@ export default async function BlogPage() {
   try {
     posts = await getBlogPosts()
   } catch (err) {
-    console.error("Failed to fetch blog posts:", err)
-    error = "Failed to load blog data."
+    console.error('Failed to fetch blog posts:', err)
+    error = 'Failed to load blog data.'
   }
 
   return (
@@ -66,7 +66,7 @@ export default async function BlogPage() {
                       <div className="md:w-1/3">
                         <div className="relative aspect-video overflow-hidden rounded">
                           <Image
-                            src={post.coverImage.url || "/placeholder.svg?height=600&width=800"}
+                            src={post.coverImage.url || '/placeholder.svg?height=600&width=800'}
                             alt={post.title}
                             fill
                             className="object-cover transition-transform hover:scale-105"
@@ -78,7 +78,7 @@ export default async function BlogPage() {
                         <h2 className="text-xl font-bold mb-2">{post.title}</h2>
 
                         <div className="flex items-center text-muted-foreground/70 mb-3">
-                          <span>{format(publishedDate, "MMMM d, yyyy")}</span>
+                          <span>{format(publishedDate, 'MMMM d, yyyy')}</span>
                           <span className="mx-2">•</span>
                           <span>{readingTime} min read</span>
                         </div>
