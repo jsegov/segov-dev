@@ -1,23 +1,42 @@
 [
   {
     "name": "segov.dev",
-    "description": "A portfolio website built with Next.js and deployed on Vercel. It features information about my professional experience and side projects, plus an AI-powered AMA chatbot built with Vercel AI SDK Agents. The chat uses AI Gateway for model routing and retrieves resume context from private Vercel Blob storage.",
-    "skills": ["Next.js", "React", "Tailwind CSS", "Vercel AI SDK", "AI Gateway", "Vercel Blob"],
+    "description": "A frontend-only portfolio built with Next.js and deployed on Vercel. It includes a terminal-style AMA experience powered by AI SDK Agents in a Next.js API route, with model routing through AI Gateway and resume context loaded server-side from private Vercel Blob storage.",
+    "skills": [
+      "Next.js",
+      "React",
+      "TypeScript",
+      "Tailwind CSS",
+      "Vercel AI SDK Agents",
+      "AI Gateway",
+      "Vercel Blob"
+    ],
     "githubUrl": "https://github.com/jsegov/segov-dev"
   },
   {
-    "name": "Ship Spec CLI",
-    "description": "AI-powered CLI tool for codebase analysis and production readiness evaluation. Features interactive planning workflows with PRD/tech spec generation, semantic chunking via Tree-sitter, and agentic workflows using LangGraph with human-in-the-loop review cycles.",
+    "name": "AutoResearch Win RTX",
+    "description": "Windows-first fork of Karpathy's AutoResearch for autonomous single-GPU LLM pretraining on consumer RTX hardware. Agents iterate on `train.py` under a fixed 5-minute budget, keep/discard experiments by `val_bpb`, and use runtime autotuning for VRAM-tier-aware batch sizing and checkpointing. This project is listed as a notable fork in the upstream repository.",
     "skills": [
-      "TypeScript",
-      "LangChain",
-      "LangGraph",
-      "Commander",
-      "LanceDB",
-      "Tree-sitter",
-      "Zod"
+      "Python",
+      "PyTorch",
+      "CUDA",
+      "AI Agents",
+      "LLM Training",
+      "Autotuning",
+      "NVIDIA RTX"
     ],
-    "githubUrl": "https://github.com/jsegov/shipspec-cli",
-    "websiteUrl": "https://www.shipspec.ai/"
+    "githubUrl": "https://github.com/jsegov/autoresearch-win-rtx"
+  },
+  {
+    "name": "ShipSpec Claude Code Plugin",
+    "description": "A Claude Code marketplace plugin that brings spec-driven development workflows into the CLI. It packages planning and implementation commands (`/feature-planning`, `/implement-task`, `/implement-feature`), specialized agents, reusable skills, and Stop-event hook scripts that enforce retry loops and task verification against PRD/SDD artifacts.",
+    "skills": [
+      "Claude Code Plugins",
+      "Claude Code Marketplaces",
+      "AI Agents",
+      "Hooks",
+      "Spec-Driven Development"
+    ],
+    "githubUrl": "https://github.com/jsegov/shipspec-claude-code-plugin"
   }
 ]
