@@ -3,5 +3,4 @@ node_modules
 coverage
 dist
 build
-playwright-report
 test-results
