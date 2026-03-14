@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { Navbar } from '@/components/navbar'
 import { useToast } from '@/components/ui/use-toast'
 import { useChat } from '@ai-sdk/react'
-import { DefaultChatTransport, isTextUIPart } from 'ai'
+import { DefaultChatTransport, isTextUIPart, type UIMessage } from 'ai'
 
 const INITIAL_ASSISTANT_MESSAGE = 'segov@terminal:~$ ./ama \nAsk me anything about Jonathan.'
 const CHAT_TRANSPORT = new DefaultChatTransport({
@@ -69,12 +69,11 @@ export default function AMAPage() {
     }
   }
 
-  const getMessageText = (parts: Array<{ type: string } & Record<string, unknown>>) => {
-    return parts
+  const getMessageText = (parts: UIMessage['parts']) =>
+    parts
       .filter(isTextUIPart)
       .map((part) => part.text)
       .join('')
-  }
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -84,8 +83,7 @@ export default function AMAPage() {
         <div className="terminal-window flex-1 flex flex-col">
           <div className="terminal-window-content flex-1 overflow-y-auto font-mono">
             {messages.map((message) => {
-              const parts = message.parts as Array<{ type: string } & Record<string, unknown>>
-              const text = getMessageText(parts)
+              const text = getMessageText(message.parts)
 
               if (message.role === 'assistant' && !text.trim()) {
                 return null
