@@ -1,9 +1,6 @@
-node_modules
 .next
+node_modules
 coverage
 dist
 build
-*.min.js
-pnpm-lock.yaml
-.git
-
+test-results

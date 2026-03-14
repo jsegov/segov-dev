@@ -1,9 +1,10 @@
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import AMAPage from '@/app/ama/page'
 
-const { sendMessageMock, useChatMock } = vi.hoisted(() => ({
+const { fetchMock, sendMessageMock, useChatMock } = vi.hoisted(() => ({
+  fetchMock: vi.fn(),
   sendMessageMock: vi.fn(),
   useChatMock: vi.fn(),
 }))
@@ -25,6 +26,12 @@ vi.mock('@/components/ui/use-toast', () => ({
 describe('AMA page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.stubGlobal('fetch', fetchMock)
+    fetchMock.mockResolvedValue(
+      new Response(null, {
+        status: 204,
+      }),
+    )
     useChatMock.mockReturnValue({
       status: 'ready',
       error: undefined,
@@ -46,6 +53,7 @@ describe('AMA page', () => {
 
   afterEach(() => {
     cleanup()
+    vi.unstubAllGlobals()
   })
 
   it('renders streamed assistant output in terminal view', () => {
@@ -61,6 +69,7 @@ describe('AMA page', () => {
     render(<AMAPage />)
 
     const input = screen.getByRole('textbox')
+    await waitFor(() => expect(input).not.toBeDisabled())
     fireEvent.change(input, { target: { value: 'Tell me about your work.' } })
     fireEvent.submit(input.closest('form')!)
 
@@ -91,5 +100,14 @@ describe('AMA page', () => {
     render(<AMAPage />)
 
     expect(screen.queryByText('segov@terminal:~$ processing...')).not.toBeInTheDocument()
+  })
+
+  it('shows the bootstrap message until the ama session is ready', () => {
+    fetchMock.mockImplementationOnce(() => new Promise(() => {}))
+
+    render(<AMAPage />)
+
+    expect(screen.getByText('Preparing AMA session...')).toBeInTheDocument()
+    expect(screen.getByRole('textbox')).toBeDisabled()
   })
 })

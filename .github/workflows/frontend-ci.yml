@@ -1,27 +1,55 @@
-name: Frontend CI
+name: Site CI
 
 on:
   push:
     branches: [main, master]
     paths:
-      - 'frontend/**'
       - '.github/workflows/frontend-ci.yml'
       - 'package.json'
       - 'pnpm-lock.yaml'
-      - 'pnpm-workspace.yaml'
-      - 'turbo.json'
+      - 'vercel.json'
+      - 'app/**'
+      - 'components/**'
+      - 'data/**'
+      - 'hooks/**'
+      - 'lib/**'
+      - 'public/**'
+      - 'scripts/**'
+      - 'styles/**'
+      - 'tests/**'
+      - 'tsconfig.json'
+      - 'next.config.mjs'
+      - 'postcss.config.mjs'
+      - 'tailwind.config.ts'
+      - 'eslint.config.mjs'
+      - 'vitest.config.ts'
+      - 'vitest.setup.ts'
   pull_request:
     branches: [main, master]
     paths:
-      - 'frontend/**'
       - '.github/workflows/frontend-ci.yml'
       - 'package.json'
       - 'pnpm-lock.yaml'
-      - 'pnpm-workspace.yaml'
-      - 'turbo.json'
+      - 'vercel.json'
+      - 'app/**'
+      - 'components/**'
+      - 'data/**'
+      - 'hooks/**'
+      - 'lib/**'
+      - 'public/**'
+      - 'scripts/**'
+      - 'styles/**'
+      - 'tests/**'
+      - 'tsconfig.json'
+      - 'next.config.mjs'
+      - 'postcss.config.mjs'
+      - 'tailwind.config.ts'
+      - 'eslint.config.mjs'
+      - 'vitest.config.ts'
+      - 'vitest.setup.ts'
 
 concurrency:
-  group: frontend-ci-${{ github.workflow }}-${{ github.ref }}
+  group: site-ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -43,13 +71,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Format check
-        run: pnpm --filter frontend format:check
+        run: pnpm format:check
 
       - name: Lint
-        run: pnpm --filter frontend lint
+        run: pnpm lint
 
       - name: Unit tests
-        run: pnpm --filter frontend test
+        run: pnpm test
 
       - name: Build
-        run: pnpm --filter frontend build
+        run: pnpm build

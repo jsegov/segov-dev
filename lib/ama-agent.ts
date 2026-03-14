@@ -22,9 +22,22 @@ Style:
 - Prefer bullets only if the user asks for a list.
 `.trim()
 
-export function createAmaAgent() {
+interface AmaAgentOptions {
+  modelId: string
+  providerOrder?: string[]
+}
+
+export function createAmaAgent({ modelId, providerOrder = [] }: AmaAgentOptions) {
   return new ToolLoopAgent({
-    model: gateway('openai/gpt-5-mini'),
+    model: gateway(modelId),
+    providerOptions:
+      providerOrder.length > 0
+        ? {
+            gateway: {
+              order: providerOrder,
+            },
+          }
+        : undefined,
     instructions: AMA_INSTRUCTIONS,
     tools: {
       get_resume: tool({
