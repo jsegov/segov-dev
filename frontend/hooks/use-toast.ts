@@ -1,12 +1,11 @@
-"use client"
+'use client'
 
 // Adapted from: https://ui.shadcn.com/docs/components/toast
-import * as React from "react"
+import * as React from 'react'
 
-import type { ToastActionElement, ToastProps } from "@/components/ui/toast"
+import type { ToastActionElement, ToastProps } from '@/components/ui/toast'
 
 const TOAST_LIMIT = 5
-const TOAST_REMOVE_DELAY = 5000
 
 type ToasterToast = ToastProps & {
   id: string
@@ -16,10 +15,10 @@ type ToasterToast = ToastProps & {
 }
 
 const actionTypes = {
-  ADD_TOAST: "ADD_TOAST",
-  UPDATE_TOAST: "UPDATE_TOAST",
-  DISMISS_TOAST: "DISMISS_TOAST",
-  REMOVE_TOAST: "REMOVE_TOAST",
+  ADD_TOAST: 'ADD_TOAST',
+  UPDATE_TOAST: 'UPDATE_TOAST',
+  DISMISS_TOAST: 'DISMISS_TOAST',
+  REMOVE_TOAST: 'REMOVE_TOAST',
 } as const
 
 let count = 0
@@ -33,19 +32,19 @@ type ActionType = typeof actionTypes
 
 type Action =
   | {
-      type: ActionType["ADD_TOAST"]
+      type: ActionType['ADD_TOAST']
       toast: ToasterToast
     }
   | {
-      type: ActionType["UPDATE_TOAST"]
+      type: ActionType['UPDATE_TOAST']
       toast: Partial<ToasterToast>
     }
   | {
-      type: ActionType["DISMISS_TOAST"]
+      type: ActionType['DISMISS_TOAST']
       toastId?: string
     }
   | {
-      type: ActionType["REMOVE_TOAST"]
+      type: ActionType['REMOVE_TOAST']
       toastId?: string
     }
 
@@ -123,7 +122,7 @@ function dispatch(action: Action) {
   })
 }
 
-type Toast = Omit<ToasterToast, "id">
+type Toast = Omit<ToasterToast, 'id'>
 
 function toast({ ...props }: Toast) {
   const id = genId()
@@ -142,7 +141,9 @@ function toast({ ...props }: Toast) {
       id,
       open: true,
       onOpenChange: (open) => {
-        if (!open) dismiss()
+        if (!open) {
+          dismiss()
+        }
       },
     },
   })

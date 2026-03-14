@@ -1,24 +1,25 @@
-import Link from "next/link"
-import { Navbar } from "@/components/navbar"
-import { Github } from "lucide-react"
-import { getAboutMe } from "@/lib/content"
+import Link from 'next/link'
+import { Navbar } from '@/components/navbar'
+import { Github } from 'lucide-react'
+import { getAboutMe } from '@/lib/content'
 
 export default async function Home() {
-  const aboutMe = await getAboutMe() || { 
-    description: "my name is jonathan segovia, but some people call me segov. i am currently a swe at jeff bezos' online bookstore where i help automate content publishing at our netflix clone. previously i was a swe at workday where i played ping pong, attended happy hours, and failed at convincing leadership that workday was slow due to it's flawed design. i attended ucsb (aka paradise on earth), where i majored in computer science and minored in binge drinking."
+  const aboutMe = (await getAboutMe()) || {
+    description:
+      "my name is jonathan segovia, but some people call me segov. i am currently a swe at jeff bezos' online bookstore where i help automate content publishing at our netflix clone. previously i was a swe at workday where i played ping pong, attended happy hours, and failed at convincing leadership that workday was slow due to it's flawed design. i attended ucsb (aka paradise on earth), where i majored in computer science and minored in binge drinking.",
   }
-  
+
   const items = [
-    { name: "career", path: "/career", type: "directory" },
-    { name: "projects", path: "/projects", type: "directory" },
-    { name: "blog", path: "/blog", type: "directory" },
-    { name: "ama", path: "/ama", type: "directory" },
+    { name: 'career', path: '/career', type: 'directory' },
+    { name: 'projects', path: '/projects', type: 'directory' },
+    { name: 'blog', path: '/blog', type: 'directory' },
+    { name: 'ama', path: '/ama', type: 'directory' },
   ]
 
   const socialLinks = [
     {
-      name: "GitHub",
-      url: "https://github.com/jsegov",
+      name: 'GitHub',
+      url: 'https://github.com/jsegov',
       icon: <Github className="h-5 w-5" />,
     },
   ]
@@ -42,9 +43,7 @@ export default async function Home() {
               <span className="terminal-command">$ cat about.txt</span>
             </div>
             <div className="terminal-response">
-              <p className="mb-4">
-                {aboutMe.description}
-              </p>
+              <p className="mb-4">{aboutMe.description}</p>
             </div>
 
             <div className="terminal-line">
@@ -54,7 +53,11 @@ export default async function Home() {
               <div className="font-mono text-sm">
                 <div className="flex flex-wrap gap-x-6 gap-y-1">
                   {items.map((item) => (
-                    <Link key={item.name} href={item.path} className="text-blue-400 hover:underline">
+                    <Link
+                      key={item.name}
+                      href={item.path}
+                      className="text-blue-400 hover:underline"
+                    >
                       {item.name}/
                     </Link>
                   ))}
@@ -63,7 +66,7 @@ export default async function Home() {
             </div>
 
             <div className="terminal-line">
-              <span className="terminal-command">$ find / -name "social_links"</span>
+              <span className="terminal-command">$ find / -name &quot;social_links&quot;</span>
             </div>
             <div className="terminal-response">
               <div className="font-mono text-sm">

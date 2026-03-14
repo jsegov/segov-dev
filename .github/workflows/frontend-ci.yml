@@ -1,0 +1,55 @@
+name: Frontend CI
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend-ci.yml'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'turbo.json'
+  pull_request:
+    branches: [main, master]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend-ci.yml'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'turbo.json'
+
+concurrency:
+  group: frontend-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: 'pnpm'
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Format check
+        run: pnpm --filter frontend format:check
+
+      - name: Lint
+        run: pnpm --filter frontend lint
+
+      - name: Unit tests
+        run: pnpm --filter frontend test
+
+      - name: Build
+        run: pnpm --filter frontend build

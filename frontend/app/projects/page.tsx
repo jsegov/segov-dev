@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Navbar } from '@/components/navbar'
-import { getProjects, ProjectEntry } from '@/lib/content'
+import type { ProjectEntry } from '@/lib/content'
+import { getProjects } from '@/lib/content'
 import { Github, ExternalLink } from 'lucide-react'
 
 export const metadata: Metadata = {

@@ -1,11 +1,11 @@
-import type { Metadata } from "next"
-import { Navbar } from "@/components/navbar"
-import { getCareerEntries, type CareerEntry } from "@/lib/content"
-import { format } from "date-fns"
+import type { Metadata } from 'next'
+import { Navbar } from '@/components/navbar'
+import { getCareerEntries, type CareerEntry } from '@/lib/content'
+import { format } from 'date-fns'
 
 export const metadata: Metadata = {
-  title: "Career | Jonathan Segovia",
-  description: "Professional journey and experience of Jonathan Segovia",
+  title: 'Career | Jonathan Segovia',
+  description: 'Professional journey and experience of Jonathan Segovia',
 }
 
 export const revalidate = 86400 // Revalidate every 24 hours
@@ -15,12 +15,12 @@ export default async function CareerPage() {
   let error = null
 
   try {
-    console.log("[CareerPage] Fetching career entries")
+    console.log('[CareerPage] Fetching career entries')
     careerEntries = await getCareerEntries()
     console.log(`[CareerPage] Retrieved ${careerEntries.length} career entries`)
   } catch (err) {
-    console.error("[CareerPage] Failed to fetch career entries:", err)
-    error = "Failed to load career data."
+    console.error('[CareerPage] Failed to fetch career entries:', err)
+    error = 'Failed to load career data.'
   }
 
   return (
@@ -52,15 +52,21 @@ export default async function CareerPage() {
                 const endDate = entry.endDate ? new Date(entry.endDate) : null
 
                 return (
-                  <div key={index} className="border border-text-muted-foreground/foreground/30 rounded p-6 bg-card/30">
+                  <div
+                    key={index}
+                    className="border border-text-muted-foreground/foreground/30 rounded p-6 bg-card/30"
+                  >
                     <div className="flex flex-col md:flex-row md:justify-between md:items-start mb-3">
                       <h2 className="text-2xl font-bold">{entry.title}</h2>
                       <div className="text-sm text-terminal-text/70">
-                        {format(startDate, "MMM yyyy")} - {endDate ? format(endDate, "MMM yyyy") : "Present"}
+                        {format(startDate, 'MMM yyyy')} -{' '}
+                        {endDate ? format(endDate, 'MMM yyyy') : 'Present'}
                       </div>
                     </div>
                     <div className="text-lg mb-4">{entry.companyName}</div>
-                    <p className="text-text-muted-foreground/foreground/90 mb-4">{entry.description}</p>
+                    <p className="text-text-muted-foreground/foreground/90 mb-4">
+                      {entry.description}
+                    </p>
 
                     {entry.skills && entry.skills.length > 0 && (
                       <div className="flex flex-wrap gap-2">

@@ -7,32 +7,32 @@
     /* Light Mode - Terminal Aesthetic (Paper/Ink style) */
     --background: 45 29% 97%; /* #fbfaf5 - Warm off-white paper */
     --foreground: 0 0% 10%; /* #1a1a1a - Soft black ink */
-    
+
     --card: 45 29% 97%;
     --card-foreground: 0 0% 10%;
-    
+
     --popover: 45 29% 97%;
     --popover-foreground: 0 0% 10%;
-    
+
     --primary: 0 0% 9%;
     --primary-foreground: 0 0% 98%;
-    
+
     --secondary: 0 0% 96.1%;
     --secondary-foreground: 0 0% 9%;
-    
+
     --muted: 0 0% 96.1%;
     --muted-foreground: 0 0% 45.1%;
-    
+
     --accent: 0 0% 96.1%;
     --accent-foreground: 0 0% 9%;
-    
+
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
 
     --border: 0 0% 10%; /* Dark border for contrast in light mode */
     --input: 0 0% 10%;
     --ring: 0 0% 10%;
-    
+
     --radius: 0.5rem;
   }
 
@@ -40,28 +40,28 @@
     /* Dark Mode - Original Terminal Aesthetic */
     --background: 0 0% 3.9%; /* #0a0a0a */
     --foreground: 0 0% 87.8%; /* #e0e0e0 */
-    
+
     --card: 0 0% 3.9%;
     --card-foreground: 0 0% 87.8%;
-    
+
     --popover: 0 0% 3.9%;
     --popover-foreground: 0 0% 87.8%;
-    
+
     --primary: 0 0% 98%;
     --primary-foreground: 0 0% 9%;
-    
+
     --secondary: 0 0% 14.9%;
     --secondary-foreground: 0 0% 98%;
-    
+
     --muted: 0 0% 14.9%;
     --muted-foreground: 0 0% 63.9%;
-    
+
     --accent: 0 0% 14.9%;
     --accent-foreground: 0 0% 98%;
-    
+
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 0 0% 98%;
-    
+
     --border: 0 0% 87.8%; /* Light border for contrast in dark mode */
     --input: 0 0% 87.8%;
     --ring: 0 0% 83.1%;
