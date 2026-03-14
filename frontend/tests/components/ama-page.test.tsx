@@ -3,26 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import AMAPage from '@/app/ama/page'
 
-const sendMessageMock = vi.fn()
+const { sendMessageMock, useChatMock } = vi.hoisted(() => ({
+  sendMessageMock: vi.fn(),
+  useChatMock: vi.fn(),
+}))
 
 vi.mock('@ai-sdk/react', () => ({
-  useChat: vi.fn(() => ({
-    status: 'ready',
-    error: undefined,
-    sendMessage: sendMessageMock,
-    messages: [
-      {
-        id: 'assistant-1',
-        role: 'assistant',
-        parts: [
-          {
-            type: 'text',
-            text: 'Error: Query outside permitted scope. This terminal only responds to questions about Jonathan Segovia.',
-          },
-        ],
-      },
-    ],
-  })),
+  useChat: useChatMock,
 }))
 
 vi.mock('@/components/navbar', () => ({
@@ -38,6 +25,23 @@ vi.mock('@/components/ui/use-toast', () => ({
 describe('AMA page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    useChatMock.mockReturnValue({
+      status: 'ready',
+      error: undefined,
+      sendMessage: sendMessageMock,
+      messages: [
+        {
+          id: 'assistant-1',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'text',
+              text: 'Error: Query outside permitted scope. This terminal only responds to questions about Jonathan Segovia.',
+            },
+          ],
+        },
+      ],
+    })
   })
 
   afterEach(() => {
@@ -61,5 +65,31 @@ describe('AMA page', () => {
     fireEvent.submit(input.closest('form')!)
 
     expect(sendMessageMock).toHaveBeenCalledWith({ text: 'Tell me about your work.' })
+  })
+
+  it('does not render the processing placeholder for assistant messages without text parts', () => {
+    useChatMock.mockReturnValueOnce({
+      status: 'streaming',
+      error: undefined,
+      sendMessage: sendMessageMock,
+      messages: [
+        {
+          id: 'assistant-1',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-get_resume',
+              state: 'output-available',
+              input: {},
+              output: { available: true },
+            },
+          ],
+        },
+      ],
+    })
+
+    render(<AMAPage />)
+
+    expect(screen.queryByText('segov@terminal:~$ processing...')).not.toBeInTheDocument()
   })
 })
