@@ -20,6 +20,7 @@ const INITIAL_MESSAGES = [
 
 export default function AMAPage() {
   const [input, setInput] = useState('')
+  const [sessionReady, setSessionReady] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
   const { messages, sendMessage, status, error } = useChat({
@@ -28,6 +29,7 @@ export default function AMAPage() {
   })
 
   const isLoading = status === 'submitted' || status === 'streaming'
+  const isInputDisabled = !sessionReady || isLoading
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -48,10 +50,45 @@ export default function AMAPage() {
     })
   }, [error, toast])
 
+  useEffect(() => {
+    let cancelled = false
+
+    const bootstrapAmaSession = async () => {
+      try {
+        const response = await fetch('/api/ama/session', {
+          method: 'GET',
+          cache: 'no-store',
+        })
+
+        if (!response.ok) {
+          throw new Error('Failed to initialize AMA session')
+        }
+
+        if (!cancelled) {
+          setSessionReady(true)
+        }
+      } catch {
+        if (!cancelled) {
+          toast({
+            title: 'API Error',
+            description: 'Failed to initialize the AMA session. Please refresh and try again.',
+            variant: 'destructive',
+          })
+        }
+      }
+    }
+
+    bootstrapAmaSession()
+
+    return () => {
+      cancelled = true
+    }
+  }, [toast])
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
 
-    if (!input.trim() || isLoading) {
+    if (!input.trim() || isInputDisabled) {
       return
     }
 
@@ -106,6 +143,9 @@ export default function AMAPage() {
           </div>
 
           <form onSubmit={handleSubmit} className="border-t border-border/30 p-4">
+            {!sessionReady ? (
+              <div className="mb-3 text-sm text-muted-foreground">Preparing AMA session...</div>
+            ) : null}
             <div className="flex items-center">
               <span className="text-foreground mr-2">$</span>
               <input
@@ -113,7 +153,7 @@ export default function AMAPage() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 className="terminal-input flex-1 font-mono"
-                disabled={isLoading}
+                disabled={isInputDisabled}
               />
             </div>
           </form>

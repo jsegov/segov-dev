@@ -5,7 +5,7 @@ export default defineConfig({
   test: {
     environment: 'happy-dom',
     setupFiles: ['./vitest.setup.ts'],
-    exclude: ['node_modules/**'],
+    exclude: ['**/node_modules/**', '.next/**'],
     coverage: {
       provider: 'v8',
     },
