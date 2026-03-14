@@ -7,22 +7,24 @@ import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport, isTextUIPart } from 'ai'
 
 const INITIAL_ASSISTANT_MESSAGE = 'segov@terminal:~$ ./ama \nAsk me anything about Jonathan.'
+const CHAT_TRANSPORT = new DefaultChatTransport({
+  api: '/api/chat',
+})
+const INITIAL_MESSAGES = [
+  {
+    id: 'initial',
+    role: 'assistant' as const,
+    parts: [{ type: 'text' as const, text: INITIAL_ASSISTANT_MESSAGE }],
+  },
+]
 
 export default function AMAPage() {
   const [input, setInput] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
   const { messages, sendMessage, status, error } = useChat({
-    transport: new DefaultChatTransport({
-      api: '/api/chat',
-    }),
-    messages: [
-      {
-        id: 'initial',
-        role: 'assistant',
-        parts: [{ type: 'text', text: INITIAL_ASSISTANT_MESSAGE }],
-      },
-    ],
+    transport: CHAT_TRANSPORT,
+    messages: INITIAL_MESSAGES,
   })
 
   const isLoading = status === 'submitted' || status === 'streaming'
