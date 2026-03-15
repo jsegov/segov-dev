@@ -1,14 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { get, has } from '@vercel/edge-config'
+import { get } from '@vercel/edge-config'
 import { getAboutMe, getCareerEntries, getProjects, type SiteContent } from '@/lib/content'
 
 vi.mock('@vercel/edge-config', () => ({
   get: vi.fn(),
-  has: vi.fn(),
 }))
 
 const getEdgeConfigMock = vi.mocked(get)
-const hasEdgeConfigMock = vi.mocked(has)
 
 const siteContentFixture: SiteContent = {
   about: {
@@ -39,13 +37,11 @@ describe('content loaders backed by Edge Config', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     process.env.EDGE_CONFIG = 'https://edge-config.example'
-    hasEdgeConfigMock.mockResolvedValue(true)
     getEdgeConfigMock.mockResolvedValue(siteContentFixture)
   })
 
   it('returns about content from the siteContent payload', async () => {
     await expect(getAboutMe()).resolves.toEqual(siteContentFixture.about)
-    expect(hasEdgeConfigMock).toHaveBeenCalledWith('siteContent')
     expect(getEdgeConfigMock).toHaveBeenCalledWith('siteContent')
   })
 
@@ -63,15 +59,19 @@ describe('content loaders backed by Edge Config', () => {
     await expect(getAboutMe()).rejects.toThrow(
       'EDGE_CONFIG env var is required to load site content',
     )
-    expect(hasEdgeConfigMock).not.toHaveBeenCalled()
     expect(getEdgeConfigMock).not.toHaveBeenCalled()
   })
 
   it('throws when the siteContent key is missing', async () => {
-    hasEdgeConfigMock.mockResolvedValueOnce(false)
+    getEdgeConfigMock.mockResolvedValueOnce(undefined)
 
     await expect(getAboutMe()).rejects.toThrow('Edge Config key "siteContent" is missing')
-    expect(getEdgeConfigMock).not.toHaveBeenCalled()
+  })
+
+  it('throws when the siteContent payload resolves to null', async () => {
+    getEdgeConfigMock.mockResolvedValueOnce(null)
+
+    await expect(getAboutMe()).rejects.toThrow('Edge Config key "siteContent" resolved to null')
   })
 
   it('throws when the siteContent payload is invalid', async () => {

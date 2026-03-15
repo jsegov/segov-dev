@@ -1,7 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import matter from 'gray-matter'
-import { get, has } from '@vercel/edge-config'
+import { get } from '@vercel/edge-config'
 import { z } from 'zod'
 
 // Path to data directory
@@ -34,6 +34,8 @@ const SiteContentSchema = z.object({
   projects: z.array(ProjectEntrySchema),
 })
 
+const SITE_CONTENT_KEY = 'siteContent'
+
 // Types for content
 export type AboutMeEntry = z.infer<typeof AboutMeEntrySchema>
 export type CareerEntry = z.infer<typeof CareerEntrySchema>
@@ -57,20 +59,18 @@ async function getSiteContent(): Promise<SiteContent> {
     throw new Error('EDGE_CONFIG env var is required to load site content')
   }
 
-  const siteContentKey = 'siteContent'
-  const siteContentExists = await has(siteContentKey)
-  if (!siteContentExists) {
-    throw new Error(`Edge Config key "${siteContentKey}" is missing`)
+  const siteContent = await get(SITE_CONTENT_KEY)
+  if (siteContent === undefined) {
+    throw new Error(`Edge Config key "${SITE_CONTENT_KEY}" is missing`)
   }
 
-  const siteContent = await get(siteContentKey)
   if (siteContent === null) {
-    throw new Error(`Edge Config key "${siteContentKey}" resolved to null`)
+    throw new Error(`Edge Config key "${SITE_CONTENT_KEY}" resolved to null`)
   }
 
   const parsedContent = SiteContentSchema.safeParse(siteContent)
   if (!parsedContent.success) {
-    throw new Error(`Edge Config key "${siteContentKey}" has invalid shape`, {
+    throw new Error(`Edge Config key "${SITE_CONTENT_KEY}" has invalid shape`, {
       cause: parsedContent.error,
     })
   }
