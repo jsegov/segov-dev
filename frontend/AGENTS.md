@@ -5,7 +5,8 @@ Instructions in this file apply to everything under `frontend/`.
 ## Frontend Overview
 
 - Next.js 15 App Router app with TypeScript and Tailwind CSS.
-- Public content is file-based under `frontend/data/`.
+- `about`, `career`, and `projects` content comes from Vercel Edge Config key `siteContent`.
+- Blog content remains file-based under `frontend/data/blog/`.
 - AMA chat is frontend-only:
   - API route: `frontend/app/api/chat/route.ts`
   - Agent setup: `frontend/lib/ama-agent.ts`
@@ -40,5 +41,6 @@ Instructions in this file apply to everything under `frontend/`.
 - `AI_GATEWAY_API_KEY`
 - `AMA_CHAT_MODEL` (default: `openai/gpt-5-mini`)
 - `AMA_CHAT_PROVIDERS` (optional: `openai` or `vertex,anthropic`; provider slugs must match the selected model, leave unset for AI Gateway auto-routing)
+- `EDGE_CONFIG`
 - `BLOB_READ_WRITE_TOKEN`
 - `BLOB_RESUME_PATH`

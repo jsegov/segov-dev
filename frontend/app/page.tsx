@@ -1,12 +1,20 @@
 import Link from 'next/link'
+import { connection } from 'next/server'
 import { Navbar } from '@/components/navbar'
 import { Github } from 'lucide-react'
 import { getAboutMe } from '@/lib/content'
 
 export default async function Home() {
-  const aboutMe = (await getAboutMe()) || {
-    description:
-      "my name is jonathan segovia, but some people call me segov. i am currently a swe at jeff bezos' online bookstore where i help automate content publishing at our netflix clone. previously i was a swe at workday where i played ping pong, attended happy hours, and failed at convincing leadership that workday was slow due to it's flawed design. i attended ucsb (aka paradise on earth), where i majored in computer science and minored in binge drinking.",
+  await connection()
+
+  let aboutMe = null
+  let error: string | null = null
+
+  try {
+    aboutMe = await getAboutMe()
+  } catch (err) {
+    console.error('Failed to fetch about content:', err)
+    error = 'Failed to load about data.'
   }
 
   const items = [
@@ -43,7 +51,13 @@ export default async function Home() {
               <span className="terminal-command">$ cat about.txt</span>
             </div>
             <div className="terminal-response">
-              <p className="mb-4">{aboutMe.description}</p>
+              {error ? (
+                <div className="p-4 border border-destructive/30 bg-destructive/10 text-destructive rounded">
+                  <p>{error}</p>
+                </div>
+              ) : (
+                <p className="mb-4">{aboutMe?.description}</p>
+              )}
             </div>
 
             <div className="terminal-line">
