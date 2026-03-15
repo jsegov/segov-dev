@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { connection } from 'next/server'
 import { Navbar } from '@/components/navbar'
 import type { ProjectEntry } from '@/lib/content'
 import { getProjects } from '@/lib/content'
@@ -9,9 +10,9 @@ export const metadata: Metadata = {
   description: 'Portfolio of projects by Jonathan Segovia',
 }
 
-export const revalidate = 86400 // Revalidate every 24 hours
-
 export default async function ProjectsPage() {
+  await connection()
+
   let projects: ProjectEntry[] = []
   let error = null
 

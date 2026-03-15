@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { connection } from 'next/server'
 import { Navbar } from '@/components/navbar'
 import { getCareerEntries, type CareerEntry } from '@/lib/content'
 import { format } from 'date-fns'
@@ -8,9 +9,9 @@ export const metadata: Metadata = {
   description: 'Professional journey and experience of Jonathan Segovia',
 }
 
-export const revalidate = 86400 // Revalidate every 24 hours
-
 export default async function CareerPage() {
+  await connection()
+
   let careerEntries: CareerEntry[] = []
   let error = null
 
