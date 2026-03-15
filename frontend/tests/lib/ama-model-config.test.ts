@@ -49,13 +49,16 @@ describe('getAmaModelConfig', () => {
     })
   })
 
-  it('throws for invalid AMA_CHAT_MODEL values', () => {
-    process.env.AMA_CHAT_MODEL = 'openai'
+  it.each(['openai', 'openai/gpt 5', 'openai/gpt-5/extra'])(
+    'throws for invalid AMA_CHAT_MODEL values: %s',
+    (invalidModel) => {
+      process.env.AMA_CHAT_MODEL = invalidModel
 
-    expect(() => getAmaModelConfig()).toThrow(
-      'AMA_CHAT_MODEL must use "creator/model-name" format. Received: "openai"',
-    )
-  })
+      expect(() => getAmaModelConfig()).toThrow(
+        `AMA_CHAT_MODEL must use "creator/model-name" format. Received: "${invalidModel}"`,
+      )
+    },
+  )
 
   it('throws for invalid AMA_CHAT_PROVIDERS values', () => {
     process.env.AMA_CHAT_PROVIDERS = 'openai,invalid slug'

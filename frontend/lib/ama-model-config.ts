@@ -2,6 +2,7 @@ import type { ProviderOptions } from 'ai'
 
 export const DEFAULT_AMA_CHAT_MODEL = 'openai/gpt-5-mini'
 
+const MODEL_ID_PATTERN = /^[^/\s]+\/[^/\s]+$/
 const PROVIDER_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 export interface AmaModelConfig {
@@ -16,15 +17,7 @@ function parseAmaChatModel(): string {
     return DEFAULT_AMA_CHAT_MODEL
   }
 
-  const firstSlashIndex = configuredModel.indexOf('/')
-  const lastSlashIndex = configuredModel.lastIndexOf('/')
-
-  const hasSingleSeparator =
-    firstSlashIndex > 0 &&
-    firstSlashIndex === lastSlashIndex &&
-    lastSlashIndex < configuredModel.length - 1
-
-  if (!hasSingleSeparator || /\s/.test(configuredModel)) {
+  if (!MODEL_ID_PATTERN.test(configuredModel)) {
     throw new Error(
       `AMA_CHAT_MODEL must use "creator/model-name" format. Received: "${configuredModel}"`,
     )
