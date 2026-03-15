@@ -7,7 +7,7 @@ A frontend-only Next.js portfolio with an AMA chat page powered by Vercel AI SDK
 - Next.js 15 + React 19 + TypeScript
 - Tailwind CSS
 - AI SDK v6 (`ToolLoopAgent` + `createAgentUIStreamResponse`)
-- Vercel AI Gateway model: `openai/gpt-5-mini`
+- Vercel AI Gateway model/provider routing is configurable for AMA via env vars
 - Vercel Blob (private store) for resume retrieval
 
 ## Architecture
@@ -23,8 +23,12 @@ A frontend-only Next.js portfolio with an AMA chat page powered by Vercel AI SDK
 Set these in `frontend/.env.local` for local development and in Vercel project settings for production:
 
 - `AI_GATEWAY_API_KEY`
+- `AMA_CHAT_MODEL` (default: `openai/gpt-5-mini`)
+- `AMA_CHAT_PROVIDERS` (optional: `openai` or `vertex,anthropic`)
 - `BLOB_READ_WRITE_TOKEN`
 - `BLOB_RESUME_PATH`
+
+Leave `AMA_CHAT_PROVIDERS` unset to let AI Gateway auto-route across supported providers. If you set it, use provider slugs that are valid for the selected `AMA_CHAT_MODEL`.
 
 ## Development
 

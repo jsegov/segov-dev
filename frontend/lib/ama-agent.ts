@@ -1,5 +1,6 @@
-import { ToolLoopAgent, gateway, tool } from 'ai'
+import { ToolLoopAgent, tool } from 'ai'
 import { z } from 'zod'
+import { getAmaModelConfig } from '@/lib/ama-model-config'
 import { getResumeContextFromBlob, RESUME_UNAVAILABLE_MESSAGE } from '@/lib/resume-context'
 
 export const OUT_OF_SCOPE_MESSAGE =
@@ -23,8 +24,10 @@ Style:
 `.trim()
 
 export function createAmaAgent() {
+  const modelConfig = getAmaModelConfig()
+
   return new ToolLoopAgent({
-    model: gateway('openai/gpt-5-mini'),
+    ...modelConfig,
     instructions: AMA_INSTRUCTIONS,
     tools: {
       get_resume: tool({

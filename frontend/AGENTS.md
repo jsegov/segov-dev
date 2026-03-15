@@ -38,5 +38,7 @@ Instructions in this file apply to everything under `frontend/`.
 ## Environment Variables
 
 - `AI_GATEWAY_API_KEY`
+- `AMA_CHAT_MODEL` (default: `openai/gpt-5-mini`)
+- `AMA_CHAT_PROVIDERS` (optional: `openai` or `vertex,anthropic`; provider slugs must match the selected model, leave unset for AI Gateway auto-routing)
 - `BLOB_READ_WRITE_TOKEN`
 - `BLOB_RESUME_PATH`
