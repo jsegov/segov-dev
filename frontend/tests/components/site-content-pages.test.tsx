@@ -1,20 +1,16 @@
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
-
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
-const {
-  connectionMock,
-  getAboutMeMock,
-  getCareerEntriesMock,
-  getProjectsMock,
-} = vi.hoisted(() => ({
-  connectionMock: vi.fn(),
-  getAboutMeMock: vi.fn(),
-  getCareerEntriesMock: vi.fn(),
-  getProjectsMock: vi.fn(),
-}))
+const { connectionMock, getAboutMeMock, getCareerEntriesMock, getProjectsMock } = vi.hoisted(
+  () => ({
+    connectionMock: vi.fn(),
+    getAboutMeMock: vi.fn(),
+    getCareerEntriesMock: vi.fn(),
+    getProjectsMock: vi.fn(),
+  }),
+)
 
 vi.mock('next/server', () => ({
   connection: connectionMock,
