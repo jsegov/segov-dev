@@ -186,6 +186,7 @@ Blob body`).body,
     listBlobMock.mockResolvedValueOnce({
       blobs: [
         createListBlob('blog/valid.md'),
+        createListBlob('blog/missing-date.md'),
         createListBlob('blog/empty.md'),
         createListBlob('blog/malformed.md'),
         createListBlob('blog/missing.md'),
@@ -209,6 +210,16 @@ Valid body`).body,
         return {
           statusCode: 200,
           stream: new Response('   ').body,
+        } as Awaited<ReturnType<typeof getBlob>>
+      }
+
+      if (pathname === 'blog/missing-date.md') {
+        return {
+          statusCode: 200,
+          stream: new Response(`---
+title: Missing Date
+---
+No date`).body,
         } as Awaited<ReturnType<typeof getBlob>>
       }
 

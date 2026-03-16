@@ -58,7 +58,7 @@ export default async function BlogPage() {
             <div className="space-y-8 mt-8">
               {posts.map((post) => {
                 const publishedDate = new Date(post.publishedDate)
-                const readingTime = calculateReadingTime(post.bodyMarkdown)
+                const readingTime = calculateReadingTime(post.content)
 
                 return (
                   <Link key={post.slug} href={`/blog/${post.slug}`} className="card block">

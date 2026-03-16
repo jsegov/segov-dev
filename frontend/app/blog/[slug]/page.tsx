@@ -48,7 +48,7 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
   }
 
   const publishedDate = new Date(post.publishedDate)
-  const readingTime = calculateReadingTime(post.bodyMarkdown)
+  const readingTime = calculateReadingTime(post.content)
 
   return (
     <div className="min-h-screen flex flex-col">

@@ -12,7 +12,6 @@ export interface BlogPost {
     url: string
   }
   content: string
-  bodyMarkdown: string
 }
 
 function normalizeBlogPrefix(prefix: string | undefined): string | null {
@@ -47,27 +46,39 @@ function getFrontmatterString(value: unknown, fallback: string): string {
   return trimmedValue || fallback
 }
 
-function getPublishedDate(value: unknown): string {
+function getPublishedDate(value: unknown): string | null {
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
     return value.toISOString()
   }
 
-  return getFrontmatterString(value, new Date().toISOString())
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const trimmedValue = value.trim()
+  if (!trimmedValue || Number.isNaN(new Date(trimmedValue).getTime())) {
+    return null
+  }
+
+  return trimmedValue
 }
 
-function parseBlogPost(pathname: string, fileContents: string): BlogPost {
+function parseBlogPost(pathname: string, fileContents: string): BlogPost | null {
   const { data: frontmatter, content } = matter(fileContents)
+  const publishedDate = getPublishedDate(frontmatter.publishedDate)
+  if (!publishedDate) {
+    return null
+  }
 
   return {
     title: getFrontmatterString(frontmatter.title, 'Untitled Post'),
     slug: getSlugFromPathname(pathname),
-    publishedDate: getPublishedDate(frontmatter.publishedDate),
+    publishedDate,
     excerpt: getFrontmatterString(frontmatter.excerpt, 'No excerpt available'),
     coverImage: {
       url: getFrontmatterString(frontmatter.coverImage, DEFAULT_COVER_IMAGE),
     },
     content,
-    bodyMarkdown: content,
   }
 }
 
