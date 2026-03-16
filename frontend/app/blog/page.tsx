@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import Image from 'next/image'
 import Link from 'next/link'
 import { Navbar } from '@/components/navbar'
-import { getBlogPosts, type BlogPost } from '@/lib/content'
+import { getBlogPosts, type BlogPost } from '@/lib/blog-content'
 import { format } from 'date-fns'
 
 export const metadata: Metadata = {
@@ -58,7 +58,7 @@ export default async function BlogPage() {
             <div className="space-y-8 mt-8">
               {posts.map((post) => {
                 const publishedDate = new Date(post.publishedDate)
-                const readingTime = calculateReadingTime(post.bodyMarkdown)
+                const readingTime = calculateReadingTime(post.content)
 
                 return (
                   <Link key={post.slug} href={`/blog/${post.slug}`} className="card block">

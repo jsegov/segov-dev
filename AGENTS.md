@@ -6,7 +6,7 @@ Instructions in this file apply to the entire repository unless a closer nested 
 
 - This repo is a frontend-only Next.js portfolio.
 - `about`, `career`, and `projects` content is loaded from Vercel Edge Config key `siteContent`.
-- Blog content remains file-based under `frontend/data/blog/`.
+- Blog content is loaded from private Vercel Blob storage using `BLOB_BLOG_PREFIX`.
 - AMA chat is implemented in Next.js API routes using AI SDK Agents.
 - Resume context for chat is loaded from private Vercel Blob storage.
 
@@ -46,6 +46,7 @@ Configure these for local and production:
 - `AMA_CHAT_PROVIDERS` (optional: `openai` or `vertex,anthropic`; leave unset for AI Gateway auto-routing)
 - `EDGE_CONFIG`
 - `BLOB_READ_WRITE_TOKEN`
+- `BLOB_BLOG_PREFIX`
 - `BLOB_RESUME_PATH`
 
 Do not commit any `.env*` files.

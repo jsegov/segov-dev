@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server'
-import { getCareerEntries, getProjects, getBlogPosts } from '@/lib/content'
+import { getBlogPosts } from '@/lib/blog-content'
+import { getCareerEntries, getProjects } from '@/lib/content'
 
 interface DebugLogEntry {
   timestamp: string
