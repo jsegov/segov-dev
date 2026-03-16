@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import Image from 'next/image'
 import Link from 'next/link'
 import { Navbar } from '@/components/navbar'
-import { getBlogPosts, type BlogPost } from '@/lib/content'
+import { getBlogPosts, type BlogPost } from '@/lib/blog-content'
 import { format } from 'date-fns'
 
 export const metadata: Metadata = {

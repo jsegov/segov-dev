@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { Navbar } from '@/components/navbar'
 import { MarkdownRenderer } from '@/components/markdown-renderer'
-import { getBlogPostBySlug, getAllBlogSlugs } from '@/lib/content'
+import { getBlogPostBySlug, getAllBlogSlugs } from '@/lib/blog-content'
 import { format } from 'date-fns'
 
 export const revalidate = 86400 // Revalidate every 24 hours
