@@ -1,5 +1,3 @@
-import type { ProviderOptions } from 'ai'
-
 export const DEFAULT_AMA_CHAT_MODEL = 'openai/gpt-5-mini'
 
 const MODEL_ID_PATTERN = /^[^/\s]+\/[^/\s]+$/
@@ -7,7 +5,12 @@ const PROVIDER_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 export interface AmaModelConfig {
   model: string
-  providerOptions?: ProviderOptions
+  providerOptions?: {
+    gateway: {
+      order: string[]
+      only: string[]
+    }
+  }
 }
 
 function parseAmaChatModel(): string {

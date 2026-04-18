@@ -2,28 +2,30 @@
 
 import React, { useState, useRef, useEffect } from 'react'
 import { Navbar } from '@/components/navbar'
-import { useToast } from '@/components/ui/use-toast'
-import { useChat } from '@ai-sdk/react'
-import { DefaultChatTransport, isTextUIPart, type UIMessage } from 'ai'
+import { useToast } from '@/hooks/use-toast'
+import { type UIMessage, useChat } from '@ai-sdk/react'
 
 const INITIAL_ASSISTANT_MESSAGE = 'segov@terminal:~$ ./ama \nAsk me anything about Jonathan.'
-const CHAT_TRANSPORT = new DefaultChatTransport({
-  api: '/api/chat',
-})
-const INITIAL_MESSAGES = [
+const INITIAL_MESSAGES: UIMessage[] = [
   {
     id: 'initial',
-    role: 'assistant' as const,
-    parts: [{ type: 'text' as const, text: INITIAL_ASSISTANT_MESSAGE }],
+    role: 'assistant',
+    parts: [{ type: 'text', text: INITIAL_ASSISTANT_MESSAGE }],
   },
 ]
+
+function getMessageText(parts: UIMessage['parts']): string {
+  return parts
+    .filter((part) => part.type === 'text')
+    .map((part) => part.text)
+    .join('')
+}
 
 export default function AMAPage() {
   const [input, setInput] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
   const { messages, sendMessage, status, error } = useChat({
-    transport: CHAT_TRANSPORT,
     messages: INITIAL_MESSAGES,
   })
 
@@ -68,12 +70,6 @@ export default function AMAPage() {
       })
     }
   }
-
-  const getMessageText = (parts: UIMessage['parts']) =>
-    parts
-      .filter(isTextUIPart)
-      .map((part) => part.text)
-      .join('')
 
   return (
     <div className="min-h-screen flex flex-col">

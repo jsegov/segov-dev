@@ -3,8 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import AMAPage from '@/app/ama/page'
 
-const { sendMessageMock, useChatMock } = vi.hoisted(() => ({
+const { sendMessageMock, toastMock, useChatMock } = vi.hoisted(() => ({
   sendMessageMock: vi.fn(),
+  toastMock: vi.fn(),
   useChatMock: vi.fn(),
 }))
 
@@ -16,9 +17,9 @@ vi.mock('@/components/navbar', () => ({
   Navbar: () => <div data-testid="navbar" />,
 }))
 
-vi.mock('@/components/ui/use-toast', () => ({
+vi.mock('@/hooks/use-toast', () => ({
   useToast: () => ({
-    toast: vi.fn(),
+    toast: toastMock,
   }),
 }))
 
@@ -65,6 +66,23 @@ describe('AMA page', () => {
     fireEvent.submit(input.closest('form')!)
 
     expect(sendMessageMock).toHaveBeenCalledWith({ text: 'Tell me about your work.' })
+  })
+
+  it('shows a toast when the chat hook reports an error', () => {
+    useChatMock.mockReturnValueOnce({
+      status: 'ready',
+      error: new Error('chat unavailable'),
+      sendMessage: sendMessageMock,
+      messages: [],
+    })
+
+    render(<AMAPage />)
+
+    expect(toastMock).toHaveBeenCalledWith({
+      title: 'API Error',
+      description: 'Failed to get a response from the API. Please try again later.',
+      variant: 'destructive',
+    })
   })
 
   it('does not render the processing placeholder for assistant messages without text parts', () => {
