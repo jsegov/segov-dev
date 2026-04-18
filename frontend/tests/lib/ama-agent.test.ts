@@ -47,6 +47,24 @@ describe('createAmaAgent', () => {
     expect(toolLoopAgentSettings[0]?.providerOptions).toBeUndefined()
   })
 
+  it('registers resume plus work and personal context tools with routing instructions', async () => {
+    const { createAmaAgent } = await import('@/lib/ama-agent')
+
+    createAmaAgent()
+
+    const tools = toolLoopAgentSettings[0]?.tools as Record<string, unknown>
+    const instructions = toolLoopAgentSettings[0]?.instructions as string
+
+    expect(tools).toHaveProperty('get_resume')
+    expect(tools).toHaveProperty('search_work_context')
+    expect(tools).toHaveProperty('search_personal_context')
+    expect(tools).not.toHaveProperty('search_ama_context')
+    expect(instructions).toContain('search_work_context')
+    expect(instructions).toContain('search_personal_context')
+    expect(instructions).toContain('Work context disclosure policy')
+    expect(instructions).toContain('Never include')
+  })
+
   it('uses the env-specified model string', async () => {
     process.env.AMA_CHAT_MODEL = 'anthropic/claude-sonnet-4'
 

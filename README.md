@@ -8,7 +8,7 @@ A frontend-only Next.js portfolio with an AMA chat page powered by Vercel AI SDK
 - Tailwind CSS
 - AI SDK v6 (`ToolLoopAgent` + `createAgentUIStreamResponse`)
 - Vercel AI Gateway model/provider routing is configurable for AMA via env vars
-- Vercel Blob (private store) for resume retrieval
+- Vercel Blob (private store) for resume retrieval and additional AMA context
 
 ## Architecture
 
@@ -18,6 +18,7 @@ A frontend-only Next.js portfolio with an AMA chat page powered by Vercel AI SDK
 - AMA chat UI uses `useChat` and streams from `POST /api/chat`
 - Server route `frontend/app/api/chat/route.ts` runs the agent
 - Agent tool `get_resume` reads resume context from private Blob using `BLOB_RESUME_PATH`
+- Agent tools `search_work_context` and `search_personal_context` search `.md`, `.mdx`, and `.txt` files from private Blob under the hard-coded `work/` and `personal/` prefixes respectively
 
 ## Environment Variables
 
