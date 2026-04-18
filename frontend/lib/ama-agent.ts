@@ -1,9 +1,6 @@
 import { ToolLoopAgent, tool } from 'ai'
 import { z } from 'zod'
-import {
-  searchPersonalContextFromBlob,
-  searchWorkContextFromBlob,
-} from '@/lib/ama-context'
+import { searchPersonalContextFromBlob, searchWorkContextFromBlob } from '@/lib/ama-context'
 import { getAmaModelConfig } from '@/lib/ama-model-config'
 import { getResumeContextFromBlob, RESUME_UNAVAILABLE_MESSAGE } from '@/lib/resume-context'
 
