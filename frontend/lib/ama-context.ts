@@ -41,6 +41,23 @@ const STOP_WORDS = new Set([
   'your',
 ])
 
+const SHORT_TECHNICAL_TERMS = new Set([
+  'ai',
+  'cd',
+  'ci',
+  'c#',
+  'db',
+  'f#',
+  'go',
+  'js',
+  'ml',
+  'os',
+  'qa',
+  'ts',
+  'ui',
+  'ux',
+])
+
 export const AMA_CONTEXT_UNAVAILABLE_MESSAGE =
   'Additional AMA context is unavailable right now. For accurate details, please use the Career and Projects pages on this site.'
 
@@ -131,14 +148,17 @@ async function listContextBlobs(prefix: string): Promise<ContextBlobMetadata[] |
             uploadedAt: blob.uploadedAt,
             size: blob.size,
           })
+          if (blobs.length >= MAX_FILES_TO_READ) {
+            break
+          }
         }
       }
 
-      cursor = result.cursor
-
-      if (!result.hasMore) {
+      if (blobs.length >= MAX_FILES_TO_READ || !result.hasMore) {
         break
       }
+
+      cursor = result.cursor
     } while (cursor)
 
     return blobs.slice(0, MAX_FILES_TO_READ)
@@ -169,8 +189,16 @@ async function readContextBlob(blob: ContextBlobMetadata): Promise<ReadableConte
 function getSearchTerms(query: string): string[] {
   const rawTerms = query
     .toLowerCase()
-    .match(/[a-z0-9]+/g)
-    ?.filter((term) => term.length >= 3 && !STOP_WORDS.has(term))
+    .match(/[a-z0-9+#]+/g)
+    ?.filter((term) => {
+      if (STOP_WORDS.has(term)) {
+        return false
+      }
+      if (term.length >= 3) {
+        return true
+      }
+      return SHORT_TECHNICAL_TERMS.has(term)
+    })
 
   const terms = rawTerms ?? []
   return Array.from(new Set(terms))
@@ -340,18 +368,19 @@ async function searchContextFromBlob(
   }
 
   let fetchFailures = 0
-  const readableBlobs: ReadableContextBlob[] = []
-  for (const blob of blobs) {
-    try {
-      const readableBlob = await readContextBlob(blob)
-      if (readableBlob) {
-        readableBlobs.push(readableBlob)
-      }
-    } catch (error) {
-      fetchFailures += 1
-      console.error(`Error fetching AMA context blob "${blob.pathname}"`, error)
-    }
-  }
+  const readableBlobs = (
+    await Promise.all(
+      blobs.map(async (blob) => {
+        try {
+          return await readContextBlob(blob)
+        } catch (error) {
+          fetchFailures += 1
+          console.error(`Error fetching AMA context blob "${blob.pathname}"`, error)
+          return null
+        }
+      }),
+    )
+  ).filter((readableBlob): readableBlob is ReadableContextBlob => readableBlob !== null)
 
   if (readableBlobs.length === 0) {
     return unavailable(fetchFailures > 0 ? 'blob_fetch_failed' : 'empty_files', trimmedQuery)

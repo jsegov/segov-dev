@@ -206,4 +206,38 @@ describe.each(cases)('$label context search', ({ fn, prefix }) => {
     expect(result.content).toContain('Source 5:')
     expect(result.content).not.toContain('Source 6:')
   })
+
+  it('stops paginating once the file cap is reached', async () => {
+    listBlobMock.mockResolvedValueOnce({
+      blobs: Array.from({ length: 25 }, (_, index) => {
+        return createListBlob(`${prefix}doc-${String(index).padStart(2, '0')}.md`)
+      }),
+      cursor: 'page-2',
+      hasMore: true,
+    })
+    getBlobMock.mockImplementation(async (pathname) => {
+      return createBlobResponse(`${pathname} scheduler`)
+    })
+
+    const result = await fn('scheduler')
+
+    expect(listBlobMock).toHaveBeenCalledTimes(1)
+    expect(result.available).toBe(true)
+  })
+
+  it('matches short technical acronyms like go, ai, and c#', async () => {
+    listBlobMock.mockResolvedValueOnce({
+      blobs: [createListBlob(`${prefix}stack.md`)],
+      hasMore: false,
+    })
+    getBlobMock.mockResolvedValueOnce(
+      createBlobResponse('Jonathan shipped services in go and c# with ai-assisted tooling.'),
+    )
+
+    const result = await fn('Has Jonathan worked with Go, C#, or AI?')
+
+    expect(result.available).toBe(true)
+    expect(result.matches).toHaveLength(1)
+    expect(result.matches[0]?.score).toBeGreaterThanOrEqual(3)
+  })
 })
