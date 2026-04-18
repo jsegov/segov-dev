@@ -9,6 +9,7 @@ Instructions in this file apply to the entire repository unless a closer nested 
 - Blog content is loaded from private Vercel Blob storage using `BLOB_BLOG_PREFIX`.
 - AMA chat is implemented in Next.js API routes using AI SDK Agents.
 - Resume context for chat is loaded from private Vercel Blob storage.
+- Additional AMA context is loaded from private Vercel Blob storage under two hard-coded prefixes: `work/` (work-related docs) and `personal/` (side-project docs).
 
 ## Setup Commands
 
