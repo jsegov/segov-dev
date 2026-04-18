@@ -240,4 +240,23 @@ describe.each(cases)('$label context search', ({ fn, prefix }) => {
     expect(result.matches).toHaveLength(1)
     expect(result.matches[0]?.score).toBeGreaterThanOrEqual(3)
   })
+
+  it('does not match short technical terms inside longer English words', async () => {
+    listBlobMock.mockResolvedValueOnce({
+      blobs: [createListBlob(`${prefix}irrelevant.md`)],
+      hasMore: false,
+    })
+    getBlobMock.mockResolvedValueOnce(
+      createBlobResponse(
+        'He was going to maintain the most available endpoints regardless of cost.',
+      ),
+    )
+
+    const result = await fn('Jonathan Go AI OS')
+
+    expect(result).toMatchObject({
+      available: false,
+      source: 'no_matches',
+    })
+  })
 })

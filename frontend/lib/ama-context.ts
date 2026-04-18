@@ -205,15 +205,9 @@ function getSearchTerms(query: string): string[] {
 }
 
 function countOccurrences(text: string, term: string): number {
-  let count = 0
-  let index = text.indexOf(term)
-
-  while (index !== -1) {
-    count += 1
-    index = text.indexOf(term, index + term.length)
-  }
-
-  return count
+  const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const regex = new RegExp(`(?<![a-z0-9])${escapedTerm}(?![a-z0-9])`, 'g')
+  return text.match(regex)?.length ?? 0
 }
 
 function getChunkScore(chunk: string, pathname: string, terms: string[]): number {
