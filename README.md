@@ -27,6 +27,8 @@ Set these in `frontend/.env.local` for local development and in Vercel project s
 - `AI_GATEWAY_API_KEY`
 - `AMA_CHAT_MODEL` (default: `openai/gpt-5-mini`)
 - `AMA_CHAT_PROVIDERS` (optional: `openai` or `vertex,anthropic`)
+- `DEEPGRAM_API_KEY`
+- `DEEPGRAM_TTS_MODEL` (optional: defaults to `aura-2-thalia-en`)
 - `EDGE_CONFIG`
 - `BLOB_READ_WRITE_TOKEN`
 - `BLOB_BLOG_PREFIX`
