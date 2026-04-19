@@ -248,9 +248,11 @@ describe('AMA page', () => {
         }),
       })
     })
-    expect(
-      screen.getByRole('button', { name: /play audio for assistant response 1/i }),
-    ).toHaveTextContent('Loading...')
+    const loadingButton = screen.getByRole('button', {
+      name: /loading audio for assistant response 1/i,
+    })
+    expect(loadingButton).toHaveTextContent('Loading...')
+    expect(loadingButton).toBeDisabled()
 
     resolveFetch?.(
       new Response('audio-bytes', { status: 200, headers: { 'Content-Type': 'audio/mpeg' } }),

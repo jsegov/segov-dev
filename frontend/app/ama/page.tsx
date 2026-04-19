@@ -32,6 +32,28 @@ function getMessageText(parts: UIMessage['parts']): string {
     .join('')
 }
 
+function getAssistantTtsState(
+  message: UIMessage,
+  index: number,
+  totalMessages: number,
+  isChatLoading: boolean,
+) {
+  const text = getMessageText(message.parts)
+  const isInitialMessage = message.id === INITIAL_MESSAGE_ID
+  const isStreamingAssistantReply =
+    isChatLoading && message.role === 'assistant' && index === totalMessages - 1
+  const showTtsControl =
+    message.role === 'assistant' &&
+    !isInitialMessage &&
+    !isStreamingAssistantReply &&
+    Boolean(text.trim())
+
+  return {
+    text,
+    showTtsControl,
+  }
+}
+
 async function primeAudioPlayback(audio: HTMLAudioElement) {
   audio.src = SILENT_WAV_DATA_URI
   audio.muted = true
@@ -65,26 +87,17 @@ export default function AMAPage() {
   })
 
   const isLoading = status === 'submitted' || status === 'streaming'
-  const ttsControlNumbers = new Map<string, number>()
-
   let assistantResponseNumber = 0
-  messages.forEach((message, index) => {
-    const text = getMessageText(message.parts)
-    const isInitialMessage = message.id === INITIAL_MESSAGE_ID
-    const isStreamingAssistantReply =
-      isLoading && message.role === 'assistant' && index === messages.length - 1
-    const showTtsControl =
-      message.role === 'assistant' &&
-      !isInitialMessage &&
-      !isStreamingAssistantReply &&
-      Boolean(text.trim())
+  const messageDisplayState = messages.map((message, index) => {
+    const ttsState = getAssistantTtsState(message, index, messages.length, isLoading)
+    const assistantResponseLabelNumber = ttsState.showTtsControl ? ++assistantResponseNumber : null
 
-    if (!showTtsControl) {
-      return
+    return {
+      message,
+      text: ttsState.text,
+      showTtsControl: ttsState.showTtsControl,
+      assistantResponseLabelNumber,
     }
-
-    assistantResponseNumber += 1
-    ttsControlNumbers.set(message.id, assistantResponseNumber)
   })
 
   const releaseAudioUrl = () => {
@@ -233,59 +246,55 @@ export default function AMAPage() {
             aria-busy={isLoading}
             className="terminal-window-content flex-1 overflow-y-auto font-mono"
           >
-            {messages.map((message, index) => {
-              const text = getMessageText(message.parts)
-              const isInitialMessage = message.id === INITIAL_MESSAGE_ID
-              const isStreamingAssistantReply =
-                isLoading && message.role === 'assistant' && index === messages.length - 1
-              const showTtsControl =
-                message.role === 'assistant' &&
-                !isInitialMessage &&
-                !isStreamingAssistantReply &&
-                Boolean(text.trim())
-              const assistantResponseLabelNumber = ttsControlNumbers.get(message.id)
-              const isTtsLoading = loadingMessageId === message.id
-              const isTtsPlaying = playingMessageId === message.id
+            {messageDisplayState.map(
+              ({ message, text, showTtsControl, assistantResponseLabelNumber }) => {
+                const isTtsLoading = loadingMessageId === message.id
+                const isTtsPlaying = playingMessageId === message.id
 
-              if (message.role === 'assistant' && !text.trim()) {
-                return null
-              }
+                if (message.role === 'assistant' && !text.trim()) {
+                  return null
+                }
 
-              return (
-                <div key={message.id} className="mb-4">
-                  {message.role === 'user' ? (
-                    <div className="text-foreground">
-                      <span className="text-muted-foreground">segov@terminal:~$ </span>
-                      <span>{text}</span>
-                    </div>
-                  ) : (
-                    <div>
-                      <div className="text-foreground whitespace-pre-line">{text}</div>
-                      {showTtsControl ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="mt-2 font-mono"
-                          aria-label={
-                            isTtsPlaying
-                              ? `Stop audio for assistant response ${assistantResponseLabelNumber}`
-                              : `Play audio for assistant response ${assistantResponseLabelNumber}`
-                          }
-                          aria-pressed={isTtsPlaying}
-                          disabled={Boolean(loadingMessageId && !isTtsLoading)}
-                          onClick={() =>
-                            isTtsPlaying ? stopAudioPlayback() : handlePlayMessage(message.id, text)
-                          }
-                        >
-                          {isTtsLoading ? 'Loading...' : isTtsPlaying ? 'Stop' : 'Play'}
-                        </Button>
-                      ) : null}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+                return (
+                  <div key={message.id} className="mb-4">
+                    {message.role === 'user' ? (
+                      <div className="text-foreground">
+                        <span className="text-muted-foreground">segov@terminal:~$ </span>
+                        <span>{text}</span>
+                      </div>
+                    ) : (
+                      <div>
+                        <div className="text-foreground whitespace-pre-line">{text}</div>
+                        {showTtsControl ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="mt-2 font-mono"
+                            aria-label={
+                              isTtsLoading
+                                ? `Loading audio for assistant response ${assistantResponseLabelNumber}`
+                                : isTtsPlaying
+                                  ? `Stop audio for assistant response ${assistantResponseLabelNumber}`
+                                  : `Play audio for assistant response ${assistantResponseLabelNumber}`
+                            }
+                            aria-pressed={isTtsPlaying}
+                            disabled={Boolean(loadingMessageId)}
+                            onClick={() =>
+                              isTtsPlaying
+                                ? stopAudioPlayback()
+                                : handlePlayMessage(message.id, text)
+                            }
+                          >
+                            {isTtsLoading ? 'Loading...' : isTtsPlaying ? 'Stop' : 'Play'}
+                          </Button>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
+                )
+              },
+            )}
             <div ref={messagesEndRef} />
           </div>
 
