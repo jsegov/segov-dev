@@ -283,7 +283,7 @@ describe('AMA page', () => {
     })
     expect(webSocketInstances).toHaveLength(1)
     expect(webSocketInstances[0]?.url).toContain('wss://api.deepgram.com/v1/speak')
-    expect(webSocketInstances[0]?.protocols).toEqual(['token', 'voice-token'])
+    expect(webSocketInstances[0]?.protocols).toEqual(['bearer', 'voice-token'])
   })
 
   it('does not retry a superseded socket connection after a new submit starts a replacement one', async () => {

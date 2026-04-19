@@ -336,7 +336,7 @@ export default function AMAPage() {
     deepgramUrl.searchParams.set('sample_rate', String(token.sampleRate))
 
     await new Promise<void>((resolve, reject) => {
-      const socket = new WebSocket(deepgramUrl, ['token', token.accessToken])
+      const socket = new WebSocket(deepgramUrl, ['bearer', token.accessToken])
       const hadPendingCommands =
         pendingVoiceCommandsRef.current.length > 0 || Boolean(activeAssistantMessageIdRef.current)
       let didOpen = false
