@@ -269,6 +269,36 @@ describe('AMA page', () => {
     expect(audioInstances[0]?.play).toHaveBeenCalledTimes(2)
   })
 
+  it('ignores a rapid second play click while a TTS request is already starting', async () => {
+    let resolveFetch: ((response: Response) => void) | undefined
+    fetchMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveFetch = resolve
+      }),
+    )
+
+    render(<AMAPage />)
+
+    const playButton = screen.getByRole('button', {
+      name: /play audio for assistant response 1/i,
+    })
+
+    fireEvent.click(playButton)
+    fireEvent.click(playButton)
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+
+    resolveFetch?.(
+      new Response('audio-bytes', { status: 200, headers: { 'Content-Type': 'audio/mpeg' } }),
+    )
+
+    await screen.findByRole('button', {
+      name: /stop audio for assistant response 1/i,
+    })
+  })
+
   it('stops playback and clears state when stop is clicked', async () => {
     fetchMock.mockResolvedValueOnce(
       new Response('audio-bytes', { status: 200, headers: { 'Content-Type': 'audio/mpeg' } }),

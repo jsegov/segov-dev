@@ -81,6 +81,7 @@ export default function AMAPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const audioUrlRef = useRef<string | null>(null)
+  const ttsRequestInFlightRef = useRef(false)
   const { toast } = useToast()
   const { messages, sendMessage, status, error } = useChat({
     messages: INITIAL_MESSAGES,
@@ -122,6 +123,7 @@ export default function AMAPage() {
 
   const stopAudioPlayback = () => {
     clearActiveAudio()
+    ttsRequestInFlightRef.current = false
     setLoadingMessageId(null)
     setPlayingMessageId(null)
   }
@@ -147,6 +149,8 @@ export default function AMAPage() {
         URL.revokeObjectURL(audioUrlRef.current)
         audioUrlRef.current = null
       }
+
+      ttsRequestInFlightRef.current = false
     }
   }, [])
 
@@ -162,11 +166,12 @@ export default function AMAPage() {
   }, [error, toast])
 
   async function handlePlayMessage(messageId: string, text: string) {
-    if (loadingMessageId) {
+    if (ttsRequestInFlightRef.current) {
       return
     }
 
     stopAudioPlayback()
+    ttsRequestInFlightRef.current = true
     setLoadingMessageId(messageId)
 
     try {
@@ -201,6 +206,7 @@ export default function AMAPage() {
 
       audioRef.current = audio
       audioUrlRef.current = audioUrl
+      ttsRequestInFlightRef.current = false
       setLoadingMessageId(null)
       setPlayingMessageId(messageId)
 
