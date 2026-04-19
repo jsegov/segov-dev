@@ -206,13 +206,23 @@ export default function AMAPage() {
 
       audioRef.current = audio
       audioUrlRef.current = audioUrl
+
+      await audio.play()
+
+      if (audioRef.current !== audio) {
+        return
+      }
+
       ttsRequestInFlightRef.current = false
       setLoadingMessageId(null)
       setPlayingMessageId(messageId)
-
-      await audio.play()
-    } catch {
+    } catch (error) {
       stopAudioPlayback()
+
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return
+      }
+
       toast(TTS_ERROR_TOAST)
     }
   }

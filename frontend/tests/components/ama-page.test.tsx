@@ -299,6 +299,60 @@ describe('AMA page', () => {
     })
   })
 
+  it('keeps the control in loading state until playback has actually started', async () => {
+    let resolveFetch: ((response: Response) => void) | undefined
+    let resolvePlaybackStart: (() => void) | undefined
+
+    class PendingPlaybackAudio extends MockAudio {
+      private playCallCount = 0
+
+      play = vi.fn(() => {
+        this.playCallCount += 1
+
+        if (this.playCallCount === 1) {
+          return Promise.resolve()
+        }
+
+        return new Promise<void>((resolve) => {
+          resolvePlaybackStart = resolve
+        })
+      })
+    }
+
+    fetchMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveFetch = resolve
+      }),
+    )
+    vi.stubGlobal('Audio', PendingPlaybackAudio as unknown as typeof Audio)
+
+    render(<AMAPage />)
+
+    fireEvent.click(screen.getByRole('button', { name: /play audio for assistant response 1/i }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+
+    resolveFetch?.(
+      new Response('audio-bytes', { status: 200, headers: { 'Content-Type': 'audio/mpeg' } }),
+    )
+
+    const loadingButton = await screen.findByRole('button', {
+      name: /loading audio for assistant response 1/i,
+    })
+    expect(loadingButton).toBeDisabled()
+    expect(
+      screen.queryByRole('button', { name: /stop audio for assistant response 1/i }),
+    ).not.toBeInTheDocument()
+
+    resolvePlaybackStart?.()
+
+    await screen.findByRole('button', {
+      name: /stop audio for assistant response 1/i,
+    })
+  })
+
   it('stops playback and clears state when stop is clicked', async () => {
     fetchMock.mockResolvedValueOnce(
       new Response('audio-bytes', { status: 200, headers: { 'Content-Type': 'audio/mpeg' } }),
