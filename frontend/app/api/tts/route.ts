@@ -1,6 +1,11 @@
+import { z } from 'zod'
+
 const DEEPGRAM_TTS_URL = 'https://api.deepgram.com/v1/speak'
 const DEFAULT_DEEPGRAM_TTS_MODEL = 'aura-2-thalia-en'
 const MAX_TTS_TEXT_LENGTH = 2000
+const TtsRequestSchema = z.object({
+  text: z.string(),
+})
 
 export const runtime = 'nodejs'
 
@@ -16,12 +21,12 @@ export async function POST(req: Request) {
     return new Response('Invalid request payload.', { status: 400 })
   }
 
-  const rawText = (body as { text?: unknown })?.text
-  if (typeof rawText !== 'string') {
+  const parsedBody = TtsRequestSchema.safeParse(body)
+  if (!parsedBody.success) {
     return new Response('Invalid request payload: expected text string.', { status: 400 })
   }
 
-  const text = normalizeTtsText(rawText)
+  const text = normalizeTtsText(parsedBody.data.text)
   if (!text) {
     return new Response('Invalid request payload: expected non-empty text.', { status: 400 })
   }

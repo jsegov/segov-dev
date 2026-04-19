@@ -7,6 +7,8 @@ import { useToast } from '@/hooks/use-toast'
 import { type UIMessage, useChat } from '@ai-sdk/react'
 
 const INITIAL_ASSISTANT_MESSAGE = 'segov@terminal:~$ ./ama \nAsk me anything about Jonathan.'
+const SILENT_WAV_DATA_URI =
+  'data:audio/wav;base64,UklGRmQGAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YUAGAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 const INITIAL_MESSAGE_ID = 'initial'
 const AMA_INPUT_ID = 'ama-input'
 const AMA_TRANSCRIPT_ID = 'ama-transcript'
@@ -30,6 +32,26 @@ function getMessageText(parts: UIMessage['parts']): string {
     .join('')
 }
 
+async function primeAudioPlayback(audio: HTMLAudioElement) {
+  audio.src = SILENT_WAV_DATA_URI
+  audio.muted = true
+
+  try {
+    await audio.play()
+  } catch {
+    audio.removeAttribute('src')
+    audio.load()
+    audio.muted = false
+    return
+  }
+
+  audio.pause()
+  audio.currentTime = 0
+  audio.removeAttribute('src')
+  audio.load()
+  audio.muted = false
+}
+
 export default function AMAPage() {
   const [input, setInput] = useState('')
   const [loadingMessageId, setLoadingMessageId] = useState<string | null>(null)
@@ -43,6 +65,27 @@ export default function AMAPage() {
   })
 
   const isLoading = status === 'submitted' || status === 'streaming'
+  const ttsControlNumbers = new Map<string, number>()
+
+  let assistantResponseNumber = 0
+  messages.forEach((message, index) => {
+    const text = getMessageText(message.parts)
+    const isInitialMessage = message.id === INITIAL_MESSAGE_ID
+    const isStreamingAssistantReply =
+      isLoading && message.role === 'assistant' && index === messages.length - 1
+    const showTtsControl =
+      message.role === 'assistant' &&
+      !isInitialMessage &&
+      !isStreamingAssistantReply &&
+      Boolean(text.trim())
+
+    if (!showTtsControl) {
+      return
+    }
+
+    assistantResponseNumber += 1
+    ttsControlNumbers.set(message.id, assistantResponseNumber)
+  })
 
   const releaseAudioUrl = () => {
     if (!audioUrlRef.current) {
@@ -114,6 +157,9 @@ export default function AMAPage() {
     setLoadingMessageId(messageId)
 
     try {
+      const audio = new Audio()
+      await primeAudioPlayback(audio)
+
       const response = await fetch('/api/tts', {
         method: 'POST',
         headers: {
@@ -128,7 +174,7 @@ export default function AMAPage() {
 
       const audioBlob = await response.blob()
       const audioUrl = URL.createObjectURL(audioBlob)
-      const audio = new Audio(audioUrl)
+      audio.src = audioUrl
 
       audio.onended = () => {
         if (audioRef.current !== audio) {
@@ -197,6 +243,7 @@ export default function AMAPage() {
                 !isInitialMessage &&
                 !isStreamingAssistantReply &&
                 Boolean(text.trim())
+              const assistantResponseLabelNumber = ttsControlNumbers.get(message.id)
               const isTtsLoading = loadingMessageId === message.id
               const isTtsPlaying = playingMessageId === message.id
 
@@ -222,8 +269,8 @@ export default function AMAPage() {
                           className="mt-2 font-mono"
                           aria-label={
                             isTtsPlaying
-                              ? `Stop audio for assistant response ${index + 1}`
-                              : `Play audio for assistant response ${index + 1}`
+                              ? `Stop audio for assistant response ${assistantResponseLabelNumber}`
+                              : `Play audio for assistant response ${assistantResponseLabelNumber}`
                           }
                           aria-pressed={isTtsPlaying}
                           disabled={Boolean(loadingMessageId && !isTtsLoading)}

@@ -23,12 +23,15 @@ const audioInstances: MockAudio[] = []
 
 class MockAudio {
   currentTime = 0
+  muted = false
   onended: ((this: HTMLAudioElement, ev: Event) => unknown) | null = null
+  load = vi.fn()
   pause = vi.fn()
   play = vi.fn(async () => undefined)
+  removeAttribute = vi.fn()
   src: string
 
-  constructor(src: string) {
+  constructor(src = '') {
     this.src = src
     audioInstances.push(this)
   }
@@ -130,9 +133,14 @@ describe('AMA page', () => {
 
     render(<AMAPage />)
 
-    expect(screen.queryByRole('button', { name: /assistant response 1/i })).not.toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: /play audio for assistant response 3/i }),
+      screen.getAllByRole('button', { name: /play audio for assistant response/i }),
+    ).toHaveLength(1)
+    expect(
+      screen.queryByRole('button', { name: /play audio for assistant response 2/i }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /play audio for assistant response 1/i }),
     ).toBeInTheDocument()
   })
 
@@ -229,14 +237,16 @@ describe('AMA page', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /play audio for assistant response 1/i }))
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/tts', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        text: 'Error: Query outside permitted scope. This terminal only responds to questions about Jonathan Segovia.',
-      }),
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/tts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          text: 'Error: Query outside permitted scope. This terminal only responds to questions about Jonathan Segovia.',
+        }),
+      })
     })
     expect(
       screen.getByRole('button', { name: /play audio for assistant response 1/i }),
@@ -254,7 +264,7 @@ describe('AMA page', () => {
 
     expect(createObjectURLMock).toHaveBeenCalledTimes(1)
     expect(audioInstances).toHaveLength(1)
-    expect(audioInstances[0]?.play).toHaveBeenCalledTimes(1)
+    expect(audioInstances[0]?.play).toHaveBeenCalledTimes(2)
   })
 
   it('stops playback and clears state when stop is clicked', async () => {
@@ -271,7 +281,7 @@ describe('AMA page', () => {
     })
     fireEvent.click(stopButton)
 
-    expect(audioInstances[0]?.pause).toHaveBeenCalledTimes(1)
+    expect(audioInstances[0]?.pause).toHaveBeenCalledTimes(2)
     expect(audioInstances[0]?.currentTime).toBe(0)
     expect(revokeObjectURLMock).toHaveBeenCalledWith('blob:tts-audio')
     expect(
@@ -323,10 +333,10 @@ describe('AMA page', () => {
 
     await screen.findByRole('button', { name: /stop audio for assistant response 2/i })
 
-    expect(audioInstances[0]?.pause).toHaveBeenCalledTimes(1)
+    expect(audioInstances[0]?.pause).toHaveBeenCalledTimes(2)
     expect(audioInstances[0]?.currentTime).toBe(0)
     expect(revokeObjectURLMock).toHaveBeenCalledWith('blob:first')
-    expect(audioInstances[1]?.play).toHaveBeenCalledTimes(1)
+    expect(audioInstances[1]?.play).toHaveBeenCalledTimes(2)
   })
 
   it('shows a toast when text to speech fails', async () => {
