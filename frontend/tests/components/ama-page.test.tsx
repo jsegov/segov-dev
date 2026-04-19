@@ -286,6 +286,36 @@ describe('AMA page', () => {
     expect(webSocketInstances[0]?.protocols).toEqual(['token', 'voice-token'])
   })
 
+  it('does not retry a superseded socket connection after a new submit starts a replacement one', async () => {
+    fetchMock.mockImplementation(() => Promise.resolve(createVoiceTokenResponse()))
+
+    render(<AMAPage />)
+
+    fireEvent.click(screen.getByRole('switch', { name: /toggle voice mode/i }))
+    await waitFor(() => {
+      expect(webSocketInstances).toHaveLength(1)
+    })
+
+    const input = screen.getByRole('textbox', { name: 'Ask a question' })
+    fireEvent.change(input, { target: { value: 'Tell me about your work.' } })
+    fireEvent.submit(input.closest('form')!)
+
+    await waitFor(() => {
+      expect(sendMessageMock).toHaveBeenCalledWith({ text: 'Tell me about your work.' })
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(webSocketInstances).toHaveLength(2)
+    })
+
+    webSocketInstances[0]?.dispatchClose()
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(webSocketInstances).toHaveLength(2)
+    expect(webSocketInstances[1]?.close).not.toHaveBeenCalled()
+    expect(toastMock).not.toHaveBeenCalledWith(expect.objectContaining({ title: 'Voice Error' }))
+  })
+
   it('streams assistant text to the Deepgram websocket and flushes at turn completion', async () => {
     const chatState = {
       status: 'ready',

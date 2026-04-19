@@ -424,6 +424,10 @@ export default function AMAPage() {
       try {
         return await connectVoiceSocket()
       } catch (error) {
+        if (voiceSocketOpenPromiseRef.current !== connectionPromise) {
+          return false
+        }
+
         if (
           allowRetry &&
           !(error instanceof DOMException && error.name === 'AbortError') &&
