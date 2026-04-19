@@ -133,17 +133,26 @@ export function pcm16ToFloat32(buffer: ArrayBuffer): Float32Array {
   return samples
 }
 
-type AudioContextLike = Pick<
-  AudioContext,
-  'createBuffer' | 'createBufferSource' | 'currentTime'
+type AudioBufferLike = Pick<AudioBuffer, 'duration' | 'getChannelData'>
+
+type AudioBufferSourceLike = Pick<
+  AudioBufferSourceNode,
+  'connect' | 'disconnect' | 'start' | 'stop' | 'onended'
 > & {
+  buffer: AudioBufferLike | null
+}
+
+type AudioContextLike = {
+  currentTime: number
   destination: AudioNode
+  createBuffer: (channels: number, length: number, sampleRate: number) => AudioBufferLike
+  createBufferSource: () => AudioBufferSourceLike
 }
 
 type AudioPlayerState = 'idle' | 'playing'
 
 export class PcmAudioPlayer {
-  private activeSources = new Set<AudioBufferSourceNode>()
+  private activeSources = new Set<AudioBufferSourceLike>()
   private generation = 0
   private nextStartTime = 0
   private state: AudioPlayerState = 'idle'
