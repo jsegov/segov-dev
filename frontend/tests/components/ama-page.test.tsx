@@ -3,37 +3,117 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import AMAPage from '@/app/ama/page'
 
-const {
-  sendMessageMock,
-  toastMock,
-  useChatMock,
-  fetchMock,
-  createObjectURLMock,
-  revokeObjectURLMock,
-} = vi.hoisted(() => ({
+const { sendMessageMock, toastMock, useChatMock, fetchMock } = vi.hoisted(() => ({
   sendMessageMock: vi.fn(),
   toastMock: vi.fn(),
   useChatMock: vi.fn(),
   fetchMock: vi.fn(),
-  createObjectURLMock: vi.fn(),
-  revokeObjectURLMock: vi.fn(),
 }))
 
-const audioInstances: MockAudio[] = []
+const webSocketInstances: MockWebSocket[] = []
+const localStorageState = new Map<string, string>()
 
-class MockAudio {
+const localStorageMock = {
+  getItem: vi.fn((key: string) => localStorageState.get(key) ?? null),
+  setItem: vi.fn((key: string, value: string) => {
+    localStorageState.set(key, value)
+  }),
+  removeItem: vi.fn((key: string) => {
+    localStorageState.delete(key)
+  }),
+  clear: vi.fn(() => {
+    localStorageState.clear()
+  }),
+}
+
+class MockAudioBuffer {
+  readonly duration: number
+  private readonly channelData: Float32Array
+
+  constructor(length: number, sampleRate: number) {
+    this.duration = length / sampleRate
+    this.channelData = new Float32Array(length)
+  }
+
+  getChannelData() {
+    return this.channelData
+  }
+}
+
+class MockAudioBufferSourceNode {
+  buffer: MockAudioBuffer | null = null
+  onended: (() => void) | null = null
+  readonly connect = vi.fn()
+  readonly disconnect = vi.fn()
+  readonly start = vi.fn()
+  readonly stop = vi.fn()
+
+  finish() {
+    this.onended?.()
+  }
+}
+
+class MockAudioContext {
   currentTime = 0
-  muted = false
-  onended: ((this: HTMLAudioElement, ev: Event) => unknown) | null = null
-  load = vi.fn()
-  pause = vi.fn()
-  play = vi.fn(async () => undefined)
-  removeAttribute = vi.fn()
-  src: string
+  destination = {} as AudioNode
+  state: AudioContextState = 'suspended'
+  readonly sources: MockAudioBufferSourceNode[] = []
+  readonly createBuffer = vi.fn(
+    (_channels: number, length: number, sampleRate: number) =>
+      new MockAudioBuffer(length, sampleRate) as unknown as AudioBuffer,
+  )
+  readonly createBufferSource = vi.fn(() => {
+    const source = new MockAudioBufferSourceNode()
+    this.sources.push(source)
+    return source as unknown as AudioBufferSourceNode
+  })
+  readonly resume = vi.fn(async () => {
+    this.state = 'running'
+  })
+  readonly close = vi.fn(async () => {
+    this.state = 'closed'
+  })
+}
 
-  constructor(src = '') {
-    this.src = src
-    audioInstances.push(this)
+class MockWebSocket {
+  static CONNECTING = 0
+  static OPEN = 1
+  static CLOSING = 2
+  static CLOSED = 3
+
+  readonly send = vi.fn()
+  readonly close = vi.fn((code?: number, reason?: string) => {
+    this.readyState = MockWebSocket.CLOSED
+    this.closeArgs = { code, reason }
+  })
+  readonly url: string
+  readonly protocols: string[]
+  binaryType: BinaryType = 'blob'
+  readyState = MockWebSocket.CONNECTING
+  onopen: ((event: Event) => void) | null = null
+  onmessage: ((event: MessageEvent) => void) | null = null
+  onclose: ((event: CloseEvent) => void) | null = null
+  onerror: ((event: Event) => void) | null = null
+  closeArgs: { code?: number; reason?: string } | null = null
+
+  constructor(url: string | URL, protocols?: string | string[]) {
+    this.url = String(url)
+    this.protocols = Array.isArray(protocols) ? protocols : protocols ? [protocols] : []
+    webSocketInstances.push(this)
+  }
+
+  dispatchOpen() {
+    this.readyState = MockWebSocket.OPEN
+    this.onopen?.(new Event('open'))
+  }
+
+  dispatchMessage(data: ArrayBuffer | Blob | string) {
+    this.onmessage?.({ data } as MessageEvent)
+  }
+
+  dispatchClose() {
+    this.readyState = MockWebSocket.CLOSED
+    this.onclose?.({ code: 1000, reason: 'closed', wasClean: true } as CloseEvent)
   }
 }
 
@@ -51,25 +131,57 @@ vi.mock('@/hooks/use-toast', () => ({
   }),
 }))
 
+function createVoiceTokenResponse() {
+  return new Response(
+    JSON.stringify({
+      accessToken: 'voice-token',
+      expiresIn: 60,
+      model: 'aura-2-thalia-en',
+      encoding: 'linear16',
+      sampleRate: 24000,
+    }),
+    {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    },
+  )
+}
+
 describe('AMA page', () => {
   beforeEach(() => {
     sendMessageMock.mockReset()
     toastMock.mockReset()
     useChatMock.mockReset()
     fetchMock.mockReset()
-    createObjectURLMock.mockReset()
-    revokeObjectURLMock.mockReset()
-    audioInstances.length = 0
+    webSocketInstances.length = 0
+    localStorageMock.clear()
+    localStorageMock.getItem.mockClear()
+    localStorageMock.setItem.mockClear()
+    localStorageMock.removeItem.mockClear()
+    localStorageMock.clear.mockClear()
+
     vi.stubGlobal('fetch', fetchMock)
-    vi.stubGlobal('Audio', MockAudio as unknown as typeof Audio)
-    Object.defineProperty(globalThis.URL, 'createObjectURL', {
+    vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
+    vi.stubGlobal('AudioContext', MockAudioContext as unknown as typeof AudioContext)
+    Object.defineProperty(window, 'WebSocket', {
       configurable: true,
-      value: createObjectURLMock.mockReturnValue('blob:tts-audio'),
+      value: MockWebSocket,
     })
-    Object.defineProperty(globalThis.URL, 'revokeObjectURL', {
+    Object.defineProperty(globalThis, 'localStorage', {
       configurable: true,
-      value: revokeObjectURLMock,
+      value: localStorageMock,
     })
+    Object.defineProperty(window, 'AudioContext', {
+      configurable: true,
+      value: MockAudioContext,
+    })
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: localStorageMock,
+    })
+
     const chatState = {
       status: 'ready',
       error: undefined,
@@ -87,64 +199,27 @@ describe('AMA page', () => {
         },
       ],
     }
-    useChatMock.mockReturnValue(chatState)
+    useChatMock.mockImplementation(() => chatState)
   })
 
   afterEach(() => {
-    vi.unstubAllGlobals()
     cleanup()
+    vi.unstubAllGlobals()
   })
 
-  it('renders streamed assistant output in terminal view', () => {
+  it('renders assistant output without per-message playback controls', () => {
     render(<AMAPage />)
+
     expect(
       screen.getByText(
         'Error: Query outside permitted scope. This terminal only responds to questions about Jonathan Segovia.',
       ),
     ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /play audio/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: /toggle voice mode/i })).toBeInTheDocument()
   })
 
-  it('renders a play control for assistant replies but not for the seeded intro or user messages', () => {
-    const chatState = {
-      status: 'ready',
-      error: undefined,
-      sendMessage: sendMessageMock,
-      messages: [
-        {
-          id: 'initial',
-          role: 'assistant',
-          parts: [
-            { type: 'text', text: 'segov@terminal:~$ ./ama \nAsk me anything about Jonathan.' },
-          ],
-        },
-        {
-          id: 'user-1',
-          role: 'user',
-          parts: [{ type: 'text', text: 'Tell me about your work.' }],
-        },
-        {
-          id: 'assistant-2',
-          role: 'assistant',
-          parts: [{ type: 'text', text: 'I build frontend systems.' }],
-        },
-      ],
-    }
-    useChatMock.mockReturnValue(chatState)
-
-    render(<AMAPage />)
-
-    expect(
-      screen.getAllByRole('button', { name: /play audio for assistant response/i }),
-    ).toHaveLength(1)
-    expect(
-      screen.queryByRole('button', { name: /play audio for assistant response 2/i }),
-    ).not.toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: /play audio for assistant response 1/i }),
-    ).toBeInTheDocument()
-  })
-
-  it('submits user prompt through useChat sendMessage', async () => {
+  it('submits user prompts through useChat sendMessage', async () => {
     render(<AMAPage />)
 
     const input = screen.getByRole('textbox', { name: 'Ask a question' })
@@ -171,14 +246,161 @@ describe('AMA page', () => {
     })
   })
 
-  it('does not render the processing placeholder for assistant messages without text parts', () => {
-    useChatMock.mockReturnValueOnce({
+  it('persists voice mode and avoids opening the websocket before a user gesture', async () => {
+    localStorageMock.setItem('ama-voice-mode-enabled', 'true')
+    fetchMock.mockResolvedValue(createVoiceTokenResponse())
+
+    render(<AMAPage />)
+
+    expect(screen.getByRole('switch', { name: /toggle voice mode/i })).toHaveAttribute(
+      'data-state',
+      'checked',
+    )
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    const input = screen.getByRole('textbox', { name: 'Ask a question' })
+    fireEvent.change(input, { target: { value: 'Tell me about your work.' } })
+    fireEvent.submit(input.closest('form')!)
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/tts/token', {
+        method: 'POST',
+        signal: expect.any(AbortSignal),
+      })
+    })
+    expect(webSocketInstances).toHaveLength(1)
+  })
+
+  it('opens a Deepgram websocket when voice mode is enabled', async () => {
+    fetchMock.mockResolvedValueOnce(createVoiceTokenResponse())
+
+    render(<AMAPage />)
+
+    fireEvent.click(screen.getByRole('switch', { name: /toggle voice mode/i }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+    expect(webSocketInstances).toHaveLength(1)
+    expect(webSocketInstances[0]?.url).toContain('wss://api.deepgram.com/v1/speak')
+    expect(webSocketInstances[0]?.protocols).toEqual(['token', 'voice-token'])
+  })
+
+  it('streams assistant text to the Deepgram websocket and flushes at turn completion', async () => {
+    const chatState = {
+      status: 'ready',
+      error: undefined,
+      sendMessage: sendMessageMock,
+      messages: [
+        {
+          id: 'initial',
+          role: 'assistant',
+          parts: [
+            { type: 'text', text: 'segov@terminal:~$ ./ama \nAsk me anything about Jonathan.' },
+          ],
+        },
+      ],
+    }
+    useChatMock.mockImplementation(() => chatState)
+    fetchMock.mockResolvedValueOnce(createVoiceTokenResponse())
+
+    const { rerender } = render(<AMAPage />)
+
+    fireEvent.click(screen.getByRole('switch', { name: /toggle voice mode/i }))
+    await waitFor(() => {
+      expect(webSocketInstances).toHaveLength(1)
+    })
+    webSocketInstances[0]?.dispatchOpen()
+
+    chatState.status = 'streaming'
+    chatState.messages = [
+      ...chatState.messages,
+      {
+        id: 'assistant-2',
+        role: 'assistant',
+        parts: [{ type: 'text', text: 'Hello there. How' }],
+      },
+    ]
+    rerender(<AMAPage />)
+
+    await waitFor(() => {
+      expect(webSocketInstances[0]?.send).toHaveBeenCalledWith(
+        JSON.stringify({ type: 'Speak', text: 'Hello there.' }),
+      )
+    })
+
+    chatState.messages = [
+      chatState.messages[0]!,
+      {
+        id: 'assistant-2',
+        role: 'assistant',
+        parts: [{ type: 'text', text: 'Hello there. How are you today?' }],
+      },
+    ]
+    rerender(<AMAPage />)
+
+    await waitFor(() => {
+      expect(webSocketInstances[0]?.send).toHaveBeenCalledWith(
+        JSON.stringify({ type: 'Speak', text: 'How are you today?' }),
+      )
+    })
+
+    chatState.status = 'ready'
+    rerender(<AMAPage />)
+
+    await waitFor(() => {
+      expect(webSocketInstances[0]?.send).toHaveBeenCalledWith(JSON.stringify({ type: 'Flush' }))
+    })
+  })
+
+  it('shows a global stop control and clears live voice when stopped', async () => {
+    const chatState = {
       status: 'streaming',
       error: undefined,
       sendMessage: sendMessageMock,
       messages: [
         {
-          id: 'assistant-1',
+          id: 'assistant-2',
+          role: 'assistant',
+          parts: [{ type: 'text', text: 'Hello there.' }],
+        },
+      ],
+    }
+    useChatMock.mockImplementation(() => chatState)
+    fetchMock.mockResolvedValueOnce(createVoiceTokenResponse())
+
+    render(<AMAPage />)
+
+    fireEvent.click(screen.getByRole('switch', { name: /toggle voice mode/i }))
+    await waitFor(() => {
+      expect(webSocketInstances).toHaveLength(1)
+    })
+    webSocketInstances[0]?.dispatchOpen()
+
+    await screen.findByRole('button', { name: /stop voice/i })
+    fireEvent.click(screen.getByRole('button', { name: /stop voice/i }))
+
+    expect(webSocketInstances[0]?.send).toHaveBeenCalledWith(JSON.stringify({ type: 'Clear' }))
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /stop voice/i })).not.toBeInTheDocument()
+    })
+  })
+
+  it('does not stream the seeded intro or tool-only assistant updates', async () => {
+    const chatState = {
+      status: 'streaming',
+      error: undefined,
+      sendMessage: sendMessageMock,
+      messages: [
+        {
+          id: 'initial',
+          role: 'assistant',
+          parts: [
+            { type: 'text', text: 'segov@terminal:~$ ./ama \nAsk me anything about Jonathan.' },
+          ],
+        },
+        {
+          id: 'assistant-tool',
           role: 'assistant',
           parts: [
             {
@@ -190,317 +412,59 @@ describe('AMA page', () => {
           ],
         },
       ],
-    })
-
-    render(<AMAPage />)
-
-    expect(screen.queryByText('segov@terminal:~$ processing...')).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /assistant response 1/i })).not.toBeInTheDocument()
-  })
-
-  it('does not render a play control for the currently streaming assistant reply', () => {
-    useChatMock.mockReturnValueOnce({
-      status: 'streaming',
-      error: undefined,
-      sendMessage: sendMessageMock,
-      messages: [
-        {
-          id: 'assistant-1',
-          role: 'assistant',
-          parts: [{ type: 'text', text: 'Finished response.' }],
-        },
-        {
-          id: 'assistant-2',
-          role: 'assistant',
-          parts: [{ type: 'text', text: 'Streaming response in progress' }],
-        },
-      ],
-    })
-
-    render(<AMAPage />)
-
-    expect(
-      screen.getByRole('button', { name: /play audio for assistant response 1/i }),
-    ).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /assistant response 2/i })).not.toBeInTheDocument()
-  })
-
-  it('requests text to speech, shows a loading state, and toggles to stop while playing', async () => {
-    let resolveFetch: ((response: Response) => void) | undefined
-    fetchMock.mockReturnValueOnce(
-      new Promise((resolve) => {
-        resolveFetch = resolve
-      }),
-    )
-
-    render(<AMAPage />)
-
-    fireEvent.click(screen.getByRole('button', { name: /play audio for assistant response 1/i }))
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(1)
-    })
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/api/tts',
-      expect.objectContaining({
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          text: 'Error: Query outside permitted scope. This terminal only responds to questions about Jonathan Segovia.',
-        }),
-      }),
-    )
-    expect(fetchMock.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal)
-    const loadingButton = screen.getByRole('button', {
-      name: /loading audio for assistant response 1/i,
-    })
-    expect(loadingButton).toHaveTextContent('Loading...')
-    expect(loadingButton).toBeDisabled()
-
-    resolveFetch?.(
-      new Response('audio-bytes', { status: 200, headers: { 'Content-Type': 'audio/mpeg' } }),
-    )
-
-    await waitFor(() => {
-      expect(
-        screen.getByRole('button', { name: /stop audio for assistant response 1/i }),
-      ).toBeInTheDocument()
-    })
-
-    expect(createObjectURLMock).toHaveBeenCalledTimes(1)
-    expect(audioInstances).toHaveLength(1)
-    expect(audioInstances[0]?.play).toHaveBeenCalledTimes(2)
-  })
-
-  it('ignores a rapid second play click while a TTS request is already starting', async () => {
-    let resolveFetch: ((response: Response) => void) | undefined
-    fetchMock.mockReturnValueOnce(
-      new Promise((resolve) => {
-        resolveFetch = resolve
-      }),
-    )
-
-    render(<AMAPage />)
-
-    const playButton = screen.getByRole('button', {
-      name: /play audio for assistant response 1/i,
-    })
-
-    fireEvent.click(playButton)
-    fireEvent.click(playButton)
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(1)
-    })
-
-    resolveFetch?.(
-      new Response('audio-bytes', { status: 200, headers: { 'Content-Type': 'audio/mpeg' } }),
-    )
-
-    await screen.findByRole('button', {
-      name: /stop audio for assistant response 1/i,
-    })
-  })
-
-  it('keeps the control in loading state until playback has actually started', async () => {
-    let resolveFetch: ((response: Response) => void) | undefined
-    let resolvePlaybackStart: (() => void) | undefined
-
-    class PendingPlaybackAudio extends MockAudio {
-      private playCallCount = 0
-
-      play = vi.fn(() => {
-        this.playCallCount += 1
-
-        if (this.playCallCount === 1) {
-          return Promise.resolve()
-        }
-
-        return new Promise<void>((resolve) => {
-          resolvePlaybackStart = resolve
-        })
-      })
     }
-
-    fetchMock.mockReturnValueOnce(
-      new Promise((resolve) => {
-        resolveFetch = resolve
-      }),
-    )
-    vi.stubGlobal('Audio', PendingPlaybackAudio as unknown as typeof Audio)
+    useChatMock.mockImplementation(() => chatState)
+    fetchMock.mockResolvedValueOnce(createVoiceTokenResponse())
 
     render(<AMAPage />)
 
-    fireEvent.click(screen.getByRole('button', { name: /play audio for assistant response 1/i }))
+    fireEvent.click(screen.getByRole('switch', { name: /toggle voice mode/i }))
+    await waitFor(() => {
+      expect(webSocketInstances).toHaveLength(1)
+    })
+    webSocketInstances[0]?.dispatchOpen()
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(1)
-    })
-
-    resolveFetch?.(
-      new Response('audio-bytes', { status: 200, headers: { 'Content-Type': 'audio/mpeg' } }),
-    )
-
-    const loadingButton = await screen.findByRole('button', {
-      name: /loading audio for assistant response 1/i,
-    })
-    expect(loadingButton).toBeDisabled()
-    expect(
-      screen.queryByRole('button', { name: /stop audio for assistant response 1/i }),
-    ).not.toBeInTheDocument()
-
-    resolvePlaybackStart?.()
-
-    await screen.findByRole('button', {
-      name: /stop audio for assistant response 1/i,
+      expect(webSocketInstances[0]?.send).not.toHaveBeenCalledWith(
+        expect.stringContaining('"type":"Speak"'),
+      )
     })
   })
 
-  it('aborts an in-flight TTS request when the component unmounts', async () => {
-    let requestSignal: AbortSignal | undefined
+  it('sends Clear and Close when voice mode is toggled off', async () => {
+    fetchMock.mockResolvedValueOnce(createVoiceTokenResponse())
 
-    fetchMock.mockImplementationOnce((_input, init) => {
-      requestSignal = init?.signal as AbortSignal
+    render(<AMAPage />)
 
-      return new Promise((_resolve, reject) => {
-        requestSignal?.addEventListener('abort', () => {
-          reject(new DOMException('The operation was aborted.', 'AbortError'))
-        })
-      })
+    const voiceModeSwitch = screen.getByRole('switch', { name: /toggle voice mode/i })
+    fireEvent.click(voiceModeSwitch)
+
+    await waitFor(() => {
+      expect(webSocketInstances).toHaveLength(1)
     })
+    webSocketInstances[0]?.dispatchOpen()
+
+    fireEvent.click(voiceModeSwitch)
+
+    expect(webSocketInstances[0]?.send).toHaveBeenCalledWith(JSON.stringify({ type: 'Clear' }))
+    expect(webSocketInstances[0]?.send).toHaveBeenCalledWith(JSON.stringify({ type: 'Close' }))
+    expect(webSocketInstances[0]?.close).toHaveBeenCalledWith(1000, 'Voice mode ended')
+  })
+
+  it('cleans up the websocket connection on unmount', async () => {
+    fetchMock.mockResolvedValueOnce(createVoiceTokenResponse())
 
     const { unmount } = render(<AMAPage />)
 
-    fireEvent.click(screen.getByRole('button', { name: /play audio for assistant response 1/i }))
-
+    fireEvent.click(screen.getByRole('switch', { name: /toggle voice mode/i }))
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(webSocketInstances).toHaveLength(1)
     })
-    expect(requestSignal).toBeDefined()
-    expect(requestSignal?.aborted).toBe(false)
+    webSocketInstances[0]?.dispatchOpen()
 
     unmount()
 
-    await waitFor(() => {
-      expect(requestSignal?.aborted).toBe(true)
-    })
-
-    await Promise.resolve()
-
-    expect(createObjectURLMock).not.toHaveBeenCalled()
-    expect(audioInstances).toHaveLength(1)
-    expect(audioInstances[0]?.play).toHaveBeenCalledTimes(1)
-    expect(toastMock).not.toHaveBeenCalled()
-  })
-
-  it('stops playback and clears state when stop is clicked', async () => {
-    fetchMock.mockResolvedValueOnce(
-      new Response('audio-bytes', { status: 200, headers: { 'Content-Type': 'audio/mpeg' } }),
-    )
-
-    render(<AMAPage />)
-
-    fireEvent.click(screen.getByRole('button', { name: /play audio for assistant response 1/i }))
-
-    const stopButton = await screen.findByRole('button', {
-      name: /stop audio for assistant response 1/i,
-    })
-    fireEvent.click(stopButton)
-
-    expect(audioInstances[0]?.pause).toHaveBeenCalledTimes(2)
-    expect(audioInstances[0]?.currentTime).toBe(0)
-    expect(revokeObjectURLMock).toHaveBeenCalledWith('blob:tts-audio')
-    expect(
-      screen.getByRole('button', { name: /play audio for assistant response 1/i }),
-    ).toBeInTheDocument()
-  })
-
-  it('stops the current reply before starting another one', async () => {
-    createObjectURLMock.mockReturnValueOnce('blob:first').mockReturnValueOnce('blob:second')
-    fetchMock
-      .mockResolvedValueOnce(
-        new Response('first-audio', { status: 200, headers: { 'Content-Type': 'audio/mpeg' } }),
-      )
-      .mockResolvedValueOnce(
-        new Response('second-audio', { status: 200, headers: { 'Content-Type': 'audio/mpeg' } }),
-      )
-
-    const chatState = {
-      status: 'ready',
-      error: undefined,
-      sendMessage: sendMessageMock,
-      messages: [
-        {
-          id: 'assistant-1',
-          role: 'assistant',
-          parts: [{ type: 'text', text: 'First reply.' }],
-        },
-        {
-          id: 'assistant-2',
-          role: 'assistant',
-          parts: [{ type: 'text', text: 'Second reply.' }],
-        },
-      ],
-    }
-    useChatMock.mockImplementation(() => chatState)
-
-    render(<AMAPage />)
-
-    expect(screen.getByText('First reply.')).toBeInTheDocument()
-    expect(screen.getByText('Second reply.')).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: /play audio for assistant response 2/i }),
-    ).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: /play audio for assistant response 1/i }))
-    await screen.findByRole('button', { name: /stop audio for assistant response 1/i })
-
-    fireEvent.click(screen.getByRole('button', { name: /play audio for assistant response 2/i }))
-
-    await screen.findByRole('button', { name: /stop audio for assistant response 2/i })
-
-    expect(audioInstances[0]?.pause).toHaveBeenCalledTimes(2)
-    expect(audioInstances[0]?.currentTime).toBe(0)
-    expect(revokeObjectURLMock).toHaveBeenCalledWith('blob:first')
-    expect(audioInstances[1]?.play).toHaveBeenCalledTimes(2)
-  })
-
-  it('shows a toast when text to speech fails', async () => {
-    fetchMock.mockResolvedValueOnce(new Response('bad gateway', { status: 502 }))
-
-    render(<AMAPage />)
-
-    fireEvent.click(screen.getByRole('button', { name: /play audio for assistant response 1/i }))
-
-    await waitFor(() => {
-      expect(toastMock).toHaveBeenCalledWith({
-        title: 'Audio Error',
-        description: 'Failed to play audio for this response. Please try again later.',
-        variant: 'destructive',
-      })
-    })
-  })
-
-  it('exposes transcript, input, and playback accessibility attributes', async () => {
-    fetchMock.mockResolvedValueOnce(
-      new Response('audio-bytes', { status: 200, headers: { 'Content-Type': 'audio/mpeg' } }),
-    )
-
-    render(<AMAPage />)
-
-    const transcript = screen.getByRole('log')
-    expect(transcript).toHaveAttribute('aria-live', 'polite')
-    expect(transcript).toHaveAttribute('aria-busy', 'false')
-    expect(screen.getByRole('textbox', { name: 'Ask a question' })).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: /play audio for assistant response 1/i }))
-
-    const stopButton = await screen.findByRole('button', {
-      name: /stop audio for assistant response 1/i,
-    })
-    expect(stopButton).toHaveAttribute('aria-pressed', 'true')
+    expect(webSocketInstances[0]?.send).toHaveBeenCalledWith(JSON.stringify({ type: 'Close' }))
+    expect(webSocketInstances[0]?.close).toHaveBeenCalledWith(1000, 'Voice mode ended')
   })
 })
