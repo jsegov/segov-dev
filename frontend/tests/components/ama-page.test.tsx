@@ -238,7 +238,12 @@ describe('AMA page', () => {
     fireEvent.click(screen.getByRole('button', { name: /play audio for assistant response 1/i }))
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith('/api/tts', {
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/tts',
+      expect.objectContaining({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -246,8 +251,9 @@ describe('AMA page', () => {
         body: JSON.stringify({
           text: 'Error: Query outside permitted scope. This terminal only responds to questions about Jonathan Segovia.',
         }),
-      })
-    })
+      }),
+    )
+    expect(fetchMock.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal)
     const loadingButton = screen.getByRole('button', {
       name: /loading audio for assistant response 1/i,
     })
@@ -351,6 +357,43 @@ describe('AMA page', () => {
     await screen.findByRole('button', {
       name: /stop audio for assistant response 1/i,
     })
+  })
+
+  it('aborts an in-flight TTS request when the component unmounts', async () => {
+    let requestSignal: AbortSignal | undefined
+
+    fetchMock.mockImplementationOnce((_input, init) => {
+      requestSignal = init?.signal as AbortSignal
+
+      return new Promise((_resolve, reject) => {
+        requestSignal?.addEventListener('abort', () => {
+          reject(new DOMException('The operation was aborted.', 'AbortError'))
+        })
+      })
+    })
+
+    const { unmount } = render(<AMAPage />)
+
+    fireEvent.click(screen.getByRole('button', { name: /play audio for assistant response 1/i }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+    expect(requestSignal).toBeDefined()
+    expect(requestSignal?.aborted).toBe(false)
+
+    unmount()
+
+    await waitFor(() => {
+      expect(requestSignal?.aborted).toBe(true)
+    })
+
+    await Promise.resolve()
+
+    expect(createObjectURLMock).not.toHaveBeenCalled()
+    expect(audioInstances).toHaveLength(1)
+    expect(audioInstances[0]?.play).toHaveBeenCalledTimes(1)
+    expect(toastMock).not.toHaveBeenCalled()
   })
 
   it('stops playback and clears state when stop is clicked', async () => {

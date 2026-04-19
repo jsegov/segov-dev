@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, type MutableRefObject } from 'react'
 import { Navbar } from '@/components/navbar'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/hooks/use-toast'
@@ -74,6 +74,38 @@ async function primeAudioPlayback(audio: HTMLAudioElement) {
   audio.muted = false
 }
 
+function releaseAudioUrl(audioUrlRef: MutableRefObject<string | null>) {
+  if (!audioUrlRef.current) {
+    return
+  }
+
+  URL.revokeObjectURL(audioUrlRef.current)
+  audioUrlRef.current = null
+}
+
+function clearActiveAudio(
+  audioRef: MutableRefObject<HTMLAudioElement | null>,
+  audioUrlRef: MutableRefObject<string | null>,
+) {
+  if (audioRef.current) {
+    audioRef.current.onended = null
+    audioRef.current.pause()
+    audioRef.current.currentTime = 0
+    audioRef.current = null
+  }
+
+  releaseAudioUrl(audioUrlRef)
+}
+
+function abortTtsRequest(ttsAbortControllerRef: MutableRefObject<AbortController | null>) {
+  if (!ttsAbortControllerRef.current) {
+    return
+  }
+
+  ttsAbortControllerRef.current.abort()
+  ttsAbortControllerRef.current = null
+}
+
 export default function AMAPage() {
   const [input, setInput] = useState('')
   const [loadingMessageId, setLoadingMessageId] = useState<string | null>(null)
@@ -81,6 +113,8 @@ export default function AMAPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const audioUrlRef = useRef<string | null>(null)
+  const isMountedRef = useRef(true)
+  const ttsAbortControllerRef = useRef<AbortController | null>(null)
   const ttsRequestInFlightRef = useRef(false)
   const { toast } = useToast()
   const { messages, sendMessage, status, error } = useChat({
@@ -101,28 +135,9 @@ export default function AMAPage() {
     }
   })
 
-  const releaseAudioUrl = () => {
-    if (!audioUrlRef.current) {
-      return
-    }
-
-    URL.revokeObjectURL(audioUrlRef.current)
-    audioUrlRef.current = null
-  }
-
-  const clearActiveAudio = () => {
-    if (audioRef.current) {
-      audioRef.current.onended = null
-      audioRef.current.pause()
-      audioRef.current.currentTime = 0
-      audioRef.current = null
-    }
-
-    releaseAudioUrl()
-  }
-
   const stopAudioPlayback = () => {
-    clearActiveAudio()
+    abortTtsRequest(ttsAbortControllerRef)
+    clearActiveAudio(audioRef, audioUrlRef)
     ttsRequestInFlightRef.current = false
     setLoadingMessageId(null)
     setPlayingMessageId(null)
@@ -138,18 +153,9 @@ export default function AMAPage() {
 
   useEffect(() => {
     return () => {
-      if (audioRef.current) {
-        audioRef.current.onended = null
-        audioRef.current.pause()
-        audioRef.current.currentTime = 0
-        audioRef.current = null
-      }
-
-      if (audioUrlRef.current) {
-        URL.revokeObjectURL(audioUrlRef.current)
-        audioUrlRef.current = null
-      }
-
+      isMountedRef.current = false
+      abortTtsRequest(ttsAbortControllerRef)
+      clearActiveAudio(audioRef, audioUrlRef)
       ttsRequestInFlightRef.current = false
     }
   }, [])
@@ -173,10 +179,16 @@ export default function AMAPage() {
     stopAudioPlayback()
     ttsRequestInFlightRef.current = true
     setLoadingMessageId(messageId)
+    const abortController = new AbortController()
+    ttsAbortControllerRef.current = abortController
 
     try {
       const audio = new Audio()
       await primeAudioPlayback(audio)
+
+      if (!isMountedRef.current || ttsAbortControllerRef.current !== abortController) {
+        return
+      }
 
       const response = await fetch('/api/tts', {
         method: 'POST',
@@ -184,6 +196,7 @@ export default function AMAPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ text }),
+        signal: abortController.signal,
       })
 
       if (!response.ok) {
@@ -191,6 +204,11 @@ export default function AMAPage() {
       }
 
       const audioBlob = await response.blob()
+
+      if (!isMountedRef.current || ttsAbortControllerRef.current !== abortController) {
+        return
+      }
+
       const audioUrl = URL.createObjectURL(audioBlob)
       audio.src = audioUrl
 
@@ -199,7 +217,7 @@ export default function AMAPage() {
           return
         }
 
-        clearActiveAudio()
+        clearActiveAudio(audioRef, audioUrlRef)
         setLoadingMessageId(null)
         setPlayingMessageId(null)
       }
@@ -213,10 +231,18 @@ export default function AMAPage() {
         return
       }
 
+      if (ttsAbortControllerRef.current === abortController) {
+        ttsAbortControllerRef.current = null
+      }
+
       ttsRequestInFlightRef.current = false
       setLoadingMessageId(null)
       setPlayingMessageId(messageId)
     } catch (error) {
+      if (ttsAbortControllerRef.current === abortController) {
+        ttsAbortControllerRef.current = null
+      }
+
       stopAudioPlayback()
 
       if (error instanceof DOMException && error.name === 'AbortError') {
