@@ -1,9 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { get as getBlob, list } from '@vercel/blob'
+import { get as getEdgeConfig } from '@vercel/edge-config'
+import { createAgentUIStreamResponse } from 'ai'
 
 vi.mock('@vercel/blob', () => ({
   get: vi.fn(),
   list: vi.fn(),
+}))
+
+vi.mock('@vercel/edge-config', () => ({
+  get: vi.fn(),
 }))
 
 vi.mock('ai', () => {
@@ -22,11 +28,25 @@ vi.mock('ai', () => {
     tool: (definition: unknown) => definition,
     ToolLoopAgent,
     createAgentUIStreamResponse: vi.fn(
-      async ({ agent, messages }: { agent: ToolLoopAgent; messages: unknown[] }) => {
-        const firstMessage = messages[0] as
+      async ({
+        agent,
+        messages,
+        uiMessages,
+      }: {
+        agent: ToolLoopAgent
+        messages?: unknown[]
+        uiMessages?: unknown[]
+      }) => {
+        const requestMessages = uiMessages ?? messages ?? []
+        const firstMessage = requestMessages[0] as
           | { role?: string; parts?: Array<{ type?: string; text?: string }> }
           | undefined
         const firstText = firstMessage?.parts?.find((part) => part.type === 'text')?.text
+
+        if (firstText === 'RUN_GET_PUBLIC_SITE_CONTENT_TOOL') {
+          const toolOutput = await agent.tools.get_public_site_content.execute?.({})
+          return new Response(JSON.stringify(toolOutput), { status: 200 })
+        }
 
         if (firstText === 'RUN_GET_RESUME_TOOL') {
           const toolOutput = await agent.tools.get_resume.execute?.({})
@@ -54,7 +74,9 @@ vi.mock('ai', () => {
 })
 
 const getBlobMock = vi.mocked(getBlob)
+const getEdgeConfigMock = vi.mocked(getEdgeConfig)
 const listBlobMock = vi.mocked(list)
+const createAgentUIStreamResponseMock = vi.mocked(createAgentUIStreamResponse)
 
 function createListBlob(pathname: string) {
   return {
@@ -71,6 +93,31 @@ describe('/api/chat route', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     delete process.env.BLOB_RESUME_PATH
+    process.env.EDGE_CONFIG = 'https://edge-config.example'
+    getEdgeConfigMock.mockResolvedValue({
+      about: {
+        description: 'Public about copy',
+      },
+      career: [
+        {
+          title: 'Software Engineer',
+          companyName: 'Example Co',
+          startDate: '2024-01-01',
+          endDate: null,
+          description: 'Built systems.',
+          skills: ['TypeScript'],
+        },
+      ],
+      projects: [
+        {
+          name: 'segov.dev',
+          description: 'Portfolio site',
+          skills: ['Next.js'],
+          githubUrl: 'https://github.com/jsegov/segov-dev',
+          websiteUrl: 'https://segov.dev',
+        },
+      ],
+    })
   })
 
   it('returns stream response for valid messages payload', async () => {
@@ -93,6 +140,44 @@ describe('/api/chat route', () => {
 
     expect(response.status).toBe(200)
     expect(await response.text()).toBe('stream-ok')
+    expect(createAgentUIStreamResponseMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uiMessages: [
+          {
+            id: '1',
+            role: 'user',
+            parts: [{ type: 'text', text: 'Hello' }],
+          },
+        ],
+      }),
+    )
+  })
+
+  it('exercises public site content through the chat agent tool', async () => {
+    const { POST } = await import('@/app/api/chat/route')
+
+    const response = await POST(
+      new Request('http://localhost/api/chat', {
+        method: 'POST',
+        body: JSON.stringify({
+          messages: [
+            {
+              id: '1',
+              role: 'user',
+              parts: [{ type: 'text', text: 'RUN_GET_PUBLIC_SITE_CONTENT_TOOL' }],
+            },
+          ],
+        }),
+      }),
+    )
+
+    expect(response.status).toBe(200)
+    const result = await response.json()
+    expect(result).toMatchObject({
+      available: true,
+      source: 'edge_config',
+      content: expect.stringContaining('Public about copy'),
+    })
   })
 
   it('handles missing BLOB_RESUME_PATH via deterministic fallback', async () => {

@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { get } from '@vercel/edge-config'
-import { getAboutMe, getCareerEntries, getProjects, type SiteContent } from '@/lib/content'
+import {
+  getAboutMe,
+  getCareerEntries,
+  getProjects,
+  getPublicSiteContent,
+  type SiteContent,
+} from '@/lib/content'
 
 vi.mock('@vercel/edge-config', () => ({
   get: vi.fn(),
@@ -51,6 +57,10 @@ describe('content loaders backed by Edge Config', () => {
 
   it('returns projects from the siteContent payload', async () => {
     await expect(getProjects()).resolves.toEqual(siteContentFixture.projects)
+  })
+
+  it('returns full public site content from the siteContent payload', async () => {
+    await expect(getPublicSiteContent()).resolves.toEqual(siteContentFixture)
   })
 
   it('throws when EDGE_CONFIG is missing', async () => {

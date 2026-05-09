@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { Navbar } from '@/components/navbar'
 import { useToast } from '@/hooks/use-toast'
 import { type UIMessage, useChat } from '@ai-sdk/react'
+import { RotateCcw, Square, Trash2 } from 'lucide-react'
 
 const INITIAL_ASSISTANT_MESSAGE = 'segov@terminal:~$ ./ama \nAsk me anything about Jonathan.'
 const INITIAL_MESSAGES: UIMessage[] = [
@@ -14,6 +15,37 @@ const INITIAL_MESSAGES: UIMessage[] = [
   },
 ]
 
+const AMA_STORAGE_KEY = 'segov-dev:ama:v1'
+const HELP_MESSAGE = [
+  'Commands:',
+  'help - show this help',
+  'clear/reset - clear this local session',
+  'stop - stop the current response',
+  'retry/again - regenerate the last response',
+].join('\n')
+const PROMPT_SUGGESTIONS = [
+  "Tell me about Jonathan's career",
+  'What projects best show his AI work?',
+  'What kind of engineer is Jonathan?',
+  'How was this website built?',
+  'What has Jonathan built outside work?',
+]
+const DEFAULT_FOLLOW_UPS = [
+  "Tell me about Jonathan's career",
+  'What projects best show his AI work?',
+  'What kind of engineer is Jonathan?',
+]
+const CAREER_FOLLOW_UPS = [
+  'What backend or platform work has Jonathan done?',
+  'How does Jonathan approach engineering problems?',
+  'Which skills show up repeatedly in his work?',
+]
+const PROJECT_FOLLOW_UPS = [
+  "What are Jonathan's most notable projects?",
+  'Which projects use AI?',
+  'How was segov.dev built?',
+]
+
 function getMessageText(parts: UIMessage['parts']): string {
   return parts
     .filter((part) => part.type === 'text')
@@ -21,23 +53,185 @@ function getMessageText(parts: UIMessage['parts']): string {
     .join('')
 }
 
-export default function AMAPage() {
-  const [input, setInput] = useState('')
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const { toast } = useToast()
-  const { messages, sendMessage, status, error } = useChat({
-    messages: INITIAL_MESSAGES,
+function createMessageId(): string {
+  return `local-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function createTextMessage(role: 'user' | 'assistant', text: string): UIMessage {
+  return {
+    id: createMessageId(),
+    role,
+    parts: [{ type: 'text', text }],
+  }
+}
+
+function sanitizeMessages(messages: UIMessage[]): UIMessage[] {
+  const sanitizedMessages = messages.flatMap((message) => {
+    if (message.role !== 'user' && message.role !== 'assistant') {
+      return []
+    }
+
+    const text = getMessageText(message.parts)
+    if (!text.trim()) {
+      return []
+    }
+
+    return [
+      {
+        id: typeof message.id === 'string' ? message.id : createMessageId(),
+        role: message.role,
+        parts: [{ type: 'text', text }],
+      } satisfies UIMessage,
+    ]
   })
 
+  return sanitizedMessages.length > 0 ? sanitizedMessages : INITIAL_MESSAGES
+}
+
+function messagesNeedSanitization(messages: UIMessage[]): boolean {
+  const sanitizedMessages = sanitizeMessages(messages)
+  if (sanitizedMessages.length !== messages.length) {
+    return true
+  }
+
+  return sanitizedMessages.some((message, index) => {
+    const originalMessage = messages[index]
+    if (!originalMessage) {
+      return true
+    }
+
+    const originalText = getMessageText(originalMessage.parts)
+    return (
+      originalMessage.id !== message.id ||
+      originalMessage.role !== message.role ||
+      originalMessage.parts.length !== 1 ||
+      originalMessage.parts[0]?.type !== 'text' ||
+      originalText !== getMessageText(message.parts)
+    )
+  })
+}
+
+function loadStoredMessages(): UIMessage[] {
+  try {
+    const serializedMessages = window.localStorage.getItem(AMA_STORAGE_KEY)
+    if (!serializedMessages) {
+      return INITIAL_MESSAGES
+    }
+
+    const parsedMessages = JSON.parse(serializedMessages)
+    if (!Array.isArray(parsedMessages)) {
+      return INITIAL_MESSAGES
+    }
+
+    return sanitizeMessages(parsedMessages as UIMessage[])
+  } catch {
+    return INITIAL_MESSAGES
+  }
+}
+
+function persistMessages(messages: UIMessage[]) {
+  window.localStorage.setItem(AMA_STORAGE_KEY, JSON.stringify(sanitizeMessages(messages)))
+}
+
+function clearStoredMessages() {
+  window.localStorage.removeItem(AMA_STORAGE_KEY)
+}
+
+function hasUserMessage(messages: UIMessage[]): boolean {
+  return messages.some((message) => message.role === 'user' && getMessageText(message.parts).trim())
+}
+
+function isInitialSession(messages: UIMessage[]): boolean {
+  const sanitizedMessages = sanitizeMessages(messages)
+  return (
+    sanitizedMessages.length === 1 &&
+    sanitizedMessages[0]?.id === 'initial' &&
+    getMessageText(sanitizedMessages[0].parts) === INITIAL_ASSISTANT_MESSAGE
+  )
+}
+
+function getFollowUpSuggestions(messages: UIMessage[]): string[] {
+  if (!hasUserMessage(messages)) {
+    return []
+  }
+
+  const latestAssistant = [...messages]
+    .reverse()
+    .find(
+      (message) =>
+        message.role === 'assistant' &&
+        message.id !== 'initial' &&
+        getMessageText(message.parts).trim(),
+    )
+
+  if (!latestAssistant) {
+    return []
+  }
+
+  const latestUser = [...messages]
+    .reverse()
+    .find((message) => message.role === 'user' && getMessageText(message.parts).trim())
+  const combinedText = `${getMessageText(latestUser?.parts ?? [])} ${getMessageText(
+    latestAssistant.parts,
+  )}`.toLowerCase()
+
+  if (/(project|site|segov\.dev|website|built|build|ai|side)/.test(combinedText)) {
+    return PROJECT_FOLLOW_UPS
+  }
+
+  if (/(career|work|job|company|resume|engineer|engineering|backend|platform)/.test(combinedText)) {
+    return CAREER_FOLLOW_UPS
+  }
+
+  return DEFAULT_FOLLOW_UPS
+}
+
+export default function AMAPage() {
+  const [input, setInput] = useState('')
+  const [hasHydratedMessages, setHasHydratedMessages] = useState(false)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const { toast } = useToast()
+  const { messages, sendMessage, status, error, stop, regenerate, setMessages, clearError } =
+    useChat({
+      messages: INITIAL_MESSAGES,
+    })
+
   const isLoading = status === 'submitted' || status === 'streaming'
+  const canRetry = !isLoading && hasUserMessage(messages)
+  const canStop = isLoading
+  const canClear = !isLoading && !isInitialSession(messages)
+  const followUpSuggestions = isLoading ? [] : getFollowUpSuggestions(messages)
+  const promptSuggestions = hasUserMessage(messages) || isLoading ? [] : PROMPT_SUGGESTIONS
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
   useEffect(() => {
+    setMessages(loadStoredMessages())
+    setHasHydratedMessages(true)
+  }, [setMessages])
+
+  useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  useEffect(() => {
+    if (!hasHydratedMessages || isLoading) {
+      return
+    }
+
+    const sanitizedMessages = sanitizeMessages(messages)
+    if (isInitialSession(sanitizedMessages)) {
+      clearStoredMessages()
+    } else {
+      persistMessages(sanitizedMessages)
+    }
+
+    if (messagesNeedSanitization(messages)) {
+      setMessages(sanitizedMessages)
+    }
+  }, [hasHydratedMessages, isLoading, messages, setMessages])
 
   useEffect(() => {
     if (!error) {
@@ -50,18 +244,74 @@ export default function AMAPage() {
     })
   }, [error, toast])
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
+  function setLocalMessages(nextMessages: UIMessage[]) {
+    const sanitizedMessages = sanitizeMessages(nextMessages)
+    setMessages(sanitizedMessages)
+    persistMessages(sanitizedMessages)
+  }
 
-    if (!input.trim() || isLoading) {
+  function appendLocalAssistantMessage(text: string, commandText?: string) {
+    const baseMessages = sanitizeMessages(messages)
+    const nextMessages = commandText
+      ? [
+          ...baseMessages,
+          createTextMessage('user', commandText),
+          createTextMessage('assistant', text),
+        ]
+      : [...baseMessages, createTextMessage('assistant', text)]
+
+    setLocalMessages(nextMessages)
+  }
+
+  function resetSession() {
+    clearError()
+    clearStoredMessages()
+    setMessages(INITIAL_MESSAGES)
+  }
+
+  async function submitText(text: string) {
+    const trimmedText = text.trim()
+    if (!trimmedText) {
       return
     }
 
-    const text = input
-    setInput('')
+    const command = trimmedText.toLowerCase()
+    clearError()
+
+    if (command === 'help') {
+      appendLocalAssistantMessage(HELP_MESSAGE, trimmedText)
+      return
+    }
+
+    if (command === 'clear' || command === 'reset') {
+      resetSession()
+      return
+    }
+
+    if (command === 'stop') {
+      if (isLoading) {
+        stop()
+      } else {
+        appendLocalAssistantMessage('No active response.', trimmedText)
+      }
+      return
+    }
+
+    if (command === 'retry' || command === 'again') {
+      if (canRetry) {
+        await regenerate()
+      } else {
+        appendLocalAssistantMessage('No previous prompt to retry.', trimmedText)
+      }
+      return
+    }
+
+    if (isLoading) {
+      return
+    }
 
     try {
-      await sendMessage({ text })
+      await sendMessage({ text: trimmedText })
     } catch {
       toast({
         title: 'API Error',
@@ -69,6 +319,14 @@ export default function AMAPage() {
         variant: 'destructive',
       })
     }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+
+    const text = input
+    setInput('')
+    await submitText(text)
   }
 
   return (
@@ -98,19 +356,77 @@ export default function AMAPage() {
                 </div>
               )
             })}
+            {promptSuggestions.length > 0 && (
+              <div className="mb-4 flex flex-wrap gap-2">
+                {promptSuggestions.map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    type="button"
+                    onClick={() => void submitText(suggestion)}
+                    className="rounded border border-border/30 px-2 py-1 text-left text-xs text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            )}
+            {followUpSuggestions.length > 0 && (
+              <div className="mb-4 flex flex-wrap gap-2">
+                {followUpSuggestions.map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    type="button"
+                    onClick={() => void submitText(suggestion)}
+                    className="rounded border border-border/30 px-2 py-1 text-left text-xs text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            )}
             <div ref={messagesEndRef} />
           </div>
 
           <form onSubmit={handleSubmit} className="border-t border-border/30 p-4">
-            <div className="flex items-center">
-              <span className="text-foreground mr-2">$</span>
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                className="terminal-input flex-1 font-mono"
-                disabled={isLoading}
-              />
+            <div className="flex flex-col gap-3 md:flex-row md:items-center">
+              <div className="flex min-w-0 flex-1 items-center">
+                <span className="text-foreground mr-2">$</span>
+                <input
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  className="terminal-input flex-1 font-mono"
+                />
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={stop}
+                  disabled={!canStop}
+                  className="inline-flex items-center gap-1 rounded border border-border/30 px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-border hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Square size={12} />
+                  Stop
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void regenerate()}
+                  disabled={!canRetry}
+                  className="inline-flex items-center gap-1 rounded border border-border/30 px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-border hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <RotateCcw size={12} />
+                  Retry
+                </button>
+                <button
+                  type="button"
+                  onClick={resetSession}
+                  disabled={!canClear}
+                  className="inline-flex items-center gap-1 rounded border border-border/30 px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-border hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Trash2 size={12} />
+                  Clear
+                </button>
+              </div>
             </div>
           </form>
         </div>
