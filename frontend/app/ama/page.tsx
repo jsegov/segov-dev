@@ -227,10 +227,6 @@ export default function AMAPage() {
     })
   }, [error, toast])
 
-  function setLocalMessages(nextMessages: UIMessage[]) {
-    setMessages(nextMessages)
-  }
-
   function appendLocalAssistantMessage(text: string, commandText?: string) {
     const baseMessages = messages
     const nextMessages = commandText
@@ -241,7 +237,7 @@ export default function AMAPage() {
         ]
       : [...baseMessages, createTextMessage('assistant', text)]
 
-    setLocalMessages(nextMessages)
+    setMessages(nextMessages)
   }
 
   function resetSession() {
