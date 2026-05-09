@@ -430,4 +430,40 @@ describe('AMA page', () => {
     expect(screen.getByText('What backend or platform work has Jonathan done?')).toBeInTheDocument()
     expect(screen.queryByText('Which projects use AI?')).not.toBeInTheDocument()
   })
+
+  it('does not classify work substrings as career follow-ups', () => {
+    useChatMock.mockReturnValue({
+      status: 'ready',
+      error: undefined,
+      clearError: clearErrorMock,
+      regenerate: regenerateMock,
+      sendMessage: sendMessageMock,
+      setMessages: setMessagesMock,
+      stop: stopMock,
+      messages: [
+        {
+          id: 'user-1',
+          role: 'user',
+          parts: [{ type: 'text', text: 'Tell me more' }],
+        },
+        {
+          id: 'assistant-1',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'text',
+              text: 'The framework uses reliable network patterns.',
+            },
+          ],
+        },
+      ],
+    })
+
+    render(<AMAPage />)
+
+    expect(screen.getByText("Tell me about Jonathan's career")).toBeInTheDocument()
+    expect(
+      screen.queryByText('What backend or platform work has Jonathan done?'),
+    ).not.toBeInTheDocument()
+  })
 })

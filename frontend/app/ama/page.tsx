@@ -156,7 +156,11 @@ function getFollowUpSuggestions(messages: UIMessage[]): string[] {
     return PROJECT_FOLLOW_UPS
   }
 
-  if (/(career|work|job|company|resume|engineer|engineering|backend|platform)/.test(combinedText)) {
+  if (
+    /\b(?:career|work|jobs?|compan(?:y|ies)|resume|engineers?|engineering|backend|platform)\b/.test(
+      combinedText,
+    )
+  ) {
     return CAREER_FOLLOW_UPS
   }
 
