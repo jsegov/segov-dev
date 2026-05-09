@@ -246,6 +246,11 @@ export default function AMAPage() {
     setMessages(INITIAL_MESSAGES)
   }
 
+  async function retryLastResponse() {
+    clearError()
+    await regenerate()
+  }
+
   async function submitText(text: string): Promise<boolean> {
     const trimmedText = text.trim()
     if (!trimmedText) {
@@ -280,7 +285,7 @@ export default function AMAPage() {
 
     if (command === 'retry' || command === 'again') {
       if (canRetry) {
-        await regenerate()
+        await retryLastResponse()
       } else {
         appendLocalAssistantMessage('No previous prompt to retry.', trimmedText)
       }
@@ -390,7 +395,7 @@ export default function AMAPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => void regenerate()}
+                  onClick={() => void retryLastResponse()}
                   disabled={!canRetry}
                   className="inline-flex items-center gap-1 rounded border border-border/30 px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-border hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
                 >

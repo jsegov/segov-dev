@@ -288,6 +288,32 @@ describe('AMA page', () => {
     expect(sendMessageMock).not.toHaveBeenCalled()
   })
 
+  it('clears stale errors before retrying from the visible control', () => {
+    useChatMock.mockReturnValue({
+      status: 'ready',
+      error: new Error('chat unavailable'),
+      clearError: clearErrorMock,
+      regenerate: regenerateMock,
+      sendMessage: sendMessageMock,
+      setMessages: setMessagesMock,
+      stop: stopMock,
+      messages: [
+        {
+          id: 'user-1',
+          role: 'user',
+          parts: [{ type: 'text', text: 'Tell me about work' }],
+        },
+      ],
+    })
+
+    render(<AMAPage />)
+
+    fireEvent.click(screen.getByRole('button', { name: /retry/i }))
+
+    expect(clearErrorMock).toHaveBeenCalled()
+    expect(regenerateMock).toHaveBeenCalled()
+  })
+
   it('loads stored text messages on mount', async () => {
     const storedMessages = [
       {
