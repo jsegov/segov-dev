@@ -237,6 +237,29 @@ describe('AMA page', () => {
     expect(stopMock).toHaveBeenCalled()
   })
 
+  it('disables text input while a response is active', () => {
+    useChatMock.mockReturnValue({
+      status: 'streaming',
+      error: undefined,
+      clearError: clearErrorMock,
+      regenerate: regenerateMock,
+      sendMessage: sendMessageMock,
+      setMessages: setMessagesMock,
+      stop: stopMock,
+      messages: [
+        {
+          id: 'user-1',
+          role: 'user',
+          parts: [{ type: 'text', text: 'Tell me about work' }],
+        },
+      ],
+    })
+
+    render(<AMAPage />)
+
+    expect(screen.getByRole('textbox')).toBeDisabled()
+  })
+
   it('regenerates the previous response from retry command', () => {
     useChatMock.mockReturnValue({
       status: 'ready',
@@ -297,7 +320,7 @@ describe('AMA page', () => {
     })
   })
 
-  it('does not persist tool parts to local storage', async () => {
+  it('does not persist tool parts to local storage or strip live message state', async () => {
     useChatMock.mockReturnValue({
       status: 'ready',
       error: undefined,
@@ -328,6 +351,13 @@ describe('AMA page', () => {
     await waitFor(() => {
       const persistedMessages = JSON.parse(window.localStorage.getItem(storageKey) ?? '[]')
       expect(persistedMessages).toEqual([
+        {
+          id: 'assistant-1',
+          role: 'assistant',
+          parts: [{ type: 'text', text: 'Public text only.' }],
+        },
+      ])
+      expect(setMessagesMock).not.toHaveBeenCalledWith([
         {
           id: 'assistant-1',
           role: 'assistant',

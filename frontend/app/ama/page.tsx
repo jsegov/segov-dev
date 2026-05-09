@@ -88,34 +88,11 @@ function sanitizeMessages(messages: UIMessage[]): UIMessage[] {
   return sanitizedMessages.length > 0 ? sanitizedMessages : INITIAL_MESSAGES
 }
 
-function messagesNeedSanitization(messages: UIMessage[]): boolean {
-  const sanitizedMessages = sanitizeMessages(messages)
-  if (sanitizedMessages.length !== messages.length) {
-    return true
-  }
-
-  return sanitizedMessages.some((message, index) => {
-    const originalMessage = messages[index]
-    if (!originalMessage) {
-      return true
-    }
-
-    const originalText = getMessageText(originalMessage.parts)
-    return (
-      originalMessage.id !== message.id ||
-      originalMessage.role !== message.role ||
-      originalMessage.parts.length !== 1 ||
-      originalMessage.parts[0]?.type !== 'text' ||
-      originalText !== getMessageText(message.parts)
-    )
-  })
-}
-
-function loadStoredMessages(): UIMessage[] {
+function loadStoredMessages(): UIMessage[] | null {
   try {
     const serializedMessages = window.localStorage.getItem(AMA_STORAGE_KEY)
     if (!serializedMessages) {
-      return INITIAL_MESSAGES
+      return null
     }
 
     const parsedMessages = JSON.parse(serializedMessages)
@@ -208,7 +185,10 @@ export default function AMAPage() {
   }
 
   useEffect(() => {
-    setMessages(loadStoredMessages())
+    const storedMessages = loadStoredMessages()
+    if (storedMessages) {
+      setMessages(storedMessages)
+    }
     setHasHydratedMessages(true)
   }, [setMessages])
 
@@ -227,11 +207,7 @@ export default function AMAPage() {
     } else {
       persistMessages(sanitizedMessages)
     }
-
-    if (messagesNeedSanitization(messages)) {
-      setMessages(sanitizedMessages)
-    }
-  }, [hasHydratedMessages, isLoading, messages, setMessages])
+  }, [hasHydratedMessages, isLoading, messages])
 
   useEffect(() => {
     if (!error) {
@@ -245,13 +221,12 @@ export default function AMAPage() {
   }, [error, toast])
 
   function setLocalMessages(nextMessages: UIMessage[]) {
-    const sanitizedMessages = sanitizeMessages(nextMessages)
-    setMessages(sanitizedMessages)
-    persistMessages(sanitizedMessages)
+    setMessages(nextMessages)
+    persistMessages(nextMessages)
   }
 
   function appendLocalAssistantMessage(text: string, commandText?: string) {
-    const baseMessages = sanitizeMessages(messages)
+    const baseMessages = messages
     const nextMessages = commandText
       ? [
           ...baseMessages,
@@ -269,24 +244,14 @@ export default function AMAPage() {
     setMessages(INITIAL_MESSAGES)
   }
 
-  async function submitText(text: string) {
+  async function submitText(text: string): Promise<boolean> {
     const trimmedText = text.trim()
     if (!trimmedText) {
-      return
+      return false
     }
 
     const command = trimmedText.toLowerCase()
     clearError()
-
-    if (command === 'help') {
-      appendLocalAssistantMessage(HELP_MESSAGE, trimmedText)
-      return
-    }
-
-    if (command === 'clear' || command === 'reset') {
-      resetSession()
-      return
-    }
 
     if (command === 'stop') {
       if (isLoading) {
@@ -294,7 +259,21 @@ export default function AMAPage() {
       } else {
         appendLocalAssistantMessage('No active response.', trimmedText)
       }
-      return
+      return true
+    }
+
+    if (isLoading) {
+      return false
+    }
+
+    if (command === 'help') {
+      appendLocalAssistantMessage(HELP_MESSAGE, trimmedText)
+      return true
+    }
+
+    if (command === 'clear' || command === 'reset') {
+      resetSession()
+      return true
     }
 
     if (command === 'retry' || command === 'again') {
@@ -303,11 +282,7 @@ export default function AMAPage() {
       } else {
         appendLocalAssistantMessage('No previous prompt to retry.', trimmedText)
       }
-      return
-    }
-
-    if (isLoading) {
-      return
+      return true
     }
 
     try {
@@ -319,14 +294,16 @@ export default function AMAPage() {
         variant: 'destructive',
       })
     }
+    return true
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
 
-    const text = input
-    setInput('')
-    await submitText(text)
+    const didConsumeInput = await submitText(input)
+    if (didConsumeInput) {
+      setInput('')
+    }
   }
 
   return (
@@ -396,6 +373,7 @@ export default function AMAPage() {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   className="terminal-input flex-1 font-mono"
+                  disabled={isLoading}
                 />
               </div>
               <div className="flex shrink-0 items-center gap-2">
