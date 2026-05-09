@@ -106,8 +106,8 @@ function loadStoredMessages(): UIMessage[] | null {
   }
 }
 
-function persistMessages(messages: UIMessage[]) {
-  window.localStorage.setItem(AMA_STORAGE_KEY, JSON.stringify(sanitizeMessages(messages)))
+function persistSanitizedMessages(sanitizedMessages: UIMessage[]) {
+  window.localStorage.setItem(AMA_STORAGE_KEY, JSON.stringify(sanitizedMessages))
 }
 
 function clearStoredMessages() {
@@ -118,13 +118,16 @@ function hasUserMessage(messages: UIMessage[]): boolean {
   return messages.some((message) => message.role === 'user' && getMessageText(message.parts).trim())
 }
 
-function isInitialSession(messages: UIMessage[]): boolean {
-  const sanitizedMessages = sanitizeMessages(messages)
+function isInitialMessageSet(sanitizedMessages: UIMessage[]): boolean {
   return (
     sanitizedMessages.length === 1 &&
     sanitizedMessages[0]?.id === 'initial' &&
     getMessageText(sanitizedMessages[0].parts) === INITIAL_ASSISTANT_MESSAGE
   )
+}
+
+function isInitialSession(messages: UIMessage[]): boolean {
+  return isInitialMessageSet(sanitizeMessages(messages))
 }
 
 function getFollowUpSuggestions(messages: UIMessage[]): string[] {
@@ -206,10 +209,10 @@ export default function AMAPage() {
     }
 
     const sanitizedMessages = sanitizeMessages(messages)
-    if (isInitialSession(sanitizedMessages)) {
+    if (isInitialMessageSet(sanitizedMessages)) {
       clearStoredMessages()
     } else {
-      persistMessages(sanitizedMessages)
+      persistSanitizedMessages(sanitizedMessages)
     }
   }, [hasHydratedMessages, isLoading, messages])
 
@@ -226,7 +229,6 @@ export default function AMAPage() {
 
   function setLocalMessages(nextMessages: UIMessage[]) {
     setMessages(nextMessages)
-    persistMessages(nextMessages)
   }
 
   function appendLocalAssistantMessage(text: string, commandText?: string) {
