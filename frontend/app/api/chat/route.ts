@@ -19,10 +19,13 @@ export async function POST(req: Request) {
   }
 
   try {
-    return await createAgentUIStreamResponse({
+    const streamOptions = {
       agent,
       messages,
-    })
+      uiMessages: messages,
+    }
+
+    return await createAgentUIStreamResponse(streamOptions)
   } catch {
     return new Response('Chat service unavailable.', { status: 500 })
   }

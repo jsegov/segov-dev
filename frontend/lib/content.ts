@@ -77,3 +77,7 @@ export async function getProjects(): Promise<ProjectEntry[]> {
   const siteContent = await getSiteContent()
   return siteContent.projects
 }
+
+export async function getPublicSiteContent(): Promise<SiteContent> {
+  return getSiteContent()
+}
