@@ -152,7 +152,7 @@ function getFollowUpSuggestions(messages: UIMessage[]): string[] {
     latestAssistant.parts,
   )}`.toLowerCase()
 
-  if (/(project|site|segov\.dev|website|built|build|ai|side)/.test(combinedText)) {
+  if (/(?:\b(?:projects?|sites?|websites?|built|build|ai|side)\b|segov\.dev)/.test(combinedText)) {
     return PROJECT_FOLLOW_UPS
   }
 

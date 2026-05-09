@@ -396,4 +396,38 @@ describe('AMA page', () => {
 
     expect(sendMessageMock).toHaveBeenCalledWith({ text: 'Which projects use AI?' })
   })
+
+  it('does not classify common ai substrings as project follow-ups', () => {
+    useChatMock.mockReturnValue({
+      status: 'ready',
+      error: undefined,
+      clearError: clearErrorMock,
+      regenerate: regenerateMock,
+      sendMessage: sendMessageMock,
+      setMessages: setMessagesMock,
+      stop: stopMock,
+      messages: [
+        {
+          id: 'user-1',
+          role: 'user',
+          parts: [{ type: 'text', text: "Tell me about Jonathan's career" }],
+        },
+        {
+          id: 'assistant-1',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'text',
+              text: 'Available details explain how he maintains reliable systems.',
+            },
+          ],
+        },
+      ],
+    })
+
+    render(<AMAPage />)
+
+    expect(screen.getByText('What backend or platform work has Jonathan done?')).toBeInTheDocument()
+    expect(screen.queryByText('Which projects use AI?')).not.toBeInTheDocument()
+  })
 })
