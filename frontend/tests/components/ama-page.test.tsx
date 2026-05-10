@@ -87,6 +87,34 @@ describe('AMA page', () => {
     ).toBeInTheDocument()
   })
 
+  it('preserves assistant soft line breaks for terminal-style local messages', () => {
+    useChatMock.mockReturnValue({
+      status: 'ready',
+      error: undefined,
+      clearError: clearErrorMock,
+      regenerate: regenerateMock,
+      sendMessage: sendMessageMock,
+      setMessages: setMessagesMock,
+      stop: stopMock,
+      messages: [
+        {
+          id: 'initial',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'text',
+              text: 'segov@terminal:~$ ./ama \nAsk me anything about Jonathan.',
+            },
+          ],
+        },
+      ],
+    })
+
+    const { container } = render(<AMAPage />)
+
+    expect(container.querySelector('.ama-markdown')).toHaveClass('whitespace-pre-line')
+  })
+
   it('renders assistant markdown headings and bold text semantically', () => {
     useChatMock.mockReturnValue({
       status: 'ready',

@@ -361,7 +361,7 @@ export default function AMAPage() {
                     </div>
                   ) : (
                     <Streamdown
-                      className="ama-markdown text-foreground"
+                      className="ama-markdown whitespace-pre-line text-foreground"
                       disallowedElements={['img']}
                       isAnimating={isStreamingAssistantMessage}
                       skipHtml
