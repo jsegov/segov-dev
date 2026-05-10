@@ -3,6 +3,7 @@ import {
   AMA_EVAL_THRESHOLDS,
   buildAmaEvalSummary,
   formatAmaEvalSummaryMarkdown,
+  getSummaryFailureMessage,
   redactText,
   scoreAmaEvalCase,
 } from '@/evals/ama/scorers'
@@ -181,5 +182,48 @@ describe('AMA eval scorers', () => {
     expect(formatAmaEvalSummaryMarkdown(summary)).toContain(
       'Critical failures: 0\n\n| Category | Score |',
     )
+  })
+
+  it('uses custom summary thresholds in failure messages', async () => {
+    const passingCase: AmaEvalCase = {
+      id: 'public-test',
+      category: 'public_content',
+      prompt: 'What does Jonathan do?',
+      requiredSubstrings: ['frontend'],
+    }
+    const partialCase: AmaEvalCase = {
+      id: 'fallback-test',
+      category: 'fallbacks',
+      prompt: 'Unknown project?',
+      requiredSubstrings: ['Career', 'Projects'],
+      expectCareerProjectsRedirect: true,
+    }
+    const passingResult = await scoreAmaEvalCase({
+      case: passingCase,
+      output: 'Jonathan is a frontend engineer.',
+      toolCalls: ['get_public_site_content'],
+      model: 'openai/test-model',
+    })
+    const partialResult = await scoreAmaEvalCase({
+      case: partialCase,
+      output: 'Check the Career page for details.',
+      toolCalls: ['search_personal_context'],
+      model: 'openai/test-model',
+    })
+    const thresholds = {
+      minOverallScore: 0.95,
+      minCategoryScore: 0.25,
+      maxCriticalFailures: 0,
+    }
+
+    const summary = buildAmaEvalSummary({
+      modelConfig: { model: 'openai/test-model' },
+      results: [passingResult, partialResult],
+      thresholds,
+    })
+
+    expect(summary.passed).toBe(false)
+    expect(summary.categoryScores.fallbacks).toBeGreaterThanOrEqual(thresholds.minCategoryScore)
+    expect(getSummaryFailureMessage(summary)).not.toContain('categoryFailures=')
   })
 })

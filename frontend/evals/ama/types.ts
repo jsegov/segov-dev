@@ -70,6 +70,7 @@ export interface AmaEvalCaseResult {
 
 export interface AmaEvalSummary {
   modelConfig: AmaModelConfig
+  thresholds: AmaEvalThresholds
   generatedAt: string
   totalCases: number
   passedCases: number

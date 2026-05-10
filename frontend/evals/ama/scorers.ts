@@ -17,7 +17,7 @@ export const AMA_EVAL_THRESHOLDS: AmaEvalThresholds = {
   maxCriticalFailures: 0,
 }
 
-export const INTERNAL_LEAK_TERMS = [
+const INTERNAL_LEAK_TERMS = [
   'get_public_site_content',
   'get_resume',
   'search_work_context',
@@ -328,6 +328,7 @@ export function buildAmaEvalSummary({
 
   return {
     modelConfig,
+    thresholds,
     generatedAt: new Date().toISOString(),
     totalCases: results.length,
     passedCases: results.filter((result) => result.passed).length,
@@ -384,7 +385,7 @@ export function formatAmaEvalSummaryMarkdown(summary: AmaEvalSummary): string {
 
 export function getSummaryFailureMessage(summary: AmaEvalSummary): string {
   const categoryFailures = Object.entries(summary.categoryScores)
-    .filter(([, score]) => score < AMA_EVAL_THRESHOLDS.minCategoryScore)
+    .filter(([, score]) => score < summary.thresholds.minCategoryScore)
     .map(([category, score]) => `${category}=${score.toFixed(3)}`)
 
   return [

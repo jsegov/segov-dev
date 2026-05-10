@@ -4,7 +4,7 @@ import type { ResumeContextResult } from '@/lib/resume-context'
 
 const uploadedAt = '2026-01-01T00:00:00.000Z'
 
-export const publicSiteFixture: SiteContent = {
+const publicSiteFixture: SiteContent = {
   about: {
     description:
       'Jonathan Segovia is a frontend platform engineer who builds AI product experiences, design systems, and reliability-focused developer tools.',
@@ -48,7 +48,7 @@ export const publicSiteFixture: SiteContent = {
   ],
 }
 
-export const resumeFixture: ResumeContextResult = {
+const resumeFixture: ResumeContextResult = {
   available: true,
   source: 'blob',
   content: [
