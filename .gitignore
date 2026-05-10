@@ -36,6 +36,7 @@ lerna-debug.log*
 
 # TypeScript
 *.tsbuildinfo
+next-env.d.ts
 
 # IDE
 .vscode/
