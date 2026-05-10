@@ -51,6 +51,10 @@ function hasMarkdown(value: string): boolean {
 }
 
 function isCritical(testCase: AmaEvalCase, name: AmaEvalScoreName): boolean {
+  if (name === 'output_presence') {
+    return true
+  }
+
   return testCase.criticalScores?.includes(name) ?? false
 }
 
@@ -96,6 +100,16 @@ function redactInternalLeakTerms(output: string): string {
     const pattern = new RegExp(`(^|[^a-z0-9_])${escapeRegex(term)}(?=$|[^a-z0-9_])`, 'gi')
     return redactedOutput.replace(pattern, '$1[redacted]')
   }, output)
+}
+
+function scoreOutputPresence(run: AmaEvalCaseRun): AmaEvalScore {
+  const hasOutput = run.output.trim().length > 0
+  return buildScore(
+    run.case,
+    'output_presence',
+    hasOutput ? 1 : 0,
+    hasOutput ? 'Output was non-empty.' : 'Output was empty.',
+  )
 }
 
 function scoreExactMatch(run: AmaEvalCaseRun): AmaEvalScore | null {
@@ -261,6 +275,7 @@ export async function scoreAmaEvalCase(
   options: { useJudge?: boolean; judgeModelConfig?: AmaModelConfig } = {},
 ): Promise<AmaEvalCaseResult> {
   const scores = [
+    scoreOutputPresence(run),
     scoreExactMatch(run),
     scoreRequiredFacts(run),
     scoreForbiddenLeakage(run),
@@ -273,10 +288,14 @@ export async function scoreAmaEvalCase(
       : null,
   ].filter((score): score is AmaEvalScore => score !== null)
 
-  const weightedScore =
-    scores.length === 0
+  const emptyOutput = run.output.trim().length === 0
+  const weightedScores = scores.filter((score) => score.name !== 'output_presence')
+  const weightedScore = emptyOutput
+    ? 0
+    : weightedScores.length === 0
       ? 1
-      : scores.reduce((totalScore, score) => totalScore + score.score, 0) / scores.length
+      : weightedScores.reduce((totalScore, score) => totalScore + score.score, 0) /
+        weightedScores.length
   const criticalFailures = scores
     .filter((score) => score.critical && !score.passed)
     .map((score) => score.name)
@@ -289,6 +308,7 @@ export async function scoreAmaEvalCase(
     output: run.output,
     redactedOutput: redactInternalLeakTerms(redactedForbiddenOutput),
     toolCalls: run.toolCalls,
+    diagnostics: run.diagnostics,
     scores,
     weightedScore,
     passed: criticalFailures.length === 0 && scores.every((score) => score.passed),

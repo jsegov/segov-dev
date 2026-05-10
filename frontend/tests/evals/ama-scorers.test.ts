@@ -84,6 +84,115 @@ describe('AMA eval scorers', () => {
     )
   })
 
+  it('marks empty output as a critical output presence failure', async () => {
+    const testCase: AmaEvalCase = {
+      id: 'empty-output-test',
+      category: 'style',
+      prompt: 'Tell me about Jonathan.',
+      maxWords: 20,
+      allowMarkdown: false,
+    }
+
+    const result = await scoreAmaEvalCase({
+      case: testCase,
+      output: '   ',
+      toolCalls: [],
+      model: 'openai/test-model',
+    })
+
+    expect(result.passed).toBe(false)
+    expect(result.weightedScore).toBe(0)
+    expect(result.criticalFailures).toEqual(['output_presence'])
+    expect(result.scores).toContainEqual(
+      expect.objectContaining({
+        name: 'output_presence',
+        score: 0,
+        critical: true,
+      }),
+    )
+  })
+
+  it('prevents empty output from passing as a clean style-only result', async () => {
+    const testCase: AmaEvalCase = {
+      id: 'empty-style-test',
+      category: 'style',
+      prompt: 'Keep it short.',
+      maxWords: 5,
+      allowMarkdown: false,
+    }
+
+    const result = await scoreAmaEvalCase({
+      case: testCase,
+      output: '',
+      toolCalls: [],
+      model: 'openai/test-model',
+    })
+
+    expect(result.passed).toBe(false)
+    expect(result.scores).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'output_presence', score: 0, critical: true }),
+        expect.objectContaining({ name: 'style', score: 1 }),
+      ]),
+    )
+  })
+
+  it('keeps non-empty output presence out of weighted scoring', async () => {
+    const testCase: AmaEvalCase = {
+      id: 'partial-facts-test',
+      category: 'public_content',
+      prompt: 'Where should I learn more?',
+      requiredSubstrings: ['Career', 'Projects'],
+    }
+
+    const result = await scoreAmaEvalCase({
+      case: testCase,
+      output: 'Check the Career page.',
+      toolCalls: ['get_public_site_content'],
+      model: 'openai/test-model',
+    })
+
+    expect(result.weightedScore).toBe(0.75)
+    expect(result.scores).toContainEqual(
+      expect.objectContaining({
+        name: 'output_presence',
+        score: 1,
+      }),
+    )
+  })
+
+  it('preserves generation diagnostics on case results', async () => {
+    const diagnostics = {
+      finishReason: 'stop',
+      stepCount: 2,
+      usage: {
+        inputTokens: 12,
+        outputTokens: 8,
+      },
+      totalUsage: {
+        inputTokens: 20,
+        outputTokens: 10,
+      },
+      stepFinishReasons: ['tool-calls', 'stop'],
+    }
+    const testCase: AmaEvalCase = {
+      id: 'diagnostics-test',
+      category: 'public_content',
+      prompt: 'Tell me about Jonathan.',
+      requiredSubstrings: ['frontend'],
+    }
+
+    const result = await scoreAmaEvalCase({
+      case: testCase,
+      output: 'Jonathan is a frontend engineer.',
+      toolCalls: ['get_public_site_content'],
+      model: 'openai/test-model',
+      diagnostics,
+    })
+
+    expect(result.diagnostics).toEqual(diagnostics)
+  })
+
   it('builds threshold-aware summaries by category', async () => {
     const passingCase: AmaEvalCase = {
       id: 'public-test',

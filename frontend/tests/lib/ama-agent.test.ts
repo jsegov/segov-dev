@@ -92,6 +92,8 @@ describe('createAmaAgent', () => {
     expect(instructions).toContain('call get_public_site_content first')
     expect(instructions).toContain('search_work_context')
     expect(instructions).toContain('search_personal_context')
+    expect(instructions).toContain('how did Jonathan build X')
+    expect(instructions).toContain('even if public site content has a short project summary')
     expect(instructions).toContain('Work context disclosure policy')
     expect(instructions).toContain('Never include')
   })

@@ -21,15 +21,20 @@ import {
   getSummaryFailureMessage,
   scoreAmaEvalCase,
 } from './scorers'
-import type { AmaEvalSummary, RunAmaEvalOptions } from './types'
+import type { AmaEvalGenerationDiagnostics, AmaEvalSummary, RunAmaEvalOptions } from './types'
 
 const RESULTS_DIR = new URL('./results/', import.meta.url)
 const LATEST_RESULT_FILE = new URL('latest.json', RESULTS_DIR)
 
-interface GenerateResultWithToolCalls {
+export interface GenerateResultWithToolCalls {
   text: string
+  finishReason?: string
+  usage?: unknown
+  totalUsage?: unknown
   toolCalls?: Array<{ toolName?: string }>
   steps?: Array<{
+    finishReason?: string
+    usage?: unknown
     toolCalls?: Array<{ toolName?: string }>
   }>
 }
@@ -112,7 +117,40 @@ function extractToolCalls(result: GenerateResultWithToolCalls): string[] {
   return Array.from(new Set(toolCalls))
 }
 
-function getRedactedSummary(summary: AmaEvalSummary): AmaEvalSummary {
+function sanitizeUsageMetadata(usage: unknown): Record<string, number> | undefined {
+  if (!usage || typeof usage !== 'object' || Array.isArray(usage)) {
+    return undefined
+  }
+
+  const numericFields = Object.entries(usage).reduce(
+    (fields, [key, value]) => {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        fields[key] = value
+      }
+
+      return fields
+    },
+    {} as Record<string, number>,
+  )
+
+  return Object.keys(numericFields).length > 0 ? numericFields : undefined
+}
+
+export function extractGenerationDiagnostics(
+  result: GenerateResultWithToolCalls,
+): AmaEvalGenerationDiagnostics {
+  return {
+    finishReason: typeof result.finishReason === 'string' ? result.finishReason : undefined,
+    stepCount: result.steps?.length ?? 0,
+    usage: sanitizeUsageMetadata(result.usage),
+    totalUsage: sanitizeUsageMetadata(result.totalUsage),
+    stepFinishReasons: (result.steps ?? [])
+      .map((step) => step.finishReason)
+      .filter((finishReason): finishReason is string => typeof finishReason === 'string'),
+  }
+}
+
+export function getRedactedSummary(summary: AmaEvalSummary): AmaEvalSummary {
   return {
     ...summary,
     results: summary.results.map((result) => ({
@@ -141,6 +179,9 @@ function logSummary(summary: AmaEvalSummary): void {
       .join('; ')
     console.error(`${result.id} failed: ${failedScores}`)
     console.error(`Redacted output: ${result.redactedOutput.slice(0, 500)}`)
+    if (result.diagnostics) {
+      console.error(`Diagnostics: ${JSON.stringify(result.diagnostics)}`)
+    }
   }
 }
 
@@ -155,7 +196,7 @@ export async function runAmaEvalSuite(options: RunAmaEvalOptions = {}): Promise<
   }
   const maxOutputTokens = parsePositiveIntegerEnv(
     process.env.AMA_EVAL_MAX_OUTPUT_TOKENS,
-    240,
+    1200,
     'AMA_EVAL_MAX_OUTPUT_TOKENS',
   )
   const concurrency = parsePositiveIntegerEnv(
@@ -188,6 +229,7 @@ export async function runAmaEvalSuite(options: RunAmaEvalOptions = {}): Promise<
         output: result.text,
         toolCalls: extractToolCalls(result),
         model: modelConfig.model,
+        diagnostics: extractGenerationDiagnostics(result),
       },
       { useJudge, judgeModelConfig },
     )

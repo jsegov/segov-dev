@@ -10,6 +10,7 @@ export type AmaEvalCategory =
   | 'style'
 
 export type AmaEvalScoreName =
+  | 'output_presence'
   | 'exact_match'
   | 'required_facts'
   | 'forbidden_leakage'
@@ -40,11 +41,22 @@ export interface AmaEvalCase {
   judge?: AmaEvalJudgeSpec
 }
 
+export type AmaEvalUsage = Record<string, number>
+
+export interface AmaEvalGenerationDiagnostics {
+  finishReason?: string
+  stepCount: number
+  usage?: AmaEvalUsage
+  totalUsage?: AmaEvalUsage
+  stepFinishReasons: string[]
+}
+
 export interface AmaEvalCaseRun {
   case: AmaEvalCase
   output: string
   toolCalls: string[]
   model: string
+  diagnostics?: AmaEvalGenerationDiagnostics
 }
 
 export interface AmaEvalScore {
@@ -62,6 +74,7 @@ export interface AmaEvalCaseResult {
   output: string
   redactedOutput: string
   toolCalls: string[]
+  diagnostics?: AmaEvalGenerationDiagnostics
   scores: AmaEvalScore[]
   weightedScore: number
   passed: boolean
