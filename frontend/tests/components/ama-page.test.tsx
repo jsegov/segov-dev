@@ -87,6 +87,95 @@ describe('AMA page', () => {
     ).toBeInTheDocument()
   })
 
+  it('preserves assistant soft line breaks for terminal-style local messages', () => {
+    useChatMock.mockReturnValue({
+      status: 'ready',
+      error: undefined,
+      clearError: clearErrorMock,
+      regenerate: regenerateMock,
+      sendMessage: sendMessageMock,
+      setMessages: setMessagesMock,
+      stop: stopMock,
+      messages: [
+        {
+          id: 'initial',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'text',
+              text: 'segov@terminal:~$ ./ama \nAsk me anything about Jonathan.',
+            },
+          ],
+        },
+      ],
+    })
+
+    const { container } = render(<AMAPage />)
+
+    expect(container.querySelector('.ama-markdown')).toHaveClass('whitespace-pre-line')
+  })
+
+  it('renders assistant markdown headings and bold text semantically', () => {
+    useChatMock.mockReturnValue({
+      status: 'ready',
+      error: undefined,
+      clearError: clearErrorMock,
+      regenerate: regenerateMock,
+      sendMessage: sendMessageMock,
+      setMessages: setMessagesMock,
+      stop: stopMock,
+      messages: [
+        {
+          id: 'assistant-1',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'text',
+              text: '## Career\n\nJonathan builds **AI tools** for developers.',
+            },
+          ],
+        },
+      ],
+    })
+
+    render(<AMAPage />)
+
+    expect(screen.getByRole('heading', { level: 2, name: 'Career' })).toBeInTheDocument()
+    expect(screen.queryByText('## Career')).not.toBeInTheDocument()
+    expect(screen.getByText('AI tools').closest('[data-streamdown="strong"]')).toBeInTheDocument()
+    expect(screen.queryByText('**AI tools**')).not.toBeInTheDocument()
+  })
+
+  it('strips assistant markdown images and blocks unsafe link hrefs', () => {
+    useChatMock.mockReturnValue({
+      status: 'ready',
+      error: undefined,
+      clearError: clearErrorMock,
+      regenerate: regenerateMock,
+      sendMessage: sendMessageMock,
+      setMessages: setMessagesMock,
+      stop: stopMock,
+      messages: [
+        {
+          id: 'assistant-1',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'text',
+              text: '![private](https://example.com/private.png)\n\n[bad link](javascript:alert(1))',
+            },
+          ],
+        },
+      ],
+    })
+
+    render(<AMAPage />)
+
+    expect(screen.queryByRole('img', { name: 'private' })).not.toBeInTheDocument()
+    const unsafeAnchor = screen.getByText(/bad link/).closest('a')
+    expect(unsafeAnchor?.getAttribute('href') ?? '').not.toMatch(/^javascript:/i)
+  })
+
   it('submits user prompt through useChat sendMessage', async () => {
     render(<AMAPage />)
 

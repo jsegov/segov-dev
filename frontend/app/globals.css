@@ -156,3 +156,61 @@
 .terminal-response {
   @apply text-muted-foreground;
 }
+
+.ama-markdown {
+  @apply max-w-none text-foreground;
+}
+
+.ama-markdown h1,
+.ama-markdown h2,
+.ama-markdown h3,
+.ama-markdown h4,
+.ama-markdown h5,
+.ama-markdown h6 {
+  @apply mb-2 mt-3 font-bold;
+}
+
+.ama-markdown h1 {
+  @apply text-lg;
+}
+
+.ama-markdown h2,
+.ama-markdown h3,
+.ama-markdown h4,
+.ama-markdown h5,
+.ama-markdown h6 {
+  @apply text-base;
+}
+
+.ama-markdown p {
+  @apply mb-2;
+}
+
+.ama-markdown ul,
+.ama-markdown ol {
+  @apply my-2 ml-5 space-y-1;
+}
+
+.ama-markdown ul {
+  @apply list-disc;
+}
+
+.ama-markdown ol {
+  @apply list-decimal;
+}
+
+.ama-markdown a {
+  @apply text-primary underline underline-offset-4;
+}
+
+.ama-markdown code {
+  @apply rounded bg-muted px-1 py-0.5 text-sm text-foreground;
+}
+
+.ama-markdown pre {
+  @apply my-3 overflow-x-auto rounded border border-border/30 bg-muted p-3;
+}
+
+.ama-markdown pre code {
+  @apply bg-transparent p-0;
+}

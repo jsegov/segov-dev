@@ -94,7 +94,6 @@ export const amaEvalDataset: AmaEvalCase[] = [
     expectedTools: ['get_public_site_content'],
     disallowedTools: ['search_work_context', 'search_personal_context'],
     maxWords: 55,
-    allowMarkdown: false,
     criticalScores: ['internal_tool_leakage'],
   },
 ]
