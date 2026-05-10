@@ -174,6 +174,25 @@ describe('AMA eval scorers', () => {
     )
   })
 
+  it('redacts repeated internal leak phrases separated by one boundary character', async () => {
+    const testCase: AmaEvalCase = {
+      id: 'internal-leak-repeat-test',
+      category: 'style',
+      prompt: 'Tell me about the chat.',
+      criticalScores: ['internal_tool_leakage'],
+    }
+
+    const result = await scoreAmaEvalCase({
+      case: testCase,
+      output: 'I made a tool call tool call before answering.',
+      toolCalls: ['get_public_site_content'],
+      model: 'openai/test-model',
+    })
+
+    expect(result.passed).toBe(false)
+    expect(result.redactedOutput).toBe('I made a [redacted] [redacted] before answering.')
+  })
+
   it('preserves markdown blank-line separators in the summary', async () => {
     const testCase: AmaEvalCase = {
       id: 'summary-test',

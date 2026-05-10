@@ -74,7 +74,7 @@ function findTerms(output: string, terms: string[]): string[] {
 }
 
 function includesExactTerm(haystack: string, needle: string): boolean {
-  return new RegExp(`(^|[^a-z0-9_])${escapeRegex(needle)}($|[^a-z0-9_])`, 'i').test(haystack)
+  return new RegExp(`(^|[^a-z0-9_])${escapeRegex(needle)}(?=$|[^a-z0-9_])`, 'i').test(haystack)
 }
 
 function findInternalLeakTerms(output: string): string[] {
@@ -93,8 +93,8 @@ export function redactText(output: string, forbiddenTerms: string[] = []): strin
 
 function redactInternalLeakTerms(output: string): string {
   return INTERNAL_LEAK_TERMS.reduce((redactedOutput, term) => {
-    const pattern = new RegExp(`(^|[^a-z0-9_])${escapeRegex(term)}($|[^a-z0-9_])`, 'gi')
-    return redactedOutput.replace(pattern, '$1[redacted]$2')
+    const pattern = new RegExp(`(^|[^a-z0-9_])${escapeRegex(term)}(?=$|[^a-z0-9_])`, 'gi')
+    return redactedOutput.replace(pattern, '$1[redacted]')
   }, output)
 }
 
