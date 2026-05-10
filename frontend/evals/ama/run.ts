@@ -149,6 +149,10 @@ export async function runAmaEvalSuite(options: RunAmaEvalOptions = {}): Promise<
   const useJudge = options.useJudge ?? process.env.AMA_EVAL_USE_JUDGE === '1'
   const judgeModel =
     options.judgeModel?.trim() || process.env.AMA_EVAL_JUDGE_MODEL?.trim() || modelConfig.model
+  const judgeModelConfig = {
+    ...modelConfig,
+    model: judgeModel,
+  }
   const maxOutputTokens = parsePositiveIntegerEnv(
     process.env.AMA_EVAL_MAX_OUTPUT_TOKENS,
     240,
@@ -185,7 +189,7 @@ export async function runAmaEvalSuite(options: RunAmaEvalOptions = {}): Promise<
         toolCalls: extractToolCalls(result),
         model: modelConfig.model,
       },
-      { useJudge, judgeModel },
+      { useJudge, judgeModelConfig },
     )
   })
 

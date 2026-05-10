@@ -1,5 +1,6 @@
 import { generateText, Output } from 'ai'
 import { z } from 'zod'
+import type { AmaModelConfig } from '@/lib/ama-model-config'
 import type {
   AmaEvalCase,
   AmaEvalCaseResult,
@@ -220,13 +221,16 @@ function scoreStyle(run: AmaEvalCaseRun): AmaEvalScore | null {
   return buildScore(run.case, 'style', passedChecks / checks.length, details.join('; '))
 }
 
-async function scoreJudge(run: AmaEvalCaseRun, judgeModel: string): Promise<AmaEvalScore | null> {
+async function scoreJudge(
+  run: AmaEvalCaseRun,
+  judgeModelConfig: AmaModelConfig,
+): Promise<AmaEvalScore | null> {
   if (!run.case.judge) {
     return null
   }
 
   const { output } = await generateText({
-    model: judgeModel,
+    ...judgeModelConfig,
     output: Output.object({
       schema: JudgeOutputSchema,
     }),
@@ -254,7 +258,7 @@ async function scoreJudge(run: AmaEvalCaseRun, judgeModel: string): Promise<AmaE
 
 export async function scoreAmaEvalCase(
   run: AmaEvalCaseRun,
-  options: { useJudge?: boolean; judgeModel?: string } = {},
+  options: { useJudge?: boolean; judgeModelConfig?: AmaModelConfig } = {},
 ): Promise<AmaEvalCaseResult> {
   const scores = [
     scoreExactMatch(run),
@@ -264,7 +268,9 @@ export async function scoreAmaEvalCase(
     scoreToolUsage(run),
     scoreFallbackRedirect(run),
     scoreStyle(run),
-    options.useJudge && options.judgeModel ? await scoreJudge(run, options.judgeModel) : null,
+    options.useJudge && options.judgeModelConfig
+      ? await scoreJudge(run, options.judgeModelConfig)
+      : null,
   ].filter((score): score is AmaEvalScore => score !== null)
 
   const weightedScore =

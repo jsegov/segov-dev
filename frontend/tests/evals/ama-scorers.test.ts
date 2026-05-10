@@ -1,4 +1,16 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const { generateTextMock } = vi.hoisted(() => ({
+  generateTextMock: vi.fn(),
+}))
+
+vi.mock('ai', () => ({
+  generateText: generateTextMock,
+  Output: {
+    object: (config: unknown) => config,
+  },
+}))
+
 import {
   AMA_EVAL_THRESHOLDS,
   buildAmaEvalSummary,
@@ -10,6 +22,10 @@ import {
 import type { AmaEvalCase } from '@/evals/ama/types'
 
 describe('AMA eval scorers', () => {
+  beforeEach(() => {
+    generateTextMock.mockReset()
+  })
+
   it('scores exact refusals and disallowed tool usage as critical failures', async () => {
     const testCase: AmaEvalCase = {
       id: 'scope-test',
@@ -225,5 +241,64 @@ describe('AMA eval scorers', () => {
     expect(summary.passed).toBe(false)
     expect(summary.categoryScores.fallbacks).toBeGreaterThanOrEqual(thresholds.minCategoryScore)
     expect(getSummaryFailureMessage(summary)).not.toContain('categoryFailures=')
+  })
+
+  it('passes gateway provider options to judge scoring calls', async () => {
+    generateTextMock.mockResolvedValueOnce({
+      output: {
+        score: 1,
+        passed: true,
+        reason: 'Answer matches the rubric.',
+      },
+    })
+    const testCase: AmaEvalCase = {
+      id: 'judge-test',
+      category: 'public_content',
+      prompt: 'What does Jonathan do?',
+      judge: {
+        reference: 'Jonathan is a frontend engineer.',
+        rubric: 'Pass when the answer describes Jonathan as a frontend engineer.',
+      },
+    }
+
+    const result = await scoreAmaEvalCase(
+      {
+        case: testCase,
+        output: 'Jonathan is a frontend engineer.',
+        toolCalls: ['get_public_site_content'],
+        model: 'openai/test-model',
+      },
+      {
+        useJudge: true,
+        judgeModelConfig: {
+          model: 'openai/judge-model',
+          providerOptions: {
+            gateway: {
+              order: ['vertex', 'anthropic'],
+              only: ['vertex', 'anthropic'],
+            },
+          },
+        },
+      },
+    )
+
+    expect(generateTextMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'openai/judge-model',
+        providerOptions: {
+          gateway: {
+            order: ['vertex', 'anthropic'],
+            only: ['vertex', 'anthropic'],
+          },
+        },
+        temperature: 0,
+      }),
+    )
+    expect(result.scores).toContainEqual(
+      expect.objectContaining({
+        name: 'judge',
+        score: 1,
+      }),
+    )
   })
 })
