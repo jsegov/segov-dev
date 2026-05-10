@@ -27,6 +27,7 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    environment: Github Actions
     timeout-minutes: 60
     permissions:
       contents: read
