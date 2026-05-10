@@ -1,6 +1,12 @@
 import { mkdir, writeFile, appendFile } from 'node:fs/promises'
 import { createAmaAgent } from '@/lib/ama-agent'
-import { DEFAULT_AMA_CHAT_MODEL, type AmaModelConfig } from '@/lib/ama-model-config'
+import {
+  createAmaModelConfig,
+  DEFAULT_AMA_CHAT_MODEL,
+  parseAmaModelId,
+  parseAmaProviderSlugs,
+  type AmaModelConfig,
+} from '@/lib/ama-model-config'
 import { amaEvalDataset } from './dataset'
 import {
   getPublicSiteFixture,
@@ -17,8 +23,6 @@ import {
 } from './scorers'
 import type { AmaEvalSummary, RunAmaEvalOptions } from './types'
 
-const MODEL_ID_PATTERN = /^[^/\s]+\/[^/\s]+$/
-const PROVIDER_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const RESULTS_DIR = new URL('./results/', import.meta.url)
 const LATEST_RESULT_FILE = new URL('latest.json', RESULTS_DIR)
 
@@ -71,64 +75,30 @@ export async function mapWithConcurrency<T, R>(
 }
 
 function parseModel(): string {
-  const model =
-    process.env.AMA_EVAL_MODEL?.trim() ||
-    process.env.AMA_CHAT_MODEL?.trim() ||
-    DEFAULT_AMA_CHAT_MODEL
+  const evalModel = process.env.AMA_EVAL_MODEL?.trim()
+  const chatModel = process.env.AMA_CHAT_MODEL?.trim()
 
-  if (!MODEL_ID_PATTERN.test(model)) {
-    throw new Error(`AMA eval model must use "provider/model-name" format. Received: "${model}"`)
-  }
-
-  return model
+  return parseAmaModelId(
+    evalModel || chatModel,
+    DEFAULT_AMA_CHAT_MODEL,
+    evalModel ? 'AMA_EVAL_MODEL' : 'AMA_CHAT_MODEL',
+  )
 }
 
 function parseProviders(): string[] | undefined {
-  const configuredProviders =
-    process.env.AMA_EVAL_PROVIDERS?.trim() || process.env.AMA_CHAT_PROVIDERS?.trim()
+  const evalProviders = process.env.AMA_EVAL_PROVIDERS?.trim()
+  const chatProviders = process.env.AMA_CHAT_PROVIDERS?.trim()
 
-  if (!configuredProviders) {
-    return undefined
-  }
-
-  const providers = Array.from(
-    new Set(
-      configuredProviders
-        .split(',')
-        .map((provider) => provider.trim())
-        .filter(Boolean),
-    ),
+  return parseAmaProviderSlugs(
+    evalProviders || chatProviders,
+    evalProviders ? 'AMA_EVAL_PROVIDERS' : 'AMA_CHAT_PROVIDERS',
   )
-
-  if (providers.length === 0) {
-    return undefined
-  }
-
-  const invalidProvider = providers.find((provider) => !PROVIDER_SLUG_PATTERN.test(provider))
-  if (invalidProvider) {
-    throw new Error(`AMA eval providers contain invalid provider slug: "${invalidProvider}"`)
-  }
-
-  return providers
 }
 
 function getEvalModelConfig(): AmaModelConfig {
   const model = parseModel()
   const providers = parseProviders()
-
-  if (!providers) {
-    return { model }
-  }
-
-  return {
-    model,
-    providerOptions: {
-      gateway: {
-        order: providers,
-        only: providers,
-      },
-    },
-  }
+  return createAmaModelConfig(model, providers)
 }
 
 function extractToolCalls(result: GenerateResultWithToolCalls): string[] {
