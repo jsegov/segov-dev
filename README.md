@@ -62,8 +62,8 @@ pnpm --filter frontend eval:ama:ci
 ```
 
 Set `AI_GATEWAY_API_KEY` or `VERCEL_OIDC_TOKEN` before running live evals. Optional eval
-overrides are `AMA_EVAL_MODEL`, `AMA_EVAL_PROVIDERS`, `AMA_EVAL_USE_JUDGE`, and
-`AMA_EVAL_JUDGE_MODEL`.
+overrides are `AMA_EVAL_MODEL`, `AMA_EVAL_PROVIDERS`, `AMA_EVAL_MAX_OUTPUT_TOKENS`,
+`AMA_EVAL_CONCURRENCY`, `AMA_EVAL_USE_JUDGE`, and `AMA_EVAL_JUDGE_MODEL`.
 
 ## Repo Layout
 

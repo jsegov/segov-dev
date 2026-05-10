@@ -15,7 +15,7 @@ import {
   getSummaryFailureMessage,
   scoreAmaEvalCase,
 } from './scorers'
-import type { AmaEvalCaseResult, AmaEvalSummary, RunAmaEvalOptions } from './types'
+import type { AmaEvalSummary, RunAmaEvalOptions } from './types'
 
 const MODEL_ID_PATTERN = /^[^/\s]+\/[^/\s]+$/
 const PROVIDER_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
@@ -28,6 +28,46 @@ interface GenerateResultWithToolCalls {
   steps?: Array<{
     toolCalls?: Array<{ toolName?: string }>
   }>
+}
+
+export function parsePositiveIntegerEnv(
+  value: string | undefined,
+  fallback: number,
+  variableName: string,
+): number {
+  const trimmedValue = value?.trim()
+  if (!trimmedValue) {
+    return fallback
+  }
+
+  const parsedValue = Number(trimmedValue)
+  if (!Number.isInteger(parsedValue) || parsedValue <= 0) {
+    throw new Error(`${variableName} must be a positive integer. Received: "${value}".`)
+  }
+
+  return parsedValue
+}
+
+export async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  callback: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length)
+  let nextIndex = 0
+
+  async function worker(): Promise<void> {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex
+      nextIndex += 1
+      results[currentIndex] = await callback(items[currentIndex], currentIndex)
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, async () => worker()),
+  )
+  return results
 }
 
 function parseModel(): string {
@@ -139,37 +179,45 @@ export async function runAmaEvalSuite(options: RunAmaEvalOptions = {}): Promise<
   const useJudge = options.useJudge ?? process.env.AMA_EVAL_USE_JUDGE === '1'
   const judgeModel =
     options.judgeModel?.trim() || process.env.AMA_EVAL_JUDGE_MODEL?.trim() || modelConfig.model
-  const agent = createAmaAgent({
-    getPublicSiteContent: getPublicSiteFixture,
-    getResumeContext: getResumeFixture,
-    searchWorkContext: searchWorkContextFixture,
-    searchPersonalContext: searchPersonalContextFixture,
-    modelConfig,
-    callSettings: {
-      maxOutputTokens: Number(process.env.AMA_EVAL_MAX_OUTPUT_TOKENS ?? 240),
-      temperature: 0,
-      seed: 1,
-      maxRetries: 1,
-    },
-  })
+  const maxOutputTokens = parsePositiveIntegerEnv(
+    process.env.AMA_EVAL_MAX_OUTPUT_TOKENS,
+    240,
+    'AMA_EVAL_MAX_OUTPUT_TOKENS',
+  )
+  const concurrency = parsePositiveIntegerEnv(
+    process.env.AMA_EVAL_CONCURRENCY,
+    4,
+    'AMA_EVAL_CONCURRENCY',
+  )
 
-  const results: AmaEvalCaseResult[] = []
-  for (const evalCase of amaEvalDataset) {
+  const results = await mapWithConcurrency(amaEvalDataset, concurrency, async (evalCase) => {
+    const agent = createAmaAgent({
+      getPublicSiteContent: getPublicSiteFixture,
+      getResumeContext: getResumeFixture,
+      searchWorkContext: searchWorkContextFixture,
+      searchPersonalContext: searchPersonalContextFixture,
+      modelConfig,
+      callSettings: {
+        maxOutputTokens,
+        temperature: 0,
+        seed: 1,
+        maxRetries: 1,
+      },
+    })
     const result = (await agent.generate({
       prompt: evalCase.prompt,
     })) as GenerateResultWithToolCalls
-    results.push(
-      await scoreAmaEvalCase(
-        {
-          case: evalCase,
-          output: result.text,
-          toolCalls: extractToolCalls(result),
-          model: modelConfig.model,
-        },
-        { useJudge, judgeModel },
-      ),
+
+    return scoreAmaEvalCase(
+      {
+        case: evalCase,
+        output: result.text,
+        toolCalls: extractToolCalls(result),
+        model: modelConfig.model,
+      },
+      { useJudge, judgeModel },
     )
-  }
+  })
 
   const summary = buildAmaEvalSummary({
     modelConfig,

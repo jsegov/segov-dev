@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   AMA_EVAL_THRESHOLDS,
   buildAmaEvalSummary,
+  formatAmaEvalSummaryMarkdown,
   redactText,
   scoreAmaEvalCase,
 } from '@/evals/ama/scorers'
@@ -103,5 +104,31 @@ describe('AMA eval scorers', () => {
     expect(summary.passed).toBe(false)
     expect(summary.categoryScores.public_content).toBe(1)
     expect(summary.categoryScores.fallbacks).toBeLessThan(AMA_EVAL_THRESHOLDS.minCategoryScore)
+  })
+
+  it('preserves markdown blank-line separators in the summary', async () => {
+    const testCase: AmaEvalCase = {
+      id: 'summary-test',
+      category: 'public_content',
+      prompt: 'What does Jonathan do?',
+      requiredSubstrings: ['frontend'],
+    }
+    const result = await scoreAmaEvalCase({
+      case: testCase,
+      output: 'Jonathan is a frontend engineer.',
+      toolCalls: ['get_public_site_content'],
+      model: 'openai/test-model',
+    })
+    const summary = buildAmaEvalSummary({
+      modelConfig: { model: 'openai/test-model' },
+      results: [result],
+    })
+
+    expect(formatAmaEvalSummaryMarkdown(summary)).toContain(
+      '## AMA evals: PASS\n\nModel: `openai/test-model`',
+    )
+    expect(formatAmaEvalSummaryMarkdown(summary)).toContain(
+      'Critical failures: 0\n\n| Category | Score |',
+    )
   })
 })

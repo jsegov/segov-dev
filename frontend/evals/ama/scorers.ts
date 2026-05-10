@@ -342,7 +342,7 @@ export function formatAmaEvalSummaryMarkdown(summary: AmaEvalSummary): string {
     })
     .join('\n')
 
-  return [
+  const lines = [
     `## AMA evals: ${status}`,
     '',
     `Model: \`${summary.modelConfig.model}\``,
@@ -353,17 +353,18 @@ export function formatAmaEvalSummaryMarkdown(summary: AmaEvalSummary): string {
     '| Category | Score |',
     '| --- | ---: |',
     categoryRows,
-    failedRows
-      ? [
-          '',
-          '| Failed case | Failed checks | Redacted output |',
-          '| --- | --- | --- |',
-          failedRows,
-        ].join('\n')
-      : '',
   ]
-    .filter(Boolean)
-    .join('\n')
+
+  if (failedRows) {
+    lines.push(
+      '',
+      '| Failed case | Failed checks | Redacted output |',
+      '| --- | --- | --- |',
+      failedRows,
+    )
+  }
+
+  return lines.join('\n')
 }
 
 export function getSummaryFailureMessage(summary: AmaEvalSummary): string {
