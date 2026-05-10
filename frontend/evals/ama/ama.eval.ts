@@ -15,7 +15,11 @@ describe('AMA live evals', () => {
       return
     }
 
-    const summary = await runAmaEvalSuite({ enforceThresholds: isCiGate })
-    expect(summary.passed || !isCiGate).toBe(true)
+    const summary = await runAmaEvalSuite()
+
+    expect(summary.totalCases).toBeGreaterThan(0)
+    if (isCiGate) {
+      expect(summary.passed).toBe(true)
+    }
   }, 180000)
 })
