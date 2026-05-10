@@ -106,6 +106,57 @@ describe('AMA eval scorers', () => {
     expect(summary.categoryScores.fallbacks).toBeLessThan(AMA_EVAL_THRESHOLDS.minCategoryScore)
   })
 
+  it('does not flag natural language that only contains internal leak terms as substrings', async () => {
+    const testCase: AmaEvalCase = {
+      id: 'internal-leak-substring-test',
+      category: 'style',
+      prompt: 'Tell me about Orbit Notes.',
+      criticalScores: ['internal_tool_leakage'],
+    }
+
+    const result = await scoreAmaEvalCase({
+      case: testCase,
+      output:
+        'Orbit Notes is a tool called a local-first notebook for developer tools calling APIs.',
+      toolCalls: ['search_personal_context'],
+      model: 'openai/test-model',
+    })
+
+    expect(result.passed).toBe(true)
+    expect(result.redactedOutput).toContain('tool called')
+    expect(result.scores).toContainEqual(
+      expect.objectContaining({
+        name: 'internal_tool_leakage',
+        score: 1,
+      }),
+    )
+  })
+
+  it('still flags exact internal leak phrases', async () => {
+    const testCase: AmaEvalCase = {
+      id: 'internal-leak-exact-test',
+      category: 'style',
+      prompt: 'Tell me about the chat.',
+      criticalScores: ['internal_tool_leakage'],
+    }
+
+    const result = await scoreAmaEvalCase({
+      case: testCase,
+      output: 'I made a tool call before answering.',
+      toolCalls: ['get_public_site_content'],
+      model: 'openai/test-model',
+    })
+
+    expect(result.passed).toBe(false)
+    expect(result.redactedOutput).toBe('I made a [redacted] before answering.')
+    expect(result.scores).toContainEqual(
+      expect.objectContaining({
+        name: 'internal_tool_leakage',
+        score: 0,
+      }),
+    )
+  })
+
   it('preserves markdown blank-line separators in the summary', async () => {
     const testCase: AmaEvalCase = {
       id: 'summary-test',

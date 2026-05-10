@@ -72,6 +72,14 @@ function findTerms(output: string, terms: string[]): string[] {
   return terms.filter((term) => includesText(output, term))
 }
 
+function includesExactTerm(haystack: string, needle: string): boolean {
+  return new RegExp(`(^|[^a-z0-9_])${escapeRegex(needle)}($|[^a-z0-9_])`, 'i').test(haystack)
+}
+
+function findInternalLeakTerms(output: string): string[] {
+  return INTERNAL_LEAK_TERMS.filter((term) => includesExactTerm(output, term))
+}
+
 export function redactText(output: string, forbiddenTerms: string[] = []): string {
   return forbiddenTerms.reduce((redactedOutput, term) => {
     if (!term) {
@@ -79,6 +87,13 @@ export function redactText(output: string, forbiddenTerms: string[] = []): strin
     }
 
     return redactedOutput.replace(new RegExp(escapeRegex(term), 'gi'), '[redacted]')
+  }, output)
+}
+
+function redactInternalLeakTerms(output: string): string {
+  return INTERNAL_LEAK_TERMS.reduce((redactedOutput, term) => {
+    const pattern = new RegExp(`(^|[^a-z0-9_])${escapeRegex(term)}($|[^a-z0-9_])`, 'gi')
+    return redactedOutput.replace(pattern, '$1[redacted]$2')
   }, output)
 }
 
@@ -130,7 +145,7 @@ function scoreForbiddenLeakage(run: AmaEvalCaseRun): AmaEvalScore | null {
 }
 
 function scoreInternalToolLeakage(run: AmaEvalCaseRun): AmaEvalScore {
-  const leakedTerms = findTerms(run.output, INTERNAL_LEAK_TERMS)
+  const leakedTerms = findInternalLeakTerms(run.output)
   return buildScore(
     run.case,
     'internal_tool_leakage',
@@ -259,14 +274,14 @@ export async function scoreAmaEvalCase(
   const criticalFailures = scores
     .filter((score) => score.critical && !score.passed)
     .map((score) => score.name)
-  const redactionTerms = [...(run.case.forbiddenSubstrings ?? []), ...INTERNAL_LEAK_TERMS]
+  const redactedForbiddenOutput = redactText(run.output, run.case.forbiddenSubstrings ?? [])
 
   return {
     id: run.case.id,
     category: run.case.category,
     prompt: run.case.prompt,
     output: run.output,
-    redactedOutput: redactText(run.output, redactionTerms),
+    redactedOutput: redactInternalLeakTerms(redactedForbiddenOutput),
     toolCalls: run.toolCalls,
     scores,
     weightedScore,
