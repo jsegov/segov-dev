@@ -34,6 +34,8 @@ const JudgeOutputSchema = z.object({
   reason: z.string().max(240),
 })
 
+type JudgeOutput = z.infer<typeof JudgeOutputSchema>
+
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
@@ -235,6 +237,11 @@ function scoreStyle(run: AmaEvalCaseRun): AmaEvalScore | null {
   return buildScore(run.case, 'style', passedChecks / checks.length, details.join('; '))
 }
 
+function getJudgeFailureDetails(error: unknown): string {
+  const errorName = error instanceof Error && error.name ? error.name : 'unknown error'
+  return `Judge scoring failed without aborting the eval run: ${errorName}.`
+}
+
 async function scoreJudge(
   run: AmaEvalCaseRun,
   judgeModelConfig: AmaModelConfig,
@@ -243,24 +250,30 @@ async function scoreJudge(
     return null
   }
 
-  const { output } = await generateText({
-    ...judgeModelConfig,
-    output: Output.object({
-      schema: JudgeOutputSchema,
-    }),
-    temperature: 0,
-    prompt: [
-      'Grade this AMA chatbot answer.',
-      '',
-      `User prompt: ${run.case.prompt}`,
-      `Reference: ${run.case.judge.reference}`,
-      `Rubric: ${run.case.judge.rubric}`,
-      '',
-      `Answer: ${run.output}`,
-      '',
-      'Return a score between 0 and 1, a pass boolean, and a short reason.',
-    ].join('\n'),
-  })
+  let output: JudgeOutput
+  try {
+    const result = await generateText({
+      ...judgeModelConfig,
+      output: Output.object({
+        schema: JudgeOutputSchema,
+      }),
+      temperature: 0,
+      prompt: [
+        'Grade this AMA chatbot answer.',
+        '',
+        `User prompt: ${run.case.prompt}`,
+        `Reference: ${run.case.judge.reference}`,
+        `Rubric: ${run.case.judge.rubric}`,
+        '',
+        `Answer: ${run.output}`,
+        '',
+        'Return a score between 0 and 1, a pass boolean, and a short reason.',
+      ].join('\n'),
+    })
+    output = result.output
+  } catch (error) {
+    return buildScore(run.case, 'judge', 0, getJudgeFailureDetails(error))
+  }
 
   return buildScore(
     run.case,
