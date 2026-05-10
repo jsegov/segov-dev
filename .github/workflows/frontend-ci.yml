@@ -30,6 +30,8 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: read
+    env:
+      AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -56,3 +58,23 @@ jobs:
 
       - name: Build
         run: pnpm --filter frontend build
+
+      - name: AMA live evals
+        id: ama-evals
+        if: ${{ env.AI_GATEWAY_API_KEY != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        env:
+          AMA_EVAL_MODEL: ${{ vars.AMA_EVAL_MODEL }}
+          AMA_EVAL_PROVIDERS: ${{ vars.AMA_EVAL_PROVIDERS }}
+        run: pnpm --filter frontend eval:ama:ci
+
+      - name: Skip AMA live evals
+        if: ${{ env.AI_GATEWAY_API_KEY == '' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) }}
+        run: echo "Skipping AMA live evals because AI Gateway credentials are unavailable for this run."
+
+      - name: Upload AMA eval results
+        if: ${{ always() && steps.ama-evals.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ama-eval-results
+          path: frontend/evals/ama/results/latest.json
+          if-no-files-found: ignore

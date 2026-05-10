@@ -51,6 +51,20 @@ pnpm test
 pnpm build
 ```
 
+## AMA Evals
+
+The AMA chatbot has a live-model eval suite that uses sanitized fixtures instead of real Edge Config
+or Blob content:
+
+```bash
+pnpm --filter frontend eval:ama
+pnpm --filter frontend eval:ama:ci
+```
+
+Set `AI_GATEWAY_API_KEY` or `VERCEL_OIDC_TOKEN` before running live evals. Optional eval
+overrides are `AMA_EVAL_MODEL`, `AMA_EVAL_PROVIDERS`, `AMA_EVAL_USE_JUDGE`, and
+`AMA_EVAL_JUDGE_MODEL`.
+
 ## Repo Layout
 
 ```text

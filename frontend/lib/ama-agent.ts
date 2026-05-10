@@ -1,9 +1,17 @@
-import { ToolLoopAgent, tool } from 'ai'
+import { ToolLoopAgent, tool, type ToolLoopAgentSettings } from 'ai'
 import { z } from 'zod'
-import { searchPersonalContextFromBlob, searchWorkContextFromBlob } from '@/lib/ama-context'
-import { getAmaModelConfig } from '@/lib/ama-model-config'
+import {
+  searchPersonalContextFromBlob,
+  searchWorkContextFromBlob,
+  type AmaContextSearchResult,
+} from '@/lib/ama-context'
+import { getAmaModelConfig, type AmaModelConfig } from '@/lib/ama-model-config'
 import { getPublicSiteContent, type SiteContent } from '@/lib/content'
-import { getResumeContextFromBlob, RESUME_UNAVAILABLE_MESSAGE } from '@/lib/resume-context'
+import {
+  getResumeContextFromBlob,
+  RESUME_UNAVAILABLE_MESSAGE,
+  type ResumeContextResult,
+} from '@/lib/resume-context'
 
 export const OUT_OF_SCOPE_MESSAGE =
   'Error: Query outside permitted scope. This terminal only responds to questions about Jonathan Segovia.'
@@ -80,11 +88,40 @@ function formatPublicSiteContent(siteContent: SiteContent): string {
   ].join('\n')
 }
 
-export function createAmaAgent() {
-  const modelConfig = getAmaModelConfig()
+export type AmaAgentCallSettings = Partial<
+  Pick<
+    ToolLoopAgentSettings,
+    | 'maxOutputTokens'
+    | 'temperature'
+    | 'topP'
+    | 'topK'
+    | 'presencePenalty'
+    | 'frequencyPenalty'
+    | 'stopSequences'
+    | 'seed'
+    | 'maxRetries'
+  >
+>
+
+export interface CreateAmaAgentOptions {
+  getPublicSiteContent?: () => Promise<SiteContent>
+  getResumeContext?: () => Promise<ResumeContextResult>
+  searchWorkContext?: (query: string) => Promise<AmaContextSearchResult>
+  searchPersonalContext?: (query: string) => Promise<AmaContextSearchResult>
+  modelConfig?: AmaModelConfig
+  callSettings?: AmaAgentCallSettings
+}
+
+export function createAmaAgent(options: CreateAmaAgentOptions = {}) {
+  const modelConfig = options.modelConfig ?? getAmaModelConfig()
+  const publicSiteContentLoader = options.getPublicSiteContent ?? getPublicSiteContent
+  const resumeContextLoader = options.getResumeContext ?? getResumeContextFromBlob
+  const workContextSearch = options.searchWorkContext ?? searchWorkContextFromBlob
+  const personalContextSearch = options.searchPersonalContext ?? searchPersonalContextFromBlob
 
   return new ToolLoopAgent({
     ...modelConfig,
+    ...options.callSettings,
     instructions: AMA_INSTRUCTIONS,
     tools: {
       get_public_site_content: tool({
@@ -95,7 +132,7 @@ export function createAmaAgent() {
         }),
         execute: async () => {
           try {
-            const siteContent = await getPublicSiteContent()
+            const siteContent = await publicSiteContentLoader()
             return {
               available: true,
               source: 'edge_config',
@@ -117,7 +154,7 @@ export function createAmaAgent() {
           reason: z.string().optional(),
         }),
         execute: async () => {
-          const result = await getResumeContextFromBlob()
+          const result = await resumeContextLoader()
           if (!result.available) {
             return {
               available: false,
@@ -137,7 +174,7 @@ export function createAmaAgent() {
           reason: z.string().optional(),
         }),
         execute: async ({ query }) => {
-          return searchWorkContextFromBlob(query)
+          return workContextSearch(query)
         },
       }),
       search_personal_context: tool({
@@ -148,7 +185,7 @@ export function createAmaAgent() {
           reason: z.string().optional(),
         }),
         execute: async ({ query }) => {
-          return searchPersonalContextFromBlob(query)
+          return personalContextSearch(query)
         },
       }),
     },

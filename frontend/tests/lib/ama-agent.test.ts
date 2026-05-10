@@ -161,4 +161,74 @@ describe('createAmaAgent', () => {
       content: expect.stringContaining('Public site content is unavailable'),
     })
   })
+
+  it('uses injected dependencies and call settings for eval runs', async () => {
+    const getInjectedPublicContent = vi.fn(async () => ({
+      about: {
+        description: 'Injected public about copy',
+      },
+      career: [],
+      projects: [],
+    }))
+    const getInjectedResumeContext = vi.fn(async () => ({
+      available: true,
+      source: 'blob' as const,
+      content: 'Injected resume content',
+    }))
+    const searchInjectedWorkContext = vi.fn(async (query: string) => ({
+      available: true,
+      source: 'blob' as const,
+      query,
+      matches: [],
+      content: 'Injected work context',
+    }))
+    const searchInjectedPersonalContext = vi.fn(async (query: string) => ({
+      available: true,
+      source: 'blob' as const,
+      query,
+      matches: [],
+      content: 'Injected personal context',
+    }))
+    const { createAmaAgent } = await import('@/lib/ama-agent')
+
+    const agent = createAmaAgent({
+      getPublicSiteContent: getInjectedPublicContent,
+      getResumeContext: getInjectedResumeContext,
+      searchWorkContext: searchInjectedWorkContext,
+      searchPersonalContext: searchInjectedPersonalContext,
+      modelConfig: { model: 'openai/eval-model' },
+      callSettings: {
+        maxOutputTokens: 200,
+        temperature: 0,
+        seed: 7,
+      },
+    }) as {
+      tools: Record<string, { execute?: (...args: unknown[]) => Promise<unknown> | unknown }>
+    }
+
+    expect(toolLoopAgentSettings[0]).toMatchObject({
+      model: 'openai/eval-model',
+      maxOutputTokens: 200,
+      temperature: 0,
+      seed: 7,
+    })
+    await expect(agent.tools.get_public_site_content.execute?.({})).resolves.toMatchObject({
+      content: expect.stringContaining('Injected public about copy'),
+    })
+    await expect(agent.tools.get_resume.execute?.({})).resolves.toMatchObject({
+      content: 'Injected resume content',
+    })
+    await expect(
+      agent.tools.search_work_context.execute?.({ query: 'work routing' }),
+    ).resolves.toMatchObject({
+      query: 'work routing',
+      content: 'Injected work context',
+    })
+    await expect(
+      agent.tools.search_personal_context.execute?.({ query: 'personal routing' }),
+    ).resolves.toMatchObject({
+      query: 'personal routing',
+      content: 'Injected personal context',
+    })
+  })
 })
