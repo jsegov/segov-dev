@@ -1,0 +1,63 @@
+name: AMA Evals
+
+on:
+  pull_request:
+    branches: [main, master]
+    types: [opened, reopened, synchronize, ready_for_review]
+    paths:
+      - 'app/**'
+      - 'evals/**'
+      - 'lib/**'
+      - 'tests/evals/**'
+      - '.github/workflows/ama-evals.yml'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'tsconfig.json'
+      - 'vitest.eval.config.ts'
+      - 'vitest.setup.ts'
+
+concurrency:
+  group: ama-evals-${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  ama-evals:
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    environment: Github Actions
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: 'pnpm'
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: AMA live evals
+        id: ama-evals
+        if: ${{ env.AI_GATEWAY_API_KEY != '' && github.event.pull_request.head.repo.full_name == github.repository }}
+        env:
+          AMA_EVAL_MODEL: ${{ vars.AMA_EVAL_MODEL }}
+          AMA_EVAL_PROVIDERS: ${{ vars.AMA_EVAL_PROVIDERS }}
+        run: pnpm eval:ama:ci
+
+      - name: Skip AMA live evals
+        if: ${{ env.AI_GATEWAY_API_KEY == '' || github.event.pull_request.head.repo.full_name != github.repository }}
+        run: echo "Skipping AMA live evals because AI Gateway credentials are unavailable for this run."
+
+      - name: Upload AMA eval results
+        if: ${{ always() && steps.ama-evals.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ama-eval-results
+          path: evals/ama/results/latest.json
+          if-no-files-found: ignore

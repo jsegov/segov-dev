@@ -12,17 +12,17 @@ A frontend-only Next.js portfolio with an AMA chat page powered by Vercel AI SDK
 
 ## Architecture
 
-- UI pages are in `frontend/app/*`
+- UI pages are in `app/*`
 - Portfolio content for `about`, `career`, and `projects` is loaded from Vercel Edge Config key `siteContent`
 - Blog content is loaded from private Vercel Blob storage under the `BLOB_BLOG_PREFIX` prefix
 - AMA chat UI uses `useChat` and streams from `POST /api/chat`
-- Server route `frontend/app/api/chat/route.ts` runs the agent
+- Server route `app/api/chat/route.ts` runs the agent
 - Agent tool `get_resume` reads resume context from private Blob using `BLOB_RESUME_PATH`
 - Agent tools `search_work_context` and `search_personal_context` search `.md`, `.mdx`, and `.txt` files from private Blob under the hard-coded `work/` and `personal/` prefixes respectively
 
 ## Environment Variables
 
-Set these in `frontend/.env.local` for local development and in Vercel project settings for production:
+Set these in `.env.local` for local development and in Vercel project settings for production:
 
 - `AI_GATEWAY_API_KEY`
 - `AMA_CHAT_MODEL` (default: `openai/gpt-5-mini`)
@@ -57,8 +57,8 @@ The AMA chatbot has a live-model eval suite that uses sanitized fixtures instead
 or Blob content:
 
 ```bash
-pnpm --filter frontend eval:ama
-pnpm --filter frontend eval:ama:ci
+pnpm eval:ama
+pnpm eval:ama:ci
 ```
 
 Set `AI_GATEWAY_API_KEY` or `VERCEL_OIDC_TOKEN` before running live evals. Optional eval
@@ -69,6 +69,9 @@ overrides are `AMA_EVAL_MODEL`, `AMA_EVAL_PROVIDERS`, `AMA_EVAL_MAX_OUTPUT_TOKEN
 
 ```text
 segov-dev/
-├── frontend/   # Next.js application
-└── .github/    # frontend workflows
+├── app/        # Next.js App Router routes
+├── components/ # Shared UI components
+├── lib/        # App and AMA runtime logic
+├── evals/      # AMA live eval suite
+└── .github/    # CI and eval workflows
 ```

@@ -3,7 +3,7 @@ node_modules
 coverage
 dist
 build
+test-results
 *.min.js
 pnpm-lock.yaml
 .git
-
