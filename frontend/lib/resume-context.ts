@@ -3,7 +3,7 @@ import { get as getBlob } from '@vercel/blob'
 export const RESUME_UNAVAILABLE_MESSAGE =
   'Resume context is unavailable right now. For accurate details, please use the Career and Projects pages on this site.'
 
-interface ResumeContextResult {
+export interface ResumeContextResult {
   available: boolean
   source: 'blob' | 'missing_path' | 'missing_blob' | 'blob_fetch_failed' | 'empty_blob'
   content: string

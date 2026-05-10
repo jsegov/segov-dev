@@ -13,32 +13,37 @@ export interface AmaModelConfig {
   }
 }
 
-function parseAmaChatModel(): string {
-  const configuredModel = process.env.AMA_CHAT_MODEL?.trim()
+export function parseAmaModelId(
+  configuredModel: string | undefined,
+  defaultModel: string,
+  variableName: string,
+): string {
+  const model = configuredModel?.trim()
 
-  if (!configuredModel) {
-    return DEFAULT_AMA_CHAT_MODEL
+  if (!model) {
+    return defaultModel
   }
 
-  if (!MODEL_ID_PATTERN.test(configuredModel)) {
-    throw new Error(
-      `AMA_CHAT_MODEL must use "creator/model-name" format. Received: "${configuredModel}"`,
-    )
+  if (!MODEL_ID_PATTERN.test(model)) {
+    throw new Error(`${variableName} must use "creator/model-name" format. Received: "${model}"`)
   }
 
-  return configuredModel
+  return model
 }
 
-function parseAmaChatProviders(): string[] | undefined {
-  const configuredProviders = process.env.AMA_CHAT_PROVIDERS?.trim()
+export function parseAmaProviderSlugs(
+  configuredProviders: string | undefined,
+  variableName: string,
+): string[] | undefined {
+  const providerList = configuredProviders?.trim()
 
-  if (!configuredProviders) {
+  if (!providerList) {
     return undefined
   }
 
   const providers = Array.from(
     new Set(
-      configuredProviders
+      providerList
         .split(',')
         .map((provider) => provider.trim())
         .filter(Boolean),
@@ -52,7 +57,7 @@ function parseAmaChatProviders(): string[] | undefined {
   const invalidProvider = providers.find((provider) => !PROVIDER_SLUG_PATTERN.test(provider))
   if (invalidProvider) {
     throw new Error(
-      `AMA_CHAT_PROVIDERS must be a comma-separated list of provider slugs like "openai" or "vertex,anthropic". Invalid slug: "${invalidProvider}"`,
+      `${variableName} must be a comma-separated list of provider slugs like "openai" or "vertex,anthropic". Invalid slug: "${invalidProvider}"`,
     )
   }
 
@@ -60,9 +65,20 @@ function parseAmaChatProviders(): string[] | undefined {
 }
 
 export function getAmaModelConfig(): AmaModelConfig {
-  const model = parseAmaChatModel()
-  const providers = parseAmaChatProviders()
+  const model = parseAmaModelId(
+    process.env.AMA_CHAT_MODEL,
+    DEFAULT_AMA_CHAT_MODEL,
+    'AMA_CHAT_MODEL',
+  )
+  const providers = parseAmaProviderSlugs(process.env.AMA_CHAT_PROVIDERS, 'AMA_CHAT_PROVIDERS')
 
+  return createAmaModelConfig(model, providers)
+}
+
+export function createAmaModelConfig(
+  model: string,
+  providers: string[] | undefined,
+): AmaModelConfig {
   if (!providers) {
     return { model }
   }

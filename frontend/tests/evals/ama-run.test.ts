@@ -1,0 +1,155 @@
+import { describe, expect, it } from 'vitest'
+import {
+  extractGenerationDiagnostics,
+  getRedactedSummary,
+  mapWithConcurrency,
+  parsePositiveIntegerEnv,
+} from '@/evals/ama/run'
+import type { AmaEvalGenerationDiagnostics, AmaEvalSummary } from '@/evals/ama/types'
+
+describe('AMA eval runner helpers', () => {
+  it('parses positive integer env values with safe fallback behavior', () => {
+    expect(parsePositiveIntegerEnv(undefined, 240, 'TEST_VALUE')).toBe(240)
+    expect(parsePositiveIntegerEnv('', 240, 'TEST_VALUE')).toBe(240)
+    expect(parsePositiveIntegerEnv(' 12 ', 240, 'TEST_VALUE')).toBe(12)
+    expect(() => parsePositiveIntegerEnv('0', 240, 'TEST_VALUE')).toThrow(
+      'TEST_VALUE must be a positive integer',
+    )
+    expect(() => parsePositiveIntegerEnv('NaN', 240, 'TEST_VALUE')).toThrow(
+      'TEST_VALUE must be a positive integer',
+    )
+  })
+
+  it('maps results with a concurrency limit while preserving input order', async () => {
+    let activeTasks = 0
+    let maxActiveTasks = 0
+
+    const results = await mapWithConcurrency([3, 1, 2, 4], 2, async (value) => {
+      activeTasks += 1
+      maxActiveTasks = Math.max(maxActiveTasks, activeTasks)
+      await Promise.resolve()
+      activeTasks -= 1
+      return value * 2
+    })
+
+    expect(results).toEqual([6, 2, 4, 8])
+    expect(maxActiveTasks).toBeLessThanOrEqual(2)
+  })
+
+  it('extracts safe generation diagnostics from agent results', () => {
+    const diagnostics = extractGenerationDiagnostics({
+      text: 'Jonathan builds developer tools.',
+      finishReason: 'stop',
+      usage: {
+        inputTokens: 42,
+        outputTokens: 8,
+        totalTokens: 50,
+        prompt: 'do not serialize this',
+        nested: { outputTokens: 99 },
+        invalid: Number.NaN,
+      },
+      totalUsage: {
+        inputTokens: 60,
+        outputTokens: 10,
+        totalTokens: 70,
+        providerResponse: 'do not serialize this',
+      },
+      steps: [
+        {
+          finishReason: 'tool-calls',
+          usage: { inputTokens: 20 },
+          toolCalls: [{ toolName: 'get_public_site_content' }],
+        },
+        {
+          finishReason: 'stop',
+          toolCalls: [],
+        },
+      ],
+    })
+
+    expect(diagnostics).toEqual({
+      finishReason: 'stop',
+      stepCount: 2,
+      usage: {
+        inputTokens: 42,
+        outputTokens: 8,
+        totalTokens: 50,
+      },
+      totalUsage: {
+        inputTokens: 60,
+        outputTokens: 10,
+        totalTokens: 70,
+      },
+      stepFinishReasons: ['tool-calls', 'stop'],
+    })
+  })
+
+  it('keeps diagnostics while redacting raw outputs in summaries', () => {
+    const diagnostics: AmaEvalGenerationDiagnostics = {
+      finishReason: 'length',
+      stepCount: 1,
+      usage: {
+        inputTokens: 12,
+        outputTokens: 3,
+      },
+      totalUsage: {
+        inputTokens: 12,
+        outputTokens: 3,
+      },
+      stepFinishReasons: ['length'],
+    }
+    const summary: AmaEvalSummary = {
+      modelConfig: { model: 'openai/test-model' },
+      thresholds: {
+        minOverallScore: 0.85,
+        minCategoryScore: 0.75,
+        maxCriticalFailures: 0,
+      },
+      generatedAt: '2026-05-10T00:00:00.000Z',
+      totalCases: 1,
+      passedCases: 0,
+      failedCases: 1,
+      weightedScore: 0,
+      categoryScores: {
+        style: 0,
+      } as AmaEvalSummary['categoryScores'],
+      criticalFailures: [
+        {
+          caseId: 'empty-output-test',
+          score: 'output_presence',
+          details: 'Output was empty.',
+        },
+      ],
+      passed: false,
+      results: [
+        {
+          id: 'empty-output-test',
+          category: 'style',
+          prompt: 'Tell me about Jonathan.',
+          output: 'Sensitive raw output',
+          redactedOutput: '[redacted]',
+          toolCalls: [],
+          diagnostics,
+          scores: [
+            {
+              name: 'output_presence',
+              score: 0,
+              passed: false,
+              critical: true,
+              details: 'Output was empty.',
+            },
+          ],
+          weightedScore: 0,
+          passed: false,
+          criticalFailures: ['output_presence'],
+        },
+      ],
+    }
+
+    const redactedSummary = getRedactedSummary(summary)
+
+    expect(redactedSummary.results[0]?.output).toBe('[redacted]')
+    expect(redactedSummary.results[0]?.redactedOutput).toBe('[redacted]')
+    expect(redactedSummary.results[0]?.diagnostics).toEqual(diagnostics)
+  })
+})
