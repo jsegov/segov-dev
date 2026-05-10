@@ -5,6 +5,7 @@ import { Navbar } from '@/components/navbar'
 import { useToast } from '@/hooks/use-toast'
 import { type UIMessage, useChat } from '@ai-sdk/react'
 import { RotateCcw, Square, Trash2 } from 'lucide-react'
+import { Streamdown } from 'streamdown'
 
 const INITIAL_ASSISTANT_MESSAGE = 'segov@terminal:~$ ./ama \nAsk me anything about Jonathan.'
 const INITIAL_MESSAGES: UIMessage[] = [
@@ -45,6 +46,26 @@ const PROJECT_FOLLOW_UPS = [
   'Which projects use AI?',
   'How was segov.dev built?',
 ]
+const SAFE_MARKDOWN_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:'])
+
+function transformMarkdownUrl(url: string): string | null {
+  const trimmedUrl = url.trim()
+  if (!trimmedUrl) {
+    return null
+  }
+
+  const hasProtocol = /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(trimmedUrl)
+  if (!hasProtocol && !trimmedUrl.startsWith('//')) {
+    return trimmedUrl
+  }
+
+  try {
+    const parsedUrl = new URL(trimmedUrl)
+    return SAFE_MARKDOWN_PROTOCOLS.has(parsedUrl.protocol.toLowerCase()) ? trimmedUrl : null
+  } catch {
+    return null
+  }
+}
 
 function getMessageText(parts: UIMessage['parts']): string {
   return parts
@@ -320,8 +341,12 @@ export default function AMAPage() {
       <div className="flex-1 container mx-auto px-4 py-8 flex flex-col">
         <div className="terminal-window flex-1 flex flex-col">
           <div className="terminal-window-content flex-1 overflow-y-auto font-mono">
-            {messages.map((message) => {
+            {messages.map((message, messageIndex) => {
               const text = getMessageText(message.parts)
+              const isStreamingAssistantMessage =
+                status === 'streaming' &&
+                message.role === 'assistant' &&
+                messageIndex === messages.length - 1
 
               if (message.role === 'assistant' && !text.trim()) {
                 return null
@@ -335,7 +360,15 @@ export default function AMAPage() {
                       <span>{text}</span>
                     </div>
                   ) : (
-                    <div className="text-foreground whitespace-pre-line">{text}</div>
+                    <Streamdown
+                      className="ama-markdown text-foreground"
+                      disallowedElements={['img']}
+                      isAnimating={isStreamingAssistantMessage}
+                      skipHtml
+                      urlTransform={transformMarkdownUrl}
+                    >
+                      {text}
+                    </Streamdown>
                   )}
                 </div>
               )

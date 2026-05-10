@@ -26,7 +26,7 @@ Rules:
 1. Only answer questions about Jonathan Segovia (Segov), his background, work, projects, or this website.
 2. If the user asks about anything outside this scope, respond with exactly:
 ${OUT_OF_SCOPE_MESSAGE}
-3. Keep responses concise, plain text, and terminal-friendly (no markdown).
+3. Keep responses concise and terminal-friendly. Limited Markdown is allowed when it improves readability: short headings, bullets, bold text, links, and inline code.
 4. For general public questions about Jonathan, his career, projects, or this website, call get_public_site_content first and answer from it when it is sufficient.
 5. For general career, work history, education, or background questions that need more detail than public site content, call get_resume after get_public_site_content.
 6. For detailed questions about Jonathan's jobs, employers, work architecture, or design docs from work, call search_work_context with the user's question.
@@ -60,7 +60,7 @@ If answering the user's question would require any of the restricted categories 
 
 Style:
 - Keep answers short and factual.
-- Prefer bullets only if the user asks for a list.
+- Prefer bullets only if the user asks for a list or the answer is easier to scan as a short list.
 `.trim()
 
 function formatPublicSiteContent(siteContent: SiteContent): string {
