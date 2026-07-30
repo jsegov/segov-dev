@@ -212,6 +212,39 @@ function scoreFallbackRedirect(run: AmaEvalCaseRun): AmaEvalScore | null {
   )
 }
 
+function scoreFirstPersonVoice(run: AmaEvalCaseRun): AmaEvalScore | null {
+  if (!run.case.expectFirstPerson) {
+    return null
+  }
+
+  const hasFirstPersonReference = /\b(?:i|i'm|i’ve|i've|i’d|i'd|i’ll|i'll|me|my|mine)\b/i.test(
+    run.output,
+  )
+  const thirdPersonPronouns = run.output.match(/\b(?:he|him|his)\b/gi) ?? []
+  const nameLedReferences =
+    run.output.match(
+      /\b(?:Jonathan(?: Segovia)?|Segovia|Segov)(?:'s|\s+(?:is|was|has|had|works?|worked|builds?|built|focuses?|focused|leads?|led|studied|created|developed))\b/gi,
+    ) ?? []
+  const thirdPersonReferences = [...thirdPersonPronouns, ...nameLedReferences]
+  const passed = hasFirstPersonReference && thirdPersonReferences.length === 0
+
+  return buildScore(
+    run.case,
+    'first_person_voice',
+    passed ? 1 : 0,
+    passed
+      ? 'Answer used first-person self-reference without third-person self-reference.'
+      : [
+          hasFirstPersonReference ? null : 'Missing first-person self-reference.',
+          thirdPersonReferences.length > 0
+            ? `Third-person self-reference detected: ${thirdPersonReferences.join(', ')}.`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(' '),
+  )
+}
+
 function scoreStyle(run: AmaEvalCaseRun): AmaEvalScore | null {
   if (run.case.maxWords === undefined && run.case.allowMarkdown !== false) {
     return null
@@ -295,6 +328,7 @@ export async function scoreAmaEvalCase(
     scoreInternalToolLeakage(run),
     scoreToolUsage(run),
     scoreFallbackRedirect(run),
+    scoreFirstPersonVoice(run),
     scoreStyle(run),
     options.useJudge && options.judgeModelConfig
       ? await scoreJudge(run, options.judgeModelConfig)

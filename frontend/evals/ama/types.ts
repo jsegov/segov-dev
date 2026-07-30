@@ -17,6 +17,7 @@ export type AmaEvalScoreName =
   | 'internal_tool_leakage'
   | 'tool_usage'
   | 'fallback_redirect'
+  | 'first_person_voice'
   | 'style'
   | 'judge'
 
@@ -35,6 +36,7 @@ export interface AmaEvalCase {
   expectedTools?: string[]
   disallowedTools?: string[]
   expectCareerProjectsRedirect?: boolean
+  expectFirstPerson?: boolean
   maxWords?: number
   allowMarkdown?: boolean
   criticalScores?: AmaEvalScoreName[]

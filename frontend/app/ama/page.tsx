@@ -7,7 +7,9 @@ import { type UIMessage, useChat } from '@ai-sdk/react'
 import { RotateCcw, Square, Trash2 } from 'lucide-react'
 import { Streamdown } from 'streamdown'
 
-const INITIAL_ASSISTANT_MESSAGE = 'segov@terminal:~$ ./ama \nAsk me anything about Jonathan.'
+const LEGACY_INITIAL_ASSISTANT_MESSAGE = 'segov@terminal:~$ ./ama \nAsk me anything about Jonathan.'
+const INITIAL_ASSISTANT_MESSAGE =
+  'segov@terminal:~$ ./ama \nAsk me anything about my work and projects.'
 const INITIAL_MESSAGES: UIMessage[] = [
   {
     id: 'initial',
@@ -25,26 +27,26 @@ const HELP_MESSAGE = [
   'retry/again - regenerate the last response',
 ].join('\n')
 const PROMPT_SUGGESTIONS = [
-  "Tell me about Jonathan's career",
-  'What projects best show his AI work?',
-  'What kind of engineer is Jonathan?',
-  'How was this website built?',
-  'What has Jonathan built outside work?',
+  'Tell me about your career',
+  'What projects best show your AI work?',
+  'What kind of engineer are you?',
+  'How did you build this website?',
+  'What have you built outside work?',
 ]
 const DEFAULT_FOLLOW_UPS = [
-  "Tell me about Jonathan's career",
-  'What projects best show his AI work?',
-  'What kind of engineer is Jonathan?',
+  'Tell me about your career',
+  'What projects best show your AI work?',
+  'What kind of engineer are you?',
 ]
 const CAREER_FOLLOW_UPS = [
-  'What backend or platform work has Jonathan done?',
-  'How does Jonathan approach engineering problems?',
-  'Which skills show up repeatedly in his work?',
+  'What backend or platform work have you done?',
+  'How do you approach engineering problems?',
+  'Which skills show up repeatedly in your work?',
 ]
 const PROJECT_FOLLOW_UPS = [
-  "What are Jonathan's most notable projects?",
-  'Which projects use AI?',
-  'How was segov.dev built?',
+  'What are your most notable projects?',
+  'Which of your projects use AI?',
+  'How did you build segov.dev?',
 ]
 const SAFE_MARKDOWN_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:'])
 
@@ -92,7 +94,13 @@ function sanitizeMessages(messages: UIMessage[]): UIMessage[] {
       return []
     }
 
-    const text = getMessageText(message.parts)
+    const storedText = getMessageText(message.parts)
+    const text =
+      message.id === 'initial' &&
+      message.role === 'assistant' &&
+      storedText === LEGACY_INITIAL_ASSISTANT_MESSAGE
+        ? INITIAL_ASSISTANT_MESSAGE
+        : storedText
     if (!text.trim()) {
       return []
     }
@@ -448,6 +456,10 @@ export default function AMAPage() {
             </div>
           </form>
         </div>
+        <p className="mt-3 text-xs text-muted-foreground">
+          Conversations are stored server-side and may be reviewed or used to improve this chatbot.
+          Do not submit sensitive personal information.
+        </p>
       </div>
     </div>
   )

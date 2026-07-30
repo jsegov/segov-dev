@@ -9,6 +9,7 @@ A frontend-only Next.js portfolio with an AMA chat page powered by Vercel AI SDK
 - AI SDK v6 (`ToolLoopAgent` + `createAgentUIStreamResponse`)
 - Vercel AI Gateway model/provider routing is configurable for AMA via env vars
 - Vercel Blob (private store) for resume retrieval and additional AMA context
+- Neon Postgres for best-effort, server-side AMA trace persistence
 
 ## Architecture
 
@@ -27,12 +28,17 @@ Set these in `frontend/.env.local` for local development and in Vercel project s
 - `AI_GATEWAY_API_KEY`
 - `AMA_CHAT_MODEL` (default: `openai/gpt-5-mini`)
 - `AMA_CHAT_PROVIDERS` (optional: `openai` or `vertex,anthropic`)
+- `DATABASE_URL` (injected by the connected Neon integration)
+- `AMA_TRACE_LOGGING_ENABLED` (optional; set to `0` to disable trace writes)
 - `EDGE_CONFIG`
 - `BLOB_READ_WRITE_TOKEN`
 - `BLOB_BLOG_PREFIX`
 - `BLOB_RESUME_PATH`
 
 Leave `AMA_CHAT_PROVIDERS` unset to let AI Gateway auto-route across supported providers. If you set it, use provider slugs that are valid for the selected `AMA_CHAT_MODEL`.
+
+Use Node.js 20 or newer. AMA trace writes run after the streamed response closes and are
+best-effort; they do not expose a trace-reading API.
 
 ## Development
 
