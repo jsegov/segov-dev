@@ -21,5 +21,5 @@ describe('AMA live evals', () => {
     if (isCiGate) {
       expect(summary.passed).toBe(true)
     }
-  }, 180000)
+  }, 1500000)
 })

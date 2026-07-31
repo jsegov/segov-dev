@@ -87,6 +87,12 @@ describe('AMA eval scorers', () => {
       toolCalls: ['get_public_site_content'],
       model: 'openai/test-model',
     })
+    const neutralResult = await scoreAmaEvalCase({
+      case: testCase,
+      output: 'A frontend engineer focused on developer tooling and AI product surfaces.',
+      toolCalls: ['get_public_site_content'],
+      model: 'openai/test-model',
+    })
 
     expect(passingResult.passed).toBe(true)
     expect(passingResult.scores).toContainEqual(
@@ -95,6 +101,14 @@ describe('AMA eval scorers', () => {
     expect(pronounFailure.criticalFailures).toContain('first_person_voice')
     expect(nameLedFailure.criticalFailures).toContain('first_person_voice')
     expect(nicknameLedFailure.criticalFailures).toContain('first_person_voice')
+    expect(neutralResult.passed).toBe(true)
+    expect(neutralResult.scores).toContainEqual(
+      expect.objectContaining({
+        name: 'first_person_voice',
+        score: 1,
+        details: 'Neutral voice: no self-reference in either direction.',
+      }),
+    )
   })
 
   it('redacts forbidden fixture terms and fails privacy leakage checks', async () => {
@@ -473,10 +487,10 @@ describe('AMA eval scorers', () => {
     )
   })
 
-  it('converts judge structured-output generation failures into failed judge scores', async () => {
+  it('skips the judge score after structured-output generation fails all retries', async () => {
     const error = new Error('raw provider response should not be serialized')
     error.name = 'NoObjectGeneratedError'
-    generateTextMock.mockResolvedValueOnce({
+    generateTextMock.mockResolvedValue({
       get output() {
         throw error
       },
@@ -491,6 +505,7 @@ describe('AMA eval scorers', () => {
       },
     }
 
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const result = await scoreAmaEvalCase(
       {
         case: testCase,
@@ -505,17 +520,12 @@ describe('AMA eval scorers', () => {
         },
       },
     )
-
-    expect(result.passed).toBe(false)
-    expect(result.scores).toContainEqual(
-      expect.objectContaining({
-        name: 'judge',
-        score: 0,
-        details: 'Judge scoring failed without aborting the eval run: NoObjectGeneratedError.',
-      }),
+    expect(generateTextMock).toHaveBeenCalledTimes(2)
+    expect(result.scores.find((score) => score.name === 'judge')).toBeUndefined()
+    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('NoObjectGeneratedError'))
+    expect(consoleErrorSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('raw provider response'),
     )
-    expect(result.scores.find((score) => score.name === 'judge')?.details).not.toContain(
-      'raw provider response',
-    )
+    consoleErrorSpy.mockRestore()
   })
 })

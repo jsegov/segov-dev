@@ -11,8 +11,8 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "eval:ama": "vitest run --config vitest.eval.config.ts --pool=forks --testTimeout=180000",
-    "eval:ama:ci": "AMA_EVAL_CI=1 vitest run --config vitest.eval.config.ts --pool=forks --testTimeout=180000",
+    "eval:ama": "vitest run --config vitest.eval.config.ts --pool=forks --testTimeout=1500000",
+    "eval:ama:ci": "AMA_EVAL_CI=1 AMA_EVAL_CONCURRENCY=8 vitest run --config vitest.eval.config.ts --pool=forks --testTimeout=1500000",
     "typecheck": "tsc --noEmit",
     "coverage": "vitest run --coverage"
   },

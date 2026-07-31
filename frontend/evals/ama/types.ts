@@ -8,6 +8,14 @@ export type AmaEvalCategory =
   | 'personal_projects'
   | 'fallbacks'
   | 'style'
+  | 'conversation'
+
+export type AmaEvalFixtureProfile = 'default' | 'context_unavailable' | 'public_unavailable'
+
+export interface AmaEvalPriorMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
 
 export type AmaEvalScoreName =
   | 'output_presence'
@@ -30,6 +38,10 @@ export interface AmaEvalCase {
   id: string
   category: AmaEvalCategory
   prompt: string
+  /** Scripted earlier turns; the case's prompt becomes the final user message. */
+  priorMessages?: AmaEvalPriorMessage[]
+  /** Dependency set injected into the agent. Defaults to 'default'. */
+  fixtureProfile?: AmaEvalFixtureProfile
   expectedExact?: string
   requiredSubstrings?: string[]
   forbiddenSubstrings?: string[]

@@ -10,9 +10,13 @@ import {
 import { amaEvalDataset } from './dataset'
 import {
   getPublicSiteFixture,
+  getPublicSiteUnavailableFixture,
   getResumeFixture,
+  getResumeUnavailableFixture,
   searchPersonalContextFixture,
+  searchPersonalContextUnavailableFixture,
   searchWorkContextFixture,
+  searchWorkContextUnavailableFixture,
 } from './fixtures'
 import {
   AMA_EVAL_THRESHOLDS,
@@ -21,7 +25,13 @@ import {
   getSummaryFailureMessage,
   scoreAmaEvalCase,
 } from './scorers'
-import type { AmaEvalGenerationDiagnostics, AmaEvalSummary, RunAmaEvalOptions } from './types'
+import type {
+  AmaEvalCase,
+  AmaEvalFixtureProfile,
+  AmaEvalGenerationDiagnostics,
+  AmaEvalSummary,
+  RunAmaEvalOptions,
+} from './types'
 
 const RESULTS_DIR = new URL('./results/', import.meta.url)
 const LATEST_RESULT_FILE = new URL('latest.json', RESULTS_DIR)
@@ -104,6 +114,51 @@ function getEvalModelConfig(): AmaModelConfig {
   const model = parseModel()
   const providers = parseProviders()
   return createAmaModelConfig(model, providers)
+}
+
+type FixtureProfileDependencies = Pick<
+  Parameters<typeof createAmaAgent>[0] & object,
+  'getPublicSiteContent' | 'getResumeContext' | 'searchWorkContext' | 'searchPersonalContext'
+>
+
+const FIXTURE_PROFILES: Record<AmaEvalFixtureProfile, FixtureProfileDependencies> = {
+  default: {
+    getPublicSiteContent: getPublicSiteFixture,
+    getResumeContext: getResumeFixture,
+    searchWorkContext: searchWorkContextFixture,
+    searchPersonalContext: searchPersonalContextFixture,
+  },
+  context_unavailable: {
+    getPublicSiteContent: getPublicSiteFixture,
+    getResumeContext: getResumeUnavailableFixture,
+    searchWorkContext: searchWorkContextUnavailableFixture,
+    searchPersonalContext: searchPersonalContextUnavailableFixture,
+  },
+  public_unavailable: {
+    getPublicSiteContent: getPublicSiteUnavailableFixture,
+    getResumeContext: getResumeFixture,
+    searchWorkContext: searchWorkContextFixture,
+    searchPersonalContext: searchPersonalContextFixture,
+  },
+}
+
+export function getFixtureProfileDependencies(
+  fixtureProfile: AmaEvalFixtureProfile,
+): FixtureProfileDependencies {
+  return FIXTURE_PROFILES[fixtureProfile]
+}
+
+export function getGenerateInput(
+  evalCase: AmaEvalCase,
+): { prompt: string } | { messages: Array<{ role: 'user' | 'assistant'; content: string }> } {
+  const priorMessages = evalCase.priorMessages ?? []
+  if (priorMessages.length === 0) {
+    return { prompt: evalCase.prompt }
+  }
+
+  return {
+    messages: [...priorMessages, { role: 'user', content: evalCase.prompt }],
+  }
 }
 
 function extractToolCalls(result: GenerateResultWithToolCalls): string[] {
@@ -207,10 +262,7 @@ export async function runAmaEvalSuite(options: RunAmaEvalOptions = {}): Promise<
 
   const results = await mapWithConcurrency(amaEvalDataset, concurrency, async (evalCase) => {
     const agent = createAmaAgent({
-      getPublicSiteContent: getPublicSiteFixture,
-      getResumeContext: getResumeFixture,
-      searchWorkContext: searchWorkContextFixture,
-      searchPersonalContext: searchPersonalContextFixture,
+      ...getFixtureProfileDependencies(evalCase.fixtureProfile ?? 'default'),
       modelConfig,
       callSettings: {
         maxOutputTokens,
@@ -219,9 +271,7 @@ export async function runAmaEvalSuite(options: RunAmaEvalOptions = {}): Promise<
         maxRetries: 1,
       },
     })
-    const result = (await agent.generate({
-      prompt: evalCase.prompt,
-    })) as GenerateResultWithToolCalls
+    const result = (await agent.generate(getGenerateInput(evalCase))) as GenerateResultWithToolCalls
 
     return scoreAmaEvalCase(
       {
