@@ -89,6 +89,42 @@ export function parseAmaProviderSlugs(
   return providers
 }
 
+export function parseAmaInferenceHeaders(
+  configuredHeaders: string | undefined,
+  variableName: string,
+): Record<string, string> | undefined {
+  const raw = configuredHeaders?.trim()
+
+  if (!raw) {
+    return undefined
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    throw new Error(
+      `${variableName} must be a JSON object of header names to string values, e.g. {"Modal-Key":"wk-...","Modal-Secret":"ws-..."}.`,
+    )
+  }
+
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error(
+      `${variableName} must be a JSON object of header names to string values, e.g. {"Modal-Key":"wk-...","Modal-Secret":"ws-..."}.`,
+    )
+  }
+
+  const entries = Object.entries(parsed)
+  const invalidEntry = entries.find(([, value]) => typeof value !== 'string')
+  if (invalidEntry) {
+    throw new Error(
+      `${variableName} header "${invalidEntry[0]}" must have a string value.`,
+    )
+  }
+
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined
+}
+
 export function parseAmaReasoningEffort(
   configuredEffort: string | undefined,
   variableName: string,
@@ -185,6 +221,14 @@ export function createAmaInferenceModelConfig(options: {
  * plain model-id strings (resolved by the SDK's default gateway provider);
  * inference configs become an `@ai-sdk/openai-compatible` chat model bound to
  * the configured endpoint.
+ *
+ * Credentials are read from the env here, not stored in the config (which is
+ * serialized into eval artifacts). Two auth shapes, composable:
+ * - `AMA_INFERENCE_API_KEY` -> `Authorization: Bearer <key>` (Tinker, vLLM
+ *   `--api-key`, any Bearer-style endpoint).
+ * - `AMA_INFERENCE_HEADERS` -> verbatim custom headers, for endpoints whose
+ *   auth is not Bearer-shaped — e.g. Modal proxy auth, which requires
+ *   `{"Modal-Key":"wk-...","Modal-Secret":"ws-..."}` and rejects Bearer.
  */
 export function resolveAmaLanguageModel(config: AmaModelConfig): LanguageModel {
   if (!config.inference) {
@@ -195,6 +239,10 @@ export function resolveAmaLanguageModel(config: AmaModelConfig): LanguageModel {
     name: AMA_INFERENCE_PROVIDER_NAME,
     baseURL: config.inference.baseURL,
     apiKey: process.env.AMA_INFERENCE_API_KEY,
+    headers: parseAmaInferenceHeaders(
+      process.env.AMA_INFERENCE_HEADERS,
+      'AMA_INFERENCE_HEADERS',
+    ),
   })
 
   return provider(config.model)

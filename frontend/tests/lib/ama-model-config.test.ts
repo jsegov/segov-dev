@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
   DEFAULT_AMA_CHAT_MODEL,
   getAmaModelConfig,
+  parseAmaInferenceHeaders,
   parseAmaReasoningEffort,
   resolveAmaLanguageModel,
 } from '@/lib/ama-model-config'
@@ -152,7 +153,43 @@ describe('parseAmaReasoningEffort', () => {
   })
 })
 
+describe('parseAmaInferenceHeaders', () => {
+  it('returns undefined for unset, blank, or empty-object values', () => {
+    expect(parseAmaInferenceHeaders(undefined, 'VAR')).toBeUndefined()
+    expect(parseAmaInferenceHeaders('   ', 'VAR')).toBeUndefined()
+    expect(parseAmaInferenceHeaders('{}', 'VAR')).toBeUndefined()
+  })
+
+  it('parses a JSON object of header names to values', () => {
+    expect(
+      parseAmaInferenceHeaders('{"Modal-Key":"wk-abc","Modal-Secret":"ws-def"}', 'VAR'),
+    ).toEqual({
+      'Modal-Key': 'wk-abc',
+      'Modal-Secret': 'ws-def',
+    })
+  })
+
+  it.each(['not json', '"a string"', '[1,2]', '42'])(
+    'throws for non-object JSON: %s',
+    (invalid) => {
+      expect(() => parseAmaInferenceHeaders(invalid, 'VAR')).toThrow(
+        /VAR must be a JSON object of header names to string values/,
+      )
+    },
+  )
+
+  it('throws for non-string header values', () => {
+    expect(() => parseAmaInferenceHeaders('{"Modal-Key":123}', 'VAR')).toThrow(
+      'VAR header "Modal-Key" must have a string value.',
+    )
+  })
+})
+
 describe('resolveAmaLanguageModel', () => {
+  beforeEach(() => {
+    delete process.env.AMA_INFERENCE_HEADERS
+  })
+
   it('returns the model id string for gateway configs', () => {
     expect(resolveAmaLanguageModel({ model: DEFAULT_AMA_CHAT_MODEL })).toBe(DEFAULT_AMA_CHAT_MODEL)
   })
@@ -168,5 +205,27 @@ describe('resolveAmaLanguageModel', () => {
       modelId: 'tinker://run-id:train:0/sampler_weights/final',
       provider: expect.stringContaining('inference'),
     })
+  })
+
+  it('builds an inference model with AMA_INFERENCE_HEADERS set', () => {
+    process.env.AMA_INFERENCE_HEADERS = '{"Modal-Key":"wk-abc","Modal-Secret":"ws-def"}'
+
+    const model = resolveAmaLanguageModel({
+      model: 'ama',
+      inference: { baseURL: 'https://example.modal.run/v1' },
+    })
+
+    expect(model).toMatchObject({ modelId: 'ama' })
+  })
+
+  it('surfaces malformed AMA_INFERENCE_HEADERS at resolution time', () => {
+    process.env.AMA_INFERENCE_HEADERS = 'not json'
+
+    expect(() =>
+      resolveAmaLanguageModel({
+        model: 'ama',
+        inference: { baseURL: 'https://example.modal.run/v1' },
+      }),
+    ).toThrow(/AMA_INFERENCE_HEADERS must be a JSON object/)
   })
 })

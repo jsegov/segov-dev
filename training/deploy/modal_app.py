@@ -86,7 +86,13 @@ VOLUMES = {
 )
 @modal.concurrent(max_inputs=8)  # low-traffic personal site; not 100
 class AmaVllm:
-    @modal.web_server(port=VLLM_PORT, startup_timeout=10 * 60)
+    # requires_proxy_auth: Modal's edge rejects unauthenticated requests BEFORE
+    # a container starts — without it this is a public URL where every scraper
+    # hit pays a GPU cold start. Proxy auth is NOT Bearer: clients must send
+    # `Modal-Key: wk-...` and `Modal-Secret: ws-...` headers (a proxy-auth token
+    # pair from the Modal dashboard). The AI SDK sends them via
+    # AMA_INFERENCE_HEADERS — see deploy/README.md.
+    @modal.web_server(port=VLLM_PORT, startup_timeout=10 * 60, requires_proxy_auth=True)
     def serve(self) -> None:
         cmd = [
             "vllm", "serve", MERGED_MODEL_DIR,
@@ -112,7 +118,3 @@ class AmaVllm:
             cmd += ["--chat-template", CUSTOM_CHAT_TEMPLATE]
         print("launching:", " ".join(cmd))
         subprocess.Popen(cmd)
-
-    # Endpoint is authenticated by Modal proxy auth (no unauthenticated=True).
-    # The AI SDK sends the token pair as a Bearer key:
-    #   apiKey: `${MODAL_KEY_ID}.${MODAL_KEY_SECRET}`  (wk-....ws-...)

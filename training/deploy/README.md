@@ -68,14 +68,23 @@ modal volume put ama-merged ./data/adapters/qwen3.5-4b-merged /qwen   # → /mod
 modal deploy deploy/modal_app.py     # `deploy`, not `run` (snapshots/URL need deploy)
 ```
 
-Endpoint is authenticated by Modal proxy auth. The AI SDK reuses the existing
-`AMA_INFERENCE_BASE_URL` seam:
+Endpoint is authenticated by Modal proxy auth (`requires_proxy_auth=True`):
+Modal's edge rejects unauthenticated requests before a container starts, so
+random traffic never pays a GPU cold start. Proxy auth is **not Bearer** — it
+requires `Modal-Key` / `Modal-Secret` HTTP headers (create a proxy-auth token
+pair in the Modal dashboard under Settings → Proxy Auth Tokens). The AI SDK
+reuses the existing `AMA_INFERENCE_BASE_URL` seam, sending those headers via
+`AMA_INFERENCE_HEADERS`:
 
 ```
 AMA_INFERENCE_BASE_URL = https://<workspace>--ama-vllm-amavllm-serve.modal.run/v1
 AMA_DEPLOYMENT_MODEL   = ama
-AMA_INFERENCE_API_KEY  = <MODAL_KEY_ID>.<MODAL_KEY_SECRET>   # wk-….ws-…, joined by a dot
+AMA_INFERENCE_HEADERS  = {"Modal-Key":"wk-…","Modal-Secret":"ws-…"}
 ```
+
+(`AMA_INFERENCE_API_KEY` stays unset for Modal — it sends `Authorization:
+Bearer`, which Modal proxy auth ignores; it remains the right variable for
+Bearer-style endpoints like Tinker's OAI service or vLLM `--api-key`.)
 
 ## Deploy gates — each proves we serve the fine-tune faithfully
 
