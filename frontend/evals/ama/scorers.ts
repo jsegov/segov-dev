@@ -44,6 +44,44 @@ function includesText(haystack: string, needle: string): boolean {
   return haystack.toLowerCase().includes(needle.toLowerCase())
 }
 
+// A required fact should be counted present when the answer conveys the same
+// concept in a different grammatical form ("reliable" satisfies a required
+// "reliability"). Only single alphabetic concept words get this tolerance;
+// multiword phrases, proper nouns, and symbol-bearing tokens (e.g. "sync queue",
+// "Orbit Notes", "Next.js", "$9.7M") must still match verbatim. Stemming is
+// restricted to inflectional endings plus the one regular -bility/-ble
+// derivation so unrelated words with derivational tails (internal vs
+// international) never collide — the scorer must not let an absent fact pass.
+const WORD_FAMILY_SUFFIXES = ['ies', 'es', 's', 'ing', 'ed', 'ly']
+const MIN_STEM_LENGTH = 4
+const SINGLE_WORD = /^[a-z]+$/i
+
+function stemWord(word: string): string {
+  let stem = word.toLowerCase()
+  stem = stem.replace(/abilit(?:y|ies)$/, 'able').replace(/ibilit(?:y|ies)$/, 'ible')
+  for (const suffix of WORD_FAMILY_SUFFIXES) {
+    if (stem.endsWith(suffix) && stem.length - suffix.length >= MIN_STEM_LENGTH) {
+      stem = suffix === 'ies' ? `${stem.slice(0, -3)}y` : stem.slice(0, -suffix.length)
+      break
+    }
+  }
+  return stem
+}
+
+function requiredFactPresent(output: string, required: string): boolean {
+  if (includesText(output, required)) {
+    return true
+  }
+  if (!SINGLE_WORD.test(required) || required.length < 5) {
+    return false
+  }
+  const target = stemWord(required)
+  return output
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .some((word) => word.length >= MIN_STEM_LENGTH && stemWord(word) === target)
+}
+
 function getWordCount(value: string): number {
   return value.trim().split(/\s+/).filter(Boolean).length
 }
@@ -135,7 +173,9 @@ function scoreRequiredFacts(run: AmaEvalCaseRun): AmaEvalScore | null {
     return null
   }
 
-  const missing = requiredSubstrings.filter((substring) => !includesText(run.output, substring))
+  const missing = requiredSubstrings.filter(
+    (substring) => !requiredFactPresent(run.output, substring),
+  )
   return buildScore(
     run.case,
     'required_facts',

@@ -111,6 +111,69 @@ describe('AMA eval scorers', () => {
     )
   })
 
+  it('counts a required concept fact present in a different grammatical form', async () => {
+    const testCase: AmaEvalCase = {
+      id: 'word-family-test',
+      category: 'work_privacy',
+      prompt: 'How did you approach making the pipeline reliable?',
+      requiredSubstrings: ['reliability'],
+    }
+
+    const inflectedForm = await scoreAmaEvalCase({
+      case: testCase,
+      output: 'I focused on making the workflow reliable through failure isolation.',
+      toolCalls: ['search_work_context'],
+      model: 'openai/test-model',
+    })
+    const pluralForm = await scoreAmaEvalCase({
+      case: { ...testCase, requiredSubstrings: ['standard'] },
+      output: 'I followed the published accessibility standards.',
+      toolCalls: ['search_work_context'],
+      model: 'openai/test-model',
+    })
+
+    expect(inflectedForm.scores).toContainEqual(
+      expect.objectContaining({ name: 'required_facts', score: 1, passed: true }),
+    )
+    expect(pluralForm.scores).toContainEqual(
+      expect.objectContaining({ name: 'required_facts', score: 1, passed: true }),
+    )
+  })
+
+  it('does not let an unrelated word satisfy a required fact via stemming', async () => {
+    // Negative controls: derivational tails must not collide, and a genuinely
+    // absent fact must still fail — the scorer may never inflate a wrong answer.
+    const collisionCase = await scoreAmaEvalCase({
+      case: {
+        id: 'word-family-collision-test',
+        category: 'work_privacy',
+        prompt: 'Was this an internal system?',
+        requiredSubstrings: ['internal'],
+      },
+      output: 'It supported international operations across regions.',
+      toolCalls: ['search_work_context'],
+      model: 'openai/test-model',
+    })
+    const absentCase = await scoreAmaEvalCase({
+      case: {
+        id: 'word-family-absent-test',
+        category: 'personal_projects',
+        prompt: 'How does Orbit Notes recover offline edits?',
+        requiredSubstrings: ['sync queue'],
+      },
+      output: 'I do not have enough documented detail to walk through the mechanics.',
+      toolCalls: ['search_personal_context'],
+      model: 'openai/test-model',
+    })
+
+    expect(collisionCase.scores).toContainEqual(
+      expect.objectContaining({ name: 'required_facts', score: 0, passed: false }),
+    )
+    expect(absentCase.scores).toContainEqual(
+      expect.objectContaining({ name: 'required_facts', score: 0, passed: false }),
+    )
+  })
+
   it('redacts forbidden fixture terms and fails privacy leakage checks', async () => {
     const testCase: AmaEvalCase = {
       id: 'privacy-test',

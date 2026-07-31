@@ -19,6 +19,7 @@ checking which construction its renderer supports.
 """
 
 import asyncio
+import json
 import sys
 from pathlib import Path
 
@@ -32,6 +33,46 @@ from ama_training.dataset import AmaTraceDatasetBuilder
 
 TRAINING_DIR = Path(__file__).resolve().parents[1]
 EXPORT_DIR = TRAINING_DIR / "data" / "export"
+
+# Per-preset pointer to the latest trained checkpoint. Warm-starting from it —
+# rather than re-training a fresh LoRA from the base model every time — is the
+# default: each run continues from where the last one left off. The registry is
+# auto-updated with a run's final checkpoint when it finishes, so successive
+# remediation waves chain. Human-editable to repoint after a bad run.
+CHECKPOINT_REGISTRY = TRAINING_DIR / "data" / "checkpoints.json"
+
+
+def load_registry() -> dict:
+    if CHECKPOINT_REGISTRY.exists():
+        return json.loads(CHECKPOINT_REGISTRY.read_text())
+    return {}
+
+
+def registered_checkpoint(preset_name: str) -> str | None:
+    entry = load_registry().get(preset_name)
+    return entry.get("state_path") if entry else None
+
+
+def record_checkpoint(preset_name: str, log_path: str, note: str) -> str | None:
+    """Read the final checkpoint a run wrote and point the registry at it."""
+    ckpt_file = Path(log_path) / "checkpoints.jsonl"
+    if not ckpt_file.exists():
+        return None
+    lines = [ln for ln in ckpt_file.read_text().splitlines() if ln.strip()]
+    if not lines:
+        return None
+    final = json.loads(lines[-1])
+    state_path = final.get("state_path")
+    if not state_path:
+        return None
+    registry = load_registry()
+    registry[preset_name] = {
+        "state_path": state_path,
+        "note": note,
+        "run_log": log_path,
+    }
+    CHECKPOINT_REGISTRY.write_text(json.dumps(registry, indent=2) + "\n")
+    return state_path
 
 PRESETS: dict[str, dict] = {
     # Stage 1: collapsed one-example-per-conversation export. tml_v0 has the
@@ -67,7 +108,9 @@ DEFAULT_HYPERPARAMS = {
 }
 
 
-def build_blueprint(preset_name: str) -> chz.Blueprint[train.Config]:
+def build_blueprint(
+    preset_name: str, load_checkpoint_path: str | None = None
+) -> chz.Blueprint[train.Config]:
     preset = PRESETS[preset_name]
     builder = AmaTraceDatasetBuilder(
         file_path=str(EXPORT_DIR / preset["file"]),
@@ -90,6 +133,7 @@ def build_blueprint(preset_name: str) -> chz.Blueprint[train.Config]:
             "model_name": preset["model_name"],
             "recipe_name": "ama_sft",
             "renderer_name": preset["renderer_name"],
+            "load_checkpoint_path": load_checkpoint_path,
             "dataset_builder": builder,
             **DEFAULT_HYPERPARAMS,
         }
@@ -98,18 +142,46 @@ def build_blueprint(preset_name: str) -> chz.Blueprint[train.Config]:
 
 def main(argv: list[str]) -> None:
     preset_name = "qwen3.5-4b"
+    warm_start = True  # default: continue from the last trained checkpoint
+    warm_start_from: str | None = None  # explicit checkpoint path override
     overrides = []
     for arg in argv:
         if arg.startswith("preset="):
             preset_name = arg.split("=", 1)[1]
+        elif arg.startswith("warm_start="):
+            warm_start = arg.split("=", 1)[1].strip().lower() not in {"false", "0", "no"}
+        elif arg.startswith("warm_start_from="):
+            warm_start_from = arg.split("=", 1)[1]
         else:
             overrides.append(arg)
     if preset_name not in PRESETS:
         raise SystemExit(f"unknown preset {preset_name!r}; choose from {sorted(PRESETS)}")
 
-    config = build_blueprint(preset_name).apply_from_argv(overrides).make()
+    # Resolve the warm-start source: explicit path > registry > base model.
+    if warm_start_from:
+        load_checkpoint_path = warm_start_from
+    elif warm_start:
+        load_checkpoint_path = registered_checkpoint(preset_name)
+    else:
+        load_checkpoint_path = None
+
+    if load_checkpoint_path:
+        print(f"[warm-start] initialising weights from {load_checkpoint_path}")
+    else:
+        print(f"[warm-start] no prior checkpoint — training {preset_name} fresh from base")
+
+    config = (
+        build_blueprint(preset_name, load_checkpoint_path=load_checkpoint_path)
+        .apply_from_argv(overrides)
+        .make()
+    )
     cli_utils.check_log_dir(config.log_path, behavior_if_exists="ask")
     asyncio.run(train.main(config))
+
+    note = f"warm-started from {load_checkpoint_path}" if load_checkpoint_path else "fresh from base"
+    recorded = record_checkpoint(preset_name, config.log_path, note)
+    if recorded:
+        print(f"[warm-start] registry now points {preset_name} -> {recorded}")
 
 
 if __name__ == "__main__":
