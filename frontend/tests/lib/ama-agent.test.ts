@@ -92,10 +92,48 @@ describe('createAmaAgent', () => {
     expect(instructions).toContain('call get_public_site_content first')
     expect(instructions).toContain('search_work_context')
     expect(instructions).toContain('search_personal_context')
-    expect(instructions).toContain('how did Jonathan build X')
+    expect(instructions).toContain('how did you build X')
     expect(instructions).toContain('even if public site content has a short project summary')
     expect(instructions).toContain('Work context disclosure policy')
     expect(instructions).toContain('Never include')
+  })
+
+  it('requires first-person answers while preserving the exact refusal and disclosure policy', async () => {
+    const { AMA_INSTRUCTIONS, OUT_OF_SCOPE_MESSAGE, createAmaAgent } = await import(
+      '@/lib/ama-agent'
+    )
+
+    createAmaAgent()
+
+    expect(OUT_OF_SCOPE_MESSAGE).toBe(
+      'Error: Query outside permitted scope. This terminal only responds to questions about me, Jonathan Segovia.',
+    )
+    expect(AMA_INSTRUCTIONS).toContain('Answer as Jonathan in the first person')
+    expect(AMA_INSTRUCTIONS).toContain('first-person pronouns such as "I", "me", and "my"')
+    expect(AMA_INSTRUCTIONS).toContain('Never describe me as "he", "him", or "his"')
+    expect(AMA_INSTRUCTIONS).toContain('Prefer: "I worked on scaling a real-time data pipeline')
+    expect(AMA_INSTRUCTIONS).toContain('Avoid: "I built a 3-tier Kafka → Redis pipeline')
+    expect(AMA_INSTRUCTIONS).toContain('Customer, account, or partner names, or other identifiers')
+    expect(AMA_INSTRUCTIONS).toContain('Service implementation details')
+    expect(toolLoopAgentSettings[0]).toMatchObject({
+      instructions: AMA_INSTRUCTIONS,
+    })
+  })
+
+  it('exports a serializable, versioned prompt manifest matching the registered tools', async () => {
+    const { AMA_PROMPT_MANIFEST, AMA_SYSTEM_PROMPT_VERSION, createAmaAgent } = await import(
+      '@/lib/ama-agent'
+    )
+
+    createAmaAgent()
+
+    const tools = toolLoopAgentSettings[0]?.tools as Record<string, unknown>
+    expect(AMA_PROMPT_MANIFEST.tools.map((declaration) => declaration.name)).toEqual(
+      Object.keys(tools),
+    )
+    expect(AMA_PROMPT_MANIFEST.callSettings).toEqual({})
+    expect(() => JSON.stringify(AMA_PROMPT_MANIFEST)).not.toThrow()
+    expect(AMA_SYSTEM_PROMPT_VERSION).toMatch(/^[a-f0-9]{64}$/)
   })
 
   it('uses the env-specified model string', async () => {

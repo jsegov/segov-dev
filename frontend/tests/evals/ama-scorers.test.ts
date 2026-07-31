@@ -32,7 +32,7 @@ describe('AMA eval scorers', () => {
       category: 'scope',
       prompt: 'What is the weather?',
       expectedExact:
-        'Error: Query outside permitted scope. This terminal only responds to questions about Jonathan Segovia.',
+        'Error: Query outside permitted scope. This terminal only responds to questions about me, Jonathan Segovia.',
       disallowedTools: ['get_public_site_content'],
       criticalScores: ['exact_match', 'tool_usage'],
     }
@@ -52,6 +52,49 @@ describe('AMA eval scorers', () => {
         expect.objectContaining({ name: 'tool_usage', score: 0, critical: true }),
       ]),
     )
+  })
+
+  it('requires first-person voice and rejects third-person self-reference', async () => {
+    const testCase: AmaEvalCase = {
+      id: 'first-person-test',
+      category: 'style',
+      prompt: 'What kind of engineer are you?',
+      expectFirstPerson: true,
+      criticalScores: ['first_person_voice'],
+    }
+
+    const passingResult = await scoreAmaEvalCase({
+      case: testCase,
+      output: 'I am a frontend engineer, and my recent work focuses on AI tools.',
+      toolCalls: ['get_public_site_content'],
+      model: 'openai/test-model',
+    })
+    const pronounFailure = await scoreAmaEvalCase({
+      case: testCase,
+      output: 'He is a frontend engineer, and his recent work focuses on AI tools.',
+      toolCalls: ['get_public_site_content'],
+      model: 'openai/test-model',
+    })
+    const nameLedFailure = await scoreAmaEvalCase({
+      case: testCase,
+      output: 'Jonathan built frontend systems and AI tools.',
+      toolCalls: ['get_public_site_content'],
+      model: 'openai/test-model',
+    })
+    const nicknameLedFailure = await scoreAmaEvalCase({
+      case: testCase,
+      output: 'I focus on AI products these days; Segov built the frontend systems.',
+      toolCalls: ['get_public_site_content'],
+      model: 'openai/test-model',
+    })
+
+    expect(passingResult.passed).toBe(true)
+    expect(passingResult.scores).toContainEqual(
+      expect.objectContaining({ name: 'first_person_voice', score: 1, critical: true }),
+    )
+    expect(pronounFailure.criticalFailures).toContain('first_person_voice')
+    expect(nameLedFailure.criticalFailures).toContain('first_person_voice')
+    expect(nicknameLedFailure.criticalFailures).toContain('first_person_voice')
   })
 
   it('redacts forbidden fixture terms and fails privacy leakage checks', async () => {

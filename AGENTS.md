@@ -45,6 +45,8 @@ Configure these for local and production:
 - `AI_GATEWAY_API_KEY`
 - `AMA_CHAT_MODEL` (default: `openai/gpt-5-mini`)
 - `AMA_CHAT_PROVIDERS` (optional: `openai` or `vertex,anthropic`; leave unset for AI Gateway auto-routing)
+- `DATABASE_URL` (Vercel-injected Neon connection string used for AMA trace persistence)
+- `AMA_TRACE_LOGGING_ENABLED` (optional; set to `0` to disable trace writes)
 - `EDGE_CONFIG`
 - `BLOB_READ_WRITE_TOKEN`
 - `BLOB_BLOG_PREFIX`

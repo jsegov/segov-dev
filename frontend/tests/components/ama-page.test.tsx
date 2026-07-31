@@ -66,7 +66,7 @@ describe('AMA page', () => {
           parts: [
             {
               type: 'text',
-              text: 'Error: Query outside permitted scope. This terminal only responds to questions about Jonathan Segovia.',
+              text: 'Error: Query outside permitted scope. This terminal only responds to questions about me, Jonathan Segovia.',
             },
           ],
         },
@@ -82,9 +82,20 @@ describe('AMA page', () => {
     render(<AMAPage />)
     expect(
       screen.getByText(
-        'Error: Query outside permitted scope. This terminal only responds to questions about Jonathan Segovia.',
+        'Error: Query outside permitted scope. This terminal only responds to questions about me, Jonathan Segovia.',
       ),
     ).toBeInTheDocument()
+  })
+
+  it('shows the server-side storage and sensitive-information notice', () => {
+    render(<AMAPage />)
+
+    expect(
+      screen.getByText(
+        /Conversations are stored server-side and may be reviewed or used to improve this chatbot/,
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/Do not submit sensitive personal information/)).toBeInTheDocument()
   })
 
   it('preserves assistant soft line breaks for terminal-style local messages', () => {
@@ -103,7 +114,7 @@ describe('AMA page', () => {
           parts: [
             {
               type: 'text',
-              text: 'segov@terminal:~$ ./ama \nAsk me anything about Jonathan.',
+              text: 'segov@terminal:~$ ./ama \nAsk me anything about my work and projects.',
             },
           ],
         },
@@ -113,6 +124,7 @@ describe('AMA page', () => {
     const { container } = render(<AMAPage />)
 
     expect(container.querySelector('.ama-markdown')).toHaveClass('whitespace-pre-line')
+    expect(screen.getByText(/Ask me anything about my work and projects/)).toBeInTheDocument()
   })
 
   it('renders assistant markdown headings and bold text semantically', () => {
@@ -253,7 +265,7 @@ describe('AMA page', () => {
           parts: [
             {
               type: 'text',
-              text: 'segov@terminal:~$ ./ama \nAsk me anything about Jonathan.',
+              text: 'segov@terminal:~$ ./ama \nAsk me anything about my work and projects.',
             },
           ],
         },
@@ -262,9 +274,9 @@ describe('AMA page', () => {
 
     render(<AMAPage />)
 
-    fireEvent.click(screen.getByText("Tell me about Jonathan's career"))
+    fireEvent.click(screen.getByText('Tell me about your career'))
 
-    expect(sendMessageMock).toHaveBeenCalledWith({ text: "Tell me about Jonathan's career" })
+    expect(sendMessageMock).toHaveBeenCalledWith({ text: 'Tell me about your career' })
   })
 
   it('handles help locally without sending a chat request', () => {
@@ -420,6 +432,41 @@ describe('AMA page', () => {
     })
   })
 
+  it('migrates the legacy saved greeting during localStorage hydration', async () => {
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify([
+        {
+          id: 'initial',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'text',
+              text: 'segov@terminal:~$ ./ama \nAsk me anything about Jonathan.',
+            },
+          ],
+        },
+      ]),
+    )
+
+    render(<AMAPage />)
+
+    await waitFor(() => {
+      expect(setMessagesMock).toHaveBeenCalledWith([
+        {
+          id: 'initial',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'text',
+              text: 'segov@terminal:~$ ./ama \nAsk me anything about my work and projects.',
+            },
+          ],
+        },
+      ])
+    })
+  })
+
   it('ignores corrupt stored messages', async () => {
     window.localStorage.setItem(storageKey, '{bad json')
 
@@ -507,9 +554,9 @@ describe('AMA page', () => {
 
     render(<AMAPage />)
 
-    fireEvent.click(screen.getByText('Which projects use AI?'))
+    fireEvent.click(screen.getByText('Which of your projects use AI?'))
 
-    expect(sendMessageMock).toHaveBeenCalledWith({ text: 'Which projects use AI?' })
+    expect(sendMessageMock).toHaveBeenCalledWith({ text: 'Which of your projects use AI?' })
   })
 
   it('does not classify common ai substrings as project follow-ups', () => {
@@ -542,8 +589,8 @@ describe('AMA page', () => {
 
     render(<AMAPage />)
 
-    expect(screen.getByText('What backend or platform work has Jonathan done?')).toBeInTheDocument()
-    expect(screen.queryByText('Which projects use AI?')).not.toBeInTheDocument()
+    expect(screen.getByText('What backend or platform work have you done?')).toBeInTheDocument()
+    expect(screen.queryByText('Which of your projects use AI?')).not.toBeInTheDocument()
   })
 
   it('does not classify work substrings as career follow-ups', () => {
@@ -576,9 +623,9 @@ describe('AMA page', () => {
 
     render(<AMAPage />)
 
-    expect(screen.getByText("Tell me about Jonathan's career")).toBeInTheDocument()
+    expect(screen.getByText('Tell me about your career')).toBeInTheDocument()
     expect(
-      screen.queryByText('What backend or platform work has Jonathan done?'),
+      screen.queryByText('What backend or platform work have you done?'),
     ).not.toBeInTheDocument()
   })
 })
