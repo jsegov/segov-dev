@@ -69,6 +69,21 @@ cp .env.example .env   # fill in TINKER_API_KEY / DATABASE_URL, then `source .en
    uv run pytest
    ```
 
+5. **Eval a checkpoint** against the frozen AMA suite via Tinker's
+   OpenAI-compatible endpoint (run from the repo root; judge needs
+   `AI_GATEWAY_API_KEY`):
+
+   ```bash
+   AMA_INFERENCE_BASE_URL='https://tinker.thinkingmachines.dev/services/tinker-prod/oai/api/v1' \
+   AMA_INFERENCE_API_KEY="$TINKER_API_KEY" \
+   AMA_DEPLOYMENT_MODEL='tinker://…/sampler_weights/final' \
+   pnpm --filter frontend eval:ama
+   ```
+
+   The endpoint renders tool declarations with the model's default HF chat
+   template, not this pipeline's train-time prefix, so scores measure the
+   model as served — expect some tool-routing skew vs `ama_training.sample`.
+
 ## Presets
 
 | | `inkling-small` (Stage 1) | `qwen3.5-4b` (Stage 2) |

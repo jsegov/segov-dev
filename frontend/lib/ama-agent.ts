@@ -11,7 +11,11 @@ import {
   searchWorkContextFromBlob,
   type AmaContextSearchResult,
 } from '@/lib/ama-context'
-import { getAmaModelConfig, type AmaModelConfig } from '@/lib/ama-model-config'
+import {
+  getAmaModelConfig,
+  resolveAmaLanguageModel,
+  type AmaModelConfig,
+} from '@/lib/ama-model-config'
 import { getPublicSiteContent, type SiteContent } from '@/lib/content'
 import {
   getResumeContextFromBlob,
@@ -183,7 +187,8 @@ export function createAmaAgent(options: CreateAmaAgentOptions = {}) {
   const personalContextSearch = options.searchPersonalContext ?? searchPersonalContextFromBlob
 
   return new ToolLoopAgent<never>({
-    ...modelConfig,
+    model: resolveAmaLanguageModel(modelConfig),
+    providerOptions: modelConfig.providerOptions,
     ...DEFAULT_AMA_CALL_SETTINGS,
     ...options.callSettings,
     instructions: AMA_INSTRUCTIONS,

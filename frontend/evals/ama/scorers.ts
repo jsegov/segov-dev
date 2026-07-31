@@ -1,6 +1,6 @@
 import { generateText, Output } from 'ai'
 import { z } from 'zod'
-import type { AmaModelConfig } from '@/lib/ama-model-config'
+import { resolveAmaLanguageModel, type AmaModelConfig } from '@/lib/ama-model-config'
 import type {
   AmaEvalCase,
   AmaEvalCaseResult,
@@ -289,7 +289,8 @@ async function scoreJudge(
   for (let attempt = 0; attempt < JUDGE_ATTEMPTS && output === undefined; attempt++) {
     try {
       const result = await generateText({
-        ...judgeModelConfig,
+        model: resolveAmaLanguageModel(judgeModelConfig),
+        providerOptions: judgeModelConfig.providerOptions,
         output: Output.object({
           schema: JudgeOutputSchema,
         }),
