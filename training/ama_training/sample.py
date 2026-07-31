@@ -34,6 +34,16 @@ OUT_OF_SCOPE_MESSAGE = (
     "This terminal only responds to questions about me, Jonathan Segovia."
 )
 
+# Counterfactual tool result: "Falconer" is fictitious, so a final answer that
+# describes it proves the model grounds on tool output instead of reciting
+# memorized corpus facts.
+CANNED_TOOL_RESULT = (
+    '{"results": [{"source": "work/falconer.md", "content": "At Amazon, Jonathan\'s '
+    "most recent project was Falconer, a subtitle quality-control service for Prime "
+    "Video. It scans caption files for timing drift and encoding errors before "
+    'publish, using Step Functions and DynamoDB. It cut manual caption review by 80%."}]}'
+)
+
 
 async def run(preset_name: str, checkpoint: str, prompts: list[str], temperature: float) -> None:
     preset = PRESETS[preset_name]
@@ -50,30 +60,50 @@ async def run(preset_name: str, checkpoint: str, prompts: list[str], temperature
     sampling_client = service_client.create_sampling_client(model_path=checkpoint)
 
     for question in prompts:
-        model_input = renderer.build_generation_prompt([*prefix, {"role": "user", "content": question}])
-        response = await sampling_client.sample_async(
-            model_input,
-            num_samples=1,
-            sampling_params=tinker.SamplingParams(
-                temperature=temperature,
-                max_tokens=1024,
-                stop=renderer.get_stop_sequences(),
-            ),
-        )
-        message, termination = renderer.parse_response(response.sequences[0].tokens)
-
         print(f"\n=== user: {question}")
-        print(f"[termination={termination.value}]")
-        for tool_call in message.get("tool_calls", []):
-            print(f"[tool_call] {tool_call.function.name} {tool_call.function.arguments}")
-        content = message.get("content")
-        if content:
-            text = content if isinstance(content, str) else "".join(
-                p.get("text", "") for p in content if p.get("type") == "text"
+        conversation: list[renderers.Message] = [*prefix, {"role": "user", "content": question}]
+        # Tool loop: answer canned results for up to 3 model steps.
+        for _step in range(3):
+            model_input = renderer.build_generation_prompt(conversation)
+            response = await sampling_client.sample_async(
+                model_input,
+                num_samples=1,
+                sampling_params=tinker.SamplingParams(
+                    temperature=temperature,
+                    max_tokens=1024,
+                    stop=renderer.get_stop_sequences(),
+                ),
             )
-            print(text)
-            if text.strip() == OUT_OF_SCOPE_MESSAGE:
-                print("[refusal: BYTE-EXACT match]")
+            message, termination = renderer.parse_response(response.sequences[0].tokens)
+
+            print(f"[termination={termination.value}]")
+            tool_calls = message.get("tool_calls", [])
+            for tool_call in tool_calls:
+                print(f"[tool_call] {tool_call.function.name} {tool_call.function.arguments}")
+            content = message.get("content")
+            text = ""
+            if content:
+                text = content if isinstance(content, str) else "".join(
+                    p.get("text", "") for p in content if p.get("type") == "text"
+                )
+            if text:
+                print(text)
+                if text.strip() == OUT_OF_SCOPE_MESSAGE:
+                    print("[refusal: BYTE-EXACT match]")
+                if "falconer" in text.lower():
+                    print("[grounding: answer uses the counterfactual tool result]")
+            if not tool_calls:
+                break
+            conversation.append(message)
+            for tool_call in tool_calls:
+                conversation.append(
+                    {
+                        "role": "tool",
+                        "content": CANNED_TOOL_RESULT,
+                        "tool_call_id": tool_call.id or "call_0",
+                        "name": tool_call.function.name,
+                    }
+                )
 
 
 def main(argv: list[str]) -> None:
