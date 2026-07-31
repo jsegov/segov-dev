@@ -27,6 +27,7 @@ future Tinker-supported model is a new preset, not a new pipeline.
 ```bash
 cd training
 uv sync           # installs tinker, tinker-cookbook[inkling], torch
+cp .env.example .env   # fill in TINKER_API_KEY / DATABASE_URL, then `source .env`
 ```
 
 ## Workflow
