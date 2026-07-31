@@ -68,6 +68,34 @@ modal volume put ama-merged ./data/adapters/qwen3.5-4b-merged /qwen   # → /mod
 modal deploy deploy/modal_app.py     # `deploy`, not `run` (snapshots/URL need deploy)
 ```
 
+### Cold starts — GPU memory snapshots + vLLM sleep mode
+
+The app scales to zero and mitigates cold starts with Modal's GPU memory
+snapshot recipe (their official `lfm_snapshot` pattern): vLLM boots, warms, and
+`/sleep`s (level 1) inside `@modal.enter(snap=True)`, so the snapshot captures a
+fully-initialized engine; restores just `/wake_up`. Reference numbers from
+Modal: a 3B went ~118s → ~12s median cold start. Design points:
+
+- **No `--enforce-eager`.** Compile + CUDA-graph cost is paid once at snapshot
+  creation; eager mode costs ~3x decode throughput on a small model. (This also
+  makes the persisted `/root/.cache/vllm` compile cache meaningful — under
+  eager mode it was inert.) CUDA graphs are captured only at real batch sizes
+  (`cudagraph_capture_sizes: [1,2,4,8]`, matching `max_inputs=8`).
+- **`scaledown_window=600`.** The 60s default is chat-hostile — a visitor who
+  pauses two minutes to read an answer eats a mid-conversation cold start.
+  10 idle minutes on an L4 costs pennies at personal-site traffic.
+- **First 2–3 cold boots after EVERY deploy are slow** — snapshots build over
+  the first boots. Don't judge cold-start latency until ~boot 4.
+- **L4 + GPU snapshots is unverified** (alpha feature, NVIDIA driver 570+ gate;
+  Modal's examples use A10/H100). If snapshot creation fails on L4, flip
+  `gpu="L4"` → `"A10"` (same 24GB class, snapshot-proven).
+- **Wake-ahead:** the chat UI fires a fire-and-forget `POST /api/chat/wake` on
+  mount; the Next.js route (server-side, so it can hold the proxy-auth headers)
+  pings `<base>/models`, booting the container while the visitor types their
+  first message. No silent fallback to a gateway model — substituting a
+  different model while ours warms would defeat the point of serving the
+  fine-tune.
+
 Endpoint is authenticated by Modal proxy auth (`requires_proxy_auth=True`):
 Modal's edge rejects unauthenticated requests before a container starts, so
 random traffic never pays a GPU cold start. Proxy auth is **not Bearer** — it
@@ -117,8 +145,13 @@ Bearer-style endpoints like Tinker's OAI service or vLLM `--api-key`.)
 
 - `vllm==0.21.0` pin and every flag (`--tool-call-parser qwen3_xml`,
   `--reasoning-parser qwen3`, `--default-chat-template-kwargs`,
-  `--language-model-only`). Parser names change between releases;
-  `enable_thinking:false`+tools was broken pre-0.9 / vLLM #35574.
+  `--language-model-only`, `--enable-sleep-mode`, `--compilation-config`).
+  Parser names change between releases; `enable_thinking:false`+tools was
+  broken pre-0.9 / vLLM #35574. The `/sleep`/`/wake_up` endpoints need
+  `VLLM_SERVER_DEV_MODE=1` (set in the image).
+- GPU memory snapshots are **alpha** (`experimental_options={"enable_gpu_snapshot": True}`)
+  — the API namespace may change between modal releases, and per-GPU support
+  is undocumented (driver 570+ gate).
 - Qwen3.5 loads correctly in the pinned vLLM (hybrid linear-attention support is
   relatively recent — vLLM Qwen3-Next lineage).
 - `@modal.web_server` / `@modal.concurrent` API and `nvidia/cuda:12.9.0` base in

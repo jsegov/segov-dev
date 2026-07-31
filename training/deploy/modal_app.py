@@ -12,6 +12,23 @@ standalone model vLLM loads normally — so nothing is dropped. See deploy/READM
 (Runtime `--lora-modules` serving is viable for models WITHOUT the fused-
 projection mismatch; it is simply wrong for this one.)
 
+COLD STARTS — GPU memory snapshots + vLLM sleep mode (Modal's lfm_snapshot
+recipe). vLLM boots in `@modal.enter(snap=True)`: launch, warm up, then
+`POST /sleep?level=1` (weights to CPU RAM, junk KV cache discarded) so the
+snapshot captures a fully-initialized engine. After restore, `snap=False` wakes
+it. This replaces the whole boot — import, CUDA init, weight load, compile,
+graph capture — with a restore (measured elsewhere: 3B ~118s -> ~12s median).
+Consequences baked in below:
+- NO `--enforce-eager`: compile + CUDA-graph cost is paid once at snapshot
+  creation, and eager costs ~3x decode throughput on a small model. This also
+  makes the persisted /root/.cache/vllm compile cache meaningful (it is inert
+  under eager mode).
+- Snapshots build over the first 2-3 cold boots after EVERY deploy; those
+  stay slow. Don't judge cold-start latency until ~boot 4.
+- GPU snapshots are alpha and gated on NVIDIA driver 570+; official examples
+  use A10/H100 — L4 support is UNVERIFIED. If snapshot creation fails on L4,
+  switch gpu="L4" -> "A10" (same 24GB class, snapshot-proven).
+
 Modal deployment script, run with the `modal` CLI (installed separately from
 this repo's uv project) — NOT under `uv run`:
 
@@ -33,7 +50,11 @@ parity vs the tinker qwen3_5_disable_thinking renderer; (4) behavioral parity vs
 `ama_training.sample`; (5) full 150-case AMA eval via AMA_INFERENCE_BASE_URL.
 """
 
+import json
 import subprocess
+import time
+import urllib.error
+import urllib.request
 
 import modal
 
@@ -43,6 +64,7 @@ MERGED_MODEL_DIR = "/models/qwen"  # = <volume mount>/qwen from `modal volume pu
 SERVED_NAME = "ama"  # the model id the AI SDK requests
 MAX_MODEL_LEN = 8192
 VLLM_PORT = 8000
+VLLM_BASE = f"http://127.0.0.1:{VLLM_PORT}"
 
 # vLLM moves fast and parser names change between releases — pin explicitly and
 # re-verify the flags against this version (see deploy/README.md version notes).
@@ -58,13 +80,22 @@ vllm_image = (
     )
     .entrypoint([])
     .uv_pip_install(f"vllm=={VLLM_VERSION}")
+    .env(
+        {
+            # Exposes vLLM's /sleep and /wake_up endpoints (sleep-mode control).
+            "VLLM_SERVER_DEV_MODE": "1",
+            # Multi-threaded inductor compiles break Modal snapshot creation.
+            "TORCHINDUCTOR_COMPILE_THREADS": "1",
+        }
+    )
 )
 
 app = modal.App("ama-vllm")
 
 # The merged model is self-contained (weights + tokenizer + config), so serving
-# needs no HF download — just this Volume. vllm-cache persists compile artifacts
-# across cold starts.
+# needs no HF download — just this Volume. vllm-cache persists torch.compile
+# artifacts, which matters on the slow first boots after a redeploy (before the
+# snapshot exists).
 merged_volume = modal.Volume.from_name("ama-merged", create_if_missing=True)
 vllm_cache = modal.Volume.from_name("vllm-cache", create_if_missing=True)
 
@@ -74,26 +105,51 @@ VOLUMES = {
 }
 
 
+def _wait_for_vllm(timeout_s: float) -> None:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(f"{VLLM_BASE}/health", timeout=5) as resp:
+                if resp.status == 200:
+                    return
+        except (urllib.error.URLError, ConnectionError, OSError):
+            pass
+        time.sleep(2)
+    raise RuntimeError(f"vLLM did not become healthy within {timeout_s}s")
+
+
+def _post(path: str, payload: dict | None = None, timeout: float = 120) -> None:
+    body = json.dumps(payload).encode() if payload is not None else b""
+    req = urllib.request.Request(
+        f"{VLLM_BASE}{path}",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        resp.read()
+
+
 @app.cls(
     image=vllm_image,
-    gpu="L4",  # 9.3GB weights + runtime + 8K KV << 24GB; cheapest 24GB card
+    gpu="L4",  # 9.3GB weights + runtime + 8K KV << 24GB; if GPU snapshots fail
+    #           on L4 (unverified, driver-570 gate), switch to "A10".
     volumes=VOLUMES,
-    scaledown_window=60,  # scale to zero ~60s after the last request
+    # 60s (the default) is chat-hostile: a visitor who pauses 2 minutes to read
+    # an answer eats a cold start mid-conversation. 10 min idle on an L4 costs
+    # pennies at personal-site traffic; Modal's own vLLM examples use 5-15 min.
+    scaledown_window=10 * 60,
     timeout=10 * 60,
-    # min_containers=1 would eliminate cold starts (~$580/mo) — not worth it here.
-    # To cut the ~20-45s cold start, add enable_memory_snapshot=True + an
-    # @modal.enter(snap=True) warmup (verify GPU snapshot support on L4 first).
+    # GPU memory snapshots (alpha): checkpoint the fully-booted engine so cold
+    # starts become restores. min_containers=1 (~$580/mo) stays not-worth-it.
+    enable_memory_snapshot=True,
+    experimental_options={"enable_gpu_snapshot": True},
 )
 @modal.concurrent(max_inputs=8)  # low-traffic personal site; not 100
 class AmaVllm:
-    # requires_proxy_auth: Modal's edge rejects unauthenticated requests BEFORE
-    # a container starts — without it this is a public URL where every scraper
-    # hit pays a GPU cold start. Proxy auth is NOT Bearer: clients must send
-    # `Modal-Key: wk-...` and `Modal-Secret: ws-...` headers (a proxy-auth token
-    # pair from the Modal dashboard). The AI SDK sends them via
-    # AMA_INFERENCE_HEADERS — see deploy/README.md.
-    @modal.web_server(port=VLLM_PORT, startup_timeout=10 * 60, requires_proxy_auth=True)
-    def serve(self) -> None:
+    @modal.enter(snap=True)
+    def start_vllm(self) -> None:
+        """Boot + warm vLLM, then sleep it — this state gets snapshotted."""
         cmd = [
             "vllm", "serve", MERGED_MODEL_DIR,
             "--served-model-name", SERVED_NAME,
@@ -111,10 +167,51 @@ class AmaVllm:
             # --- text-only: skip the vision tower, free memory for KV cache ---
             "--language-model-only",
             "--enable-force-include-usage",  # streaming usage metadata for the AI SDK
-            "--enforce-eager",  # faster cold boot for a small model at low QPS
+            # --- snapshot-era boot config: full compilation (paid once, at
+            #     snapshot creation), CUDA graphs only at our real batch sizes
+            #     (max_inputs=8), and headroom for snapshot restore ---
+            "--compilation-config", '{"cudagraph_capture_sizes": [1, 2, 4, 8]}',
+            "--gpu-memory-utilization", "0.85",
+            "--enable-sleep-mode",
             "--port", str(VLLM_PORT),
         ]
         if CUSTOM_CHAT_TEMPLATE:
             cmd += ["--chat-template", CUSTOM_CHAT_TEMPLATE]
         print("launching:", " ".join(cmd))
         subprocess.Popen(cmd)
+        _wait_for_vllm(timeout_s=10 * 60)
+        # Warm the compiled paths so they're inside the snapshot, not paid by
+        # the first visitor.
+        for _ in range(2):
+            _post(
+                "/v1/chat/completions",
+                {
+                    "model": SERVED_NAME,
+                    "messages": [{"role": "user", "content": "warmup"}],
+                    "max_tokens": 8,
+                },
+                timeout=300,
+            )
+        # Level 1: weights offload to CPU RAM (snapshottable), meaningless
+        # warmup KV cache is discarded. Level 2 would discard the weights.
+        _post("/sleep?level=1", timeout=300)
+        print("vLLM warmed and sleeping; snapshot will capture this state")
+
+    @modal.enter(snap=False)
+    def wake_vllm(self) -> None:
+        """After snapshot restore (or on non-snapshot boots), wake the engine."""
+        _post("/wake_up", timeout=300)
+        print("vLLM awake")
+
+    # requires_proxy_auth: Modal's edge rejects unauthenticated requests BEFORE
+    # a container starts — without it this is a public URL where every scraper
+    # hit pays a GPU cold start. Proxy auth is NOT Bearer: clients must send
+    # `Modal-Key: wk-...` and `Modal-Secret: ws-...` headers (a proxy-auth token
+    # pair from the Modal dashboard). The AI SDK sends them via
+    # AMA_INFERENCE_HEADERS — see deploy/README.md.
+    #
+    # startup_timeout covers the un-snapshotted boots (weight load + full
+    # torch.compile); snapshot restores are seconds.
+    @modal.web_server(port=VLLM_PORT, startup_timeout=15 * 60, requires_proxy_auth=True)
+    def serve(self) -> None:
+        """vLLM is started in start_vllm (must pre-exist the snapshot)."""
