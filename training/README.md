@@ -19,7 +19,11 @@ future Tinker-supported model is a new preset, not a new pipeline.
   `create_conversation_prefix_with_tools(...)` prefix per row.
 - `ama_training/train.py` — presets + `tinker_cookbook.supervised.train` driver.
 - `ama_training/validate.py` — offline pre-train gate (no API key).
-- `data/` — gitignored; JSONL exports and reports live here.
+- `ama_training/export_adapter.py` — trained checkpoint → PEFT LoRA adapter
+  (or merged HF model) for serving; resolves the `sampler_weights` path.
+- `deploy/modal_app.py` + `deploy/README.md` — Stage 2 Modal + vLLM serving of
+  the fine-tune (base frozen, LoRA on top) with the render-gap-fixing flags.
+- `data/` — gitignored; JSONL exports, reports, and exported adapters live here.
 - `logs/` — gitignored; training run logs/checkpoint records.
 
 ## Setup
@@ -83,6 +87,20 @@ cp .env.example .env   # fill in TINKER_API_KEY / DATABASE_URL, then `source .en
    The endpoint renders tool declarations with the model's default HF chat
    template, not this pipeline's train-time prefix, so scores measure the
    model as served — expect some tool-routing skew vs `ama_training.sample`.
+
+6. **Export + serve (Stage 2)** — export the fine-tune and serve it on Modal +
+   vLLM. For Qwen3.5-4B, export the **merged** model (a runtime LoRA adapter
+   would be silently ignored on its fused linear-attention projections — see
+   `deploy/README.md`):
+
+   ```bash
+   TINKER_API_KEY=… uv run python -m ama_training.export_adapter \
+       preset=qwen3.5-4b merged=true output=data/adapters/qwen3.5-4b-merged
+   ```
+
+   See `deploy/README.md` for staging into a Modal Volume, `modal deploy`, the
+   AI SDK wiring, and the deploy gates (merge integrity, no-thinking, render
+   parity, behavioral parity, serving contract, full eval).
 
 ## Presets
 
