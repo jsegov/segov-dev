@@ -117,9 +117,7 @@ export function parseAmaInferenceHeaders(
   const entries = Object.entries(parsed)
   const invalidEntry = entries.find(([, value]) => typeof value !== 'string')
   if (invalidEntry) {
-    throw new Error(
-      `${variableName} header "${invalidEntry[0]}" must have a string value.`,
-    )
+    throw new Error(`${variableName} header "${invalidEntry[0]}" must have a string value.`)
   }
 
   return entries.length > 0 ? Object.fromEntries(entries) : undefined
@@ -239,10 +237,7 @@ export function resolveAmaLanguageModel(config: AmaModelConfig): LanguageModel {
     name: AMA_INFERENCE_PROVIDER_NAME,
     baseURL: config.inference.baseURL,
     apiKey: process.env.AMA_INFERENCE_API_KEY,
-    headers: parseAmaInferenceHeaders(
-      process.env.AMA_INFERENCE_HEADERS,
-      'AMA_INFERENCE_HEADERS',
-    ),
+    headers: parseAmaInferenceHeaders(process.env.AMA_INFERENCE_HEADERS, 'AMA_INFERENCE_HEADERS'),
   })
 
   return provider(config.model)

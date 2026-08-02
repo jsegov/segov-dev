@@ -57,18 +57,14 @@ describe('wakeAmaInferenceEndpoint', () => {
 
   it('returns failed on a non-ok response', async () => {
     process.env.AMA_INFERENCE_BASE_URL = 'https://example.modal.run/v1'
-    globalThis.fetch = vi
-      .fn()
-      .mockResolvedValue({ ok: false }) as unknown as typeof fetch
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false }) as unknown as typeof fetch
 
     await expect(wakeAmaInferenceEndpoint()).resolves.toBe('failed')
   })
 
   it('returns failed when the request throws or times out', async () => {
     process.env.AMA_INFERENCE_BASE_URL = 'https://example.modal.run/v1'
-    globalThis.fetch = vi
-      .fn()
-      .mockRejectedValue(new Error('timeout')) as unknown as typeof fetch
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error('timeout')) as unknown as typeof fetch
 
     await expect(wakeAmaInferenceEndpoint()).resolves.toBe('failed')
   })
