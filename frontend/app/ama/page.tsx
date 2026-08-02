@@ -228,6 +228,13 @@ export default function AMAPage() {
     setHasHydratedMessages(true)
   }, [setMessages])
 
+  // Fire-and-forget: pre-warm a scale-to-zero inference backend so its cold
+  // start overlaps with the visitor typing their first message. Server route
+  // no-ops when the gateway path is active.
+  useEffect(() => {
+    void fetch('/api/chat/wake', { method: 'POST' }).catch(() => undefined)
+  }, [])
+
   useEffect(() => {
     scrollToBottom()
   }, [messages])

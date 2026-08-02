@@ -45,6 +45,11 @@ Configure these for local and production:
 - `AI_GATEWAY_API_KEY`
 - `AMA_CHAT_MODEL` (default: `openai/gpt-5-mini`)
 - `AMA_CHAT_PROVIDERS` (optional: `openai` or `vertex,anthropic`; leave unset for AI Gateway auto-routing)
+- `AMA_INFERENCE_BASE_URL` (optional: OpenAI-compatible endpoint for a fine-tuned deployment, e.g. Tinker's `.../oai/api/v1`; when set, it replaces AI Gateway routing)
+- `AMA_INFERENCE_API_KEY` (optional: bearer token for the inference endpoint)
+- `AMA_INFERENCE_HEADERS` (optional: JSON object of extra request headers, for endpoints whose auth is not Bearer-shaped — e.g. Modal proxy auth `{"Modal-Key":"wk-...","Modal-Secret":"ws-..."}`)
+- `AMA_DEPLOYMENT_MODEL` (required with `AMA_INFERENCE_BASE_URL`: the served model id, e.g. a `tinker://.../sampler_weights/final` checkpoint path)
+- `AMA_INFERENCE_REASONING_EFFORT` (optional: `none`..`xhigh` or a float in `[0, 0.99]`; must match the effort the checkpoint was trained with)
 - `DATABASE_URL` (Vercel-injected Neon connection string used for AMA trace persistence)
 - `AMA_TRACE_LOGGING_ENABLED` (optional; set to `0` to disable trace writes)
 - `EDGE_CONFIG`

@@ -4,3 +4,4 @@ coverage
 dist
 build
 test-results
+evals/ama/results

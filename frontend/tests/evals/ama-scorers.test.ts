@@ -87,6 +87,12 @@ describe('AMA eval scorers', () => {
       toolCalls: ['get_public_site_content'],
       model: 'openai/test-model',
     })
+    const neutralResult = await scoreAmaEvalCase({
+      case: testCase,
+      output: 'A frontend engineer focused on developer tooling and AI product surfaces.',
+      toolCalls: ['get_public_site_content'],
+      model: 'openai/test-model',
+    })
 
     expect(passingResult.passed).toBe(true)
     expect(passingResult.scores).toContainEqual(
@@ -95,6 +101,77 @@ describe('AMA eval scorers', () => {
     expect(pronounFailure.criticalFailures).toContain('first_person_voice')
     expect(nameLedFailure.criticalFailures).toContain('first_person_voice')
     expect(nicknameLedFailure.criticalFailures).toContain('first_person_voice')
+    expect(neutralResult.passed).toBe(true)
+    expect(neutralResult.scores).toContainEqual(
+      expect.objectContaining({
+        name: 'first_person_voice',
+        score: 1,
+        details: 'Neutral voice: no self-reference in either direction.',
+      }),
+    )
+  })
+
+  it('counts a required concept fact present in a different grammatical form', async () => {
+    const testCase: AmaEvalCase = {
+      id: 'word-family-test',
+      category: 'work_privacy',
+      prompt: 'How did you approach making the pipeline reliable?',
+      requiredSubstrings: ['reliability'],
+    }
+
+    const inflectedForm = await scoreAmaEvalCase({
+      case: testCase,
+      output: 'I focused on making the workflow reliable through failure isolation.',
+      toolCalls: ['search_work_context'],
+      model: 'openai/test-model',
+    })
+    const pluralForm = await scoreAmaEvalCase({
+      case: { ...testCase, requiredSubstrings: ['standard'] },
+      output: 'I followed the published accessibility standards.',
+      toolCalls: ['search_work_context'],
+      model: 'openai/test-model',
+    })
+
+    expect(inflectedForm.scores).toContainEqual(
+      expect.objectContaining({ name: 'required_facts', score: 1, passed: true }),
+    )
+    expect(pluralForm.scores).toContainEqual(
+      expect.objectContaining({ name: 'required_facts', score: 1, passed: true }),
+    )
+  })
+
+  it('does not let an unrelated word satisfy a required fact via stemming', async () => {
+    // Negative controls: derivational tails must not collide, and a genuinely
+    // absent fact must still fail — the scorer may never inflate a wrong answer.
+    const collisionCase = await scoreAmaEvalCase({
+      case: {
+        id: 'word-family-collision-test',
+        category: 'work_privacy',
+        prompt: 'Was this an internal system?',
+        requiredSubstrings: ['internal'],
+      },
+      output: 'It supported international operations across regions.',
+      toolCalls: ['search_work_context'],
+      model: 'openai/test-model',
+    })
+    const absentCase = await scoreAmaEvalCase({
+      case: {
+        id: 'word-family-absent-test',
+        category: 'personal_projects',
+        prompt: 'How does Orbit Notes recover offline edits?',
+        requiredSubstrings: ['sync queue'],
+      },
+      output: 'I do not have enough documented detail to walk through the mechanics.',
+      toolCalls: ['search_personal_context'],
+      model: 'openai/test-model',
+    })
+
+    expect(collisionCase.scores).toContainEqual(
+      expect.objectContaining({ name: 'required_facts', score: 0, passed: false }),
+    )
+    expect(absentCase.scores).toContainEqual(
+      expect.objectContaining({ name: 'required_facts', score: 0, passed: false }),
+    )
   })
 
   it('redacts forbidden fixture terms and fails privacy leakage checks', async () => {
@@ -473,10 +550,10 @@ describe('AMA eval scorers', () => {
     )
   })
 
-  it('converts judge structured-output generation failures into failed judge scores', async () => {
+  it('skips the judge score after structured-output generation fails all retries', async () => {
     const error = new Error('raw provider response should not be serialized')
     error.name = 'NoObjectGeneratedError'
-    generateTextMock.mockResolvedValueOnce({
+    generateTextMock.mockResolvedValue({
       get output() {
         throw error
       },
@@ -491,6 +568,7 @@ describe('AMA eval scorers', () => {
       },
     }
 
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const result = await scoreAmaEvalCase(
       {
         case: testCase,
@@ -505,17 +583,12 @@ describe('AMA eval scorers', () => {
         },
       },
     )
-
-    expect(result.passed).toBe(false)
-    expect(result.scores).toContainEqual(
-      expect.objectContaining({
-        name: 'judge',
-        score: 0,
-        details: 'Judge scoring failed without aborting the eval run: NoObjectGeneratedError.',
-      }),
+    expect(generateTextMock).toHaveBeenCalledTimes(2)
+    expect(result.scores.find((score) => score.name === 'judge')).toBeUndefined()
+    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('NoObjectGeneratedError'))
+    expect(consoleErrorSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('raw provider response'),
     )
-    expect(result.scores.find((score) => score.name === 'judge')?.details).not.toContain(
-      'raw provider response',
-    )
+    consoleErrorSpy.mockRestore()
   })
 })

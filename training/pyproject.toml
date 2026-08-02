@@ -1,0 +1,21 @@
+[project]
+name = "ama-training"
+version = "0.1.0"
+description = "Fine-tuning pipeline for the segov.dev AMA chatbot on Tinker (Thinking Machines)"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "tinker>=0.24.0",
+    "tinker-cookbook[inkling]>=0.5.3",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

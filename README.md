@@ -28,6 +28,11 @@ Set these in `frontend/.env.local` for local development and in Vercel project s
 - `AI_GATEWAY_API_KEY`
 - `AMA_CHAT_MODEL` (default: `openai/gpt-5-mini`)
 - `AMA_CHAT_PROVIDERS` (optional: `openai` or `vertex,anthropic`)
+- `AMA_INFERENCE_BASE_URL` (optional: OpenAI-compatible endpoint for a fine-tuned deployment, e.g. Tinker's `.../oai/api/v1`; when set, it replaces AI Gateway routing)
+- `AMA_INFERENCE_API_KEY` (optional: bearer token for the inference endpoint)
+- `AMA_INFERENCE_HEADERS` (optional: JSON object of extra request headers, for endpoints whose auth is not Bearer-shaped — e.g. Modal proxy auth `{"Modal-Key":"wk-...","Modal-Secret":"ws-..."}`)
+- `AMA_DEPLOYMENT_MODEL` (required with `AMA_INFERENCE_BASE_URL`: the served model id, e.g. a `tinker://.../sampler_weights/final` checkpoint path)
+- `AMA_INFERENCE_REASONING_EFFORT` (optional: `none`..`xhigh` or a float in `[0, 0.99]`; must match the effort the checkpoint was trained with)
 - `DATABASE_URL` (injected by the connected Neon integration)
 - `AMA_TRACE_LOGGING_ENABLED` (optional; set to `0` to disable trace writes)
 - `EDGE_CONFIG`
@@ -68,8 +73,15 @@ pnpm --filter frontend eval:ama:ci
 ```
 
 Set `AI_GATEWAY_API_KEY` or `VERCEL_OIDC_TOKEN` before running live evals. Optional eval
-overrides are `AMA_EVAL_MODEL`, `AMA_EVAL_PROVIDERS`, `AMA_EVAL_MAX_OUTPUT_TOKENS`,
+overrides are `AMA_EVAL_MODEL`, `AMA_EVAL_PROVIDERS`, `AMA_EVAL_MAX_OUTPUT_TOKENS` (default:
+2,400),
 `AMA_EVAL_CONCURRENCY`, `AMA_EVAL_USE_JUDGE`, and `AMA_EVAL_JUDGE_MODEL`.
+
+To eval a fine-tuned deployment instead of a gateway model, set `AMA_INFERENCE_BASE_URL`,
+`AMA_DEPLOYMENT_MODEL`, and the endpoint's auth — `AMA_INFERENCE_API_KEY` (Bearer) and/or
+`AMA_INFERENCE_HEADERS` (custom headers, e.g. Modal proxy auth) — the same variables the app uses.
+The LLM judge still requires `AI_GATEWAY_API_KEY` and defaults to `openai/gpt-5-mini`
+when the subject model is served from an inference endpoint.
 
 ## Repo Layout
 

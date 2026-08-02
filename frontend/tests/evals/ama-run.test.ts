@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DEFAULT_AMA_EVAL_MAX_OUTPUT_TOKENS,
   extractGenerationDiagnostics,
   getRedactedSummary,
   mapWithConcurrency,
@@ -8,6 +9,10 @@ import {
 import type { AmaEvalGenerationDiagnostics, AmaEvalSummary } from '@/evals/ama/types'
 
 describe('AMA eval runner helpers', () => {
+  it('keeps enough default output budget for reasoning models to return an answer', () => {
+    expect(DEFAULT_AMA_EVAL_MAX_OUTPUT_TOKENS).toBeGreaterThanOrEqual(2400)
+  })
+
   it('parses positive integer env values with safe fallback behavior', () => {
     expect(parsePositiveIntegerEnv(undefined, 240, 'TEST_VALUE')).toBe(240)
     expect(parsePositiveIntegerEnv('', 240, 'TEST_VALUE')).toBe(240)

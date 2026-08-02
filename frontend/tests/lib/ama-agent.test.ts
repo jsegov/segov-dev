@@ -62,6 +62,9 @@ describe('createAmaAgent', () => {
     })
     delete process.env.AMA_CHAT_MODEL
     delete process.env.AMA_CHAT_PROVIDERS
+    delete process.env.AMA_INFERENCE_BASE_URL
+    delete process.env.AMA_INFERENCE_REASONING_EFFORT
+    delete process.env.AMA_DEPLOYMENT_MODEL
   })
 
   it('uses the default model and omits provider options when AMA_CHAT_PROVIDERS is unset', async () => {
@@ -163,6 +166,24 @@ describe('createAmaAgent', () => {
           only: ['vertex', 'anthropic'],
         },
       },
+    })
+  })
+
+  it('resolves an openai-compatible model when the inference endpoint is configured', async () => {
+    process.env.AMA_INFERENCE_BASE_URL = 'https://inference.example.com/v1'
+    process.env.AMA_DEPLOYMENT_MODEL = 'tinker://run-id:train:0/sampler_weights/final'
+    process.env.AMA_INFERENCE_REASONING_EFFORT = 'high'
+
+    const { createAmaAgent } = await import('@/lib/ama-agent')
+
+    createAmaAgent()
+
+    expect(toolLoopAgentSettings[0]?.model).not.toBeTypeOf('string')
+    expect(toolLoopAgentSettings[0]?.model).toMatchObject({
+      modelId: 'tinker://run-id:train:0/sampler_weights/final',
+    })
+    expect(toolLoopAgentSettings[0]?.providerOptions).toEqual({
+      inference: { reasoning_effort: 'high' },
     })
   })
 
