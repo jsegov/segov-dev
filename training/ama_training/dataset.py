@@ -71,7 +71,7 @@ class InMemorySupervisedDataset(SupervisedDataset):
         random.Random(seed).shuffle(self._order)
 
     def __len__(self) -> int:
-        return len(self.conversations) // self._batch_size
+        return (len(self.conversations) + self._batch_size - 1) // self._batch_size
 
 
 @chz.chz

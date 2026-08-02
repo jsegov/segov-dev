@@ -9,7 +9,11 @@ import pytest
 from tinker_cookbook.renderers import ToolCall, TrainOnWhat
 from tinker_cookbook.supervised.types import ChatDatasetBuilderCommonConfig
 
-from ama_training.dataset import AmaTraceDatasetBuilder, convert_message
+from ama_training.dataset import (
+    AmaTraceDatasetBuilder,
+    InMemorySupervisedDataset,
+    convert_message,
+)
 
 VERSION = "testversion"
 
@@ -245,6 +249,19 @@ class TestTmlConstruction:
 
 
 class TestDatasetMechanics:
+    def test_partial_final_batch_is_included(self):
+        conversations = [
+            [{"role": "user", "content": f"prompt-{index}"}] for index in range(5)
+        ]
+        dataset = InMemorySupervisedDataset(
+            conversations=conversations,
+            batch_size=2,
+            to_datum=lambda conversation: conversation,
+        )
+
+        assert len(dataset) == 3
+        assert dataset.get_batch(2) == conversations[4:]
+
     def test_set_epoch_deterministic(self, export_dir):
         builder = make_builder(
             export_dir,
