@@ -59,8 +59,26 @@ reuse on other models, but is NOT what we serve for Qwen3.5 (see the box).
 
 ```bash
 modal volume create ama-merged
-modal volume put ama-merged ./data/adapters/qwen3.5-4b-merged /qwen   # → /models/qwen at serve
+modal volume put ama-merged ./data/adapters/qwen3.5-4b-merged-1gb /qwen  # → /models/qwen at serve
+modal volume put ama-merged deploy/chat_template_parity.jinja /chat_template_parity.jinja
 ```
+
+**Slow-uplink gotchas (all hit for real on a ~900KB/s residential uplink):**
+
+- **Re-shard to ~1GB files first.** Modal presigns the S3/R2 part-upload URLs
+  once per batch with limited validity (observed ~1h per file / 4h per batch);
+  a 5GB shard that takes >1h to send fails deterministically with
+  `ExpiredToken`/`ExpiredRequest`. The `-1gb` directory is the same model
+  re-sharded into 10 ~1GB safetensors (index rebuilt, every tensor verified
+  bit-identical) so each file clears the window. vLLM doesn't care about
+  shard count.
+- The modal client also hardcodes `VOLUME_PUT_FILE_CLIENT_TIMEOUT = 1h`
+  per file — another reason big shards can't work on slow links.
+- **Retries are cheap:** blobs are content-addressed server-side, so shards
+  that completed in a failed attempt are skipped on the next one. Wrap the
+  upload in a retry loop and let it converge; nothing commits to the volume
+  until the whole batch succeeds.
+- Run the upload under `caffeinate` (macOS) — lid-close killed one attempt.
 
 ## 3. Deploy
 
@@ -130,6 +148,17 @@ Bearer-style endpoints like Tinker's OAI service or vLLM `--api-key`.)
    renderer vs vLLM's `/tokenize` (with `enable_thinking=false`) over a battery
    (system+tools, user, assistant tool_call, `role:tool` result, multi-turn).
    Nonzero → set `CUSTOM_CHAT_TEMPLATE` to a training-matched Jinja and re-diff.
+   **Resolved 2026-08-02** with `deploy/chat_template_parity.jinja` (staged on
+   the Volume, wired via `CUSTOM_CHAT_TEMPLATE`). The stock template diverged
+   from training three ways: tools dumped OpenAI-wrapped
+   (`{"type":"function","function":…}`) instead of bare; unicode left
+   unescaped where training ascii-escaped (`json.dumps` defaults); and the
+   blank-content separator before `<tool_call>` dropped in history turns.
+   With the parity template, rendered strings are byte-identical to training.
+   Sole irreducible residue: in assistant tool-call history turns the tinker
+   renderer tokenizes chunk-wise (`\n\n`+`\n\n` = two tokens) while serving
+   tokenizes the final string one-shot (one `\n\n\n\n` token) — behavioral
+   effect measured at one synonym swap in one smoke answer (gate 4).
 4. **Behavioral parity.** Same prompts through `ama_training.sample` (our
    checkpoint, train-identical render) vs the Modal endpoint → outputs match.
    This is the decisive "is this our fine-tune?" test — it directly catches any

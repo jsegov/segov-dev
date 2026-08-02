@@ -70,9 +70,15 @@ VLLM_BASE = f"http://127.0.0.1:{VLLM_PORT}"
 # re-verify the flags against this version (see deploy/README.md version notes).
 VLLM_VERSION = "0.21.0"
 
-# If the token-ID parity diff against the tinker renderer is nonzero, drop a
-# training-matched Jinja template here and pass it via --chat-template.
-CUSTOM_CHAT_TEMPLATE: str | None = None
+# Training-matched template (deploy/chat_template_parity.jinja, staged on the
+# ama-merged Volume). The stock template diverged from the tinker renderer at
+# token 20: it dumps tools OpenAI-wrapped ({"type":"function","function":...})
+# and unescaped, where training rendered them bare and ascii-escaped
+# (json.dumps defaults), and it dropped the blank-content separator before
+# <tool_call> in history turns. The parity template fixes all three; rendered
+# strings are byte-identical to training (sole residue: one whitespace BPE
+# merge in tool-call history turns — chunked vs one-shot tokenization).
+CUSTOM_CHAT_TEMPLATE: str | None = "/models/chat_template_parity.jinja"
 
 vllm_image = (
     modal.Image.from_registry(
