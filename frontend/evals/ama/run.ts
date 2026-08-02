@@ -38,6 +38,8 @@ import type {
 const RESULTS_DIR = new URL('./results/', import.meta.url)
 const LATEST_RESULT_FILE = new URL('latest.json', RESULTS_DIR)
 
+export const DEFAULT_AMA_EVAL_MAX_OUTPUT_TOKENS = 2400
+
 export interface GenerateResultWithToolCalls {
   text: string
   finishReason?: string
@@ -284,7 +286,7 @@ export async function runAmaEvalSuite(options: RunAmaEvalOptions = {}): Promise<
   }
   const maxOutputTokens = parsePositiveIntegerEnv(
     process.env.AMA_EVAL_MAX_OUTPUT_TOKENS,
-    1200,
+    DEFAULT_AMA_EVAL_MAX_OUTPUT_TOKENS,
     'AMA_EVAL_MAX_OUTPUT_TOKENS',
   )
   const concurrency = parsePositiveIntegerEnv(

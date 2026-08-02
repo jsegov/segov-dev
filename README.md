@@ -73,7 +73,8 @@ pnpm --filter frontend eval:ama:ci
 ```
 
 Set `AI_GATEWAY_API_KEY` or `VERCEL_OIDC_TOKEN` before running live evals. Optional eval
-overrides are `AMA_EVAL_MODEL`, `AMA_EVAL_PROVIDERS`, `AMA_EVAL_MAX_OUTPUT_TOKENS`,
+overrides are `AMA_EVAL_MODEL`, `AMA_EVAL_PROVIDERS`, `AMA_EVAL_MAX_OUTPUT_TOKENS` (default:
+2,400),
 `AMA_EVAL_CONCURRENCY`, `AMA_EVAL_USE_JUDGE`, and `AMA_EVAL_JUDGE_MODEL`.
 
 To eval a fine-tuned deployment instead of a gateway model, set `AMA_INFERENCE_BASE_URL`,
