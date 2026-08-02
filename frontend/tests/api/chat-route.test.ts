@@ -32,7 +32,9 @@ vi.mock('@/lib/ama-traces', async (importOriginal) => {
   }
 })
 
-vi.mock('ai', () => {
+vi.mock('ai', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>()
+
   class ToolLoopAgent {
     settings: Record<string, unknown>
     tools: Record<string, { execute?: (...args: unknown[]) => Promise<unknown> | unknown }>
@@ -48,6 +50,7 @@ vi.mock('ai', () => {
   }
 
   return {
+    ...actual,
     gateway: (id: string) => id,
     tool: (definition: unknown) => definition,
     ToolLoopAgent,

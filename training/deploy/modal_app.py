@@ -62,7 +62,8 @@ import modal
 # The merged standalone model, staged into the ama-merged Volume (mount below).
 MERGED_MODEL_DIR = "/models/qwen"  # = <volume mount>/qwen from `modal volume put`
 SERVED_NAME = "ama"  # the model id the AI SDK requests
-MAX_MODEL_LEN = 8192
+MAX_MODEL_LEN = 32768  # Matches training; the observed corpus reaches ~26K tokens.
+MAX_CONCURRENT_INPUTS = 8
 VLLM_PORT = 8000
 VLLM_BASE = f"http://127.0.0.1:{VLLM_PORT}"
 
@@ -138,8 +139,8 @@ def _post(path: str, payload: dict | None = None, timeout: float = 120) -> None:
 
 @app.cls(
     image=vllm_image,
-    gpu="L4",  # 9.3GB weights + runtime + 8K KV << 24GB; if GPU snapshots fail
-    #           on L4 (unverified, driver-570 gate), switch to "A10".
+    gpu="L4",  # 9.3GB weights + runtime + bounded KV cache target 24GB. If GPU
+    #           snapshots fail on L4 (unverified), switch to "A10".
     volumes=VOLUMES,
     # 60s (the default) is chat-hostile: a visitor who pauses 2 minutes to read
     # an answer eats a cold start mid-conversation. 10 min idle on an L4 costs
@@ -151,7 +152,7 @@ def _post(path: str, payload: dict | None = None, timeout: float = 120) -> None:
     enable_memory_snapshot=True,
     experimental_options={"enable_gpu_snapshot": True},
 )
-@modal.concurrent(max_inputs=8)  # low-traffic personal site; not 100
+@modal.concurrent(max_inputs=MAX_CONCURRENT_INPUTS)  # low-traffic personal site; not 100
 class AmaVllm:
     @modal.enter(snap=True)
     def start_vllm(self) -> None:
@@ -160,6 +161,7 @@ class AmaVllm:
             "vllm", "serve", MERGED_MODEL_DIR,
             "--served-model-name", SERVED_NAME,
             "--max-model-len", str(MAX_MODEL_LEN),
+            "--max-num-seqs", str(MAX_CONCURRENT_INPUTS),
             # --- tool calling: qwen3_xml matches our trained XML wire format and
             #     is the streaming-robust parser (qwen3_coder is the fallback) ---
             "--enable-auto-tool-choice",

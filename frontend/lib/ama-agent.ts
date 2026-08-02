@@ -1,6 +1,8 @@
 import {
   ToolLoopAgent,
+  pruneMessages,
   tool,
+  type ModelMessage,
   type ToolLoopAgentOnFinishCallback,
   type ToolLoopAgentSettings,
 } from 'ai'
@@ -114,9 +116,12 @@ export const AMA_TOOL_DECLARATIONS = [
   },
 ] as const
 
-// Sampling settings used in production. Empty means provider defaults; any
-// future change must flow through this constant so the manifest hash versions it.
-export const DEFAULT_AMA_CALL_SETTINGS: AmaAgentCallSettings = {}
+// Generation settings used in production. Keep enough output headroom for a
+// concise terminal answer without allowing an unbounded provider default to
+// consume the model's combined input/output context window.
+export const DEFAULT_AMA_CALL_SETTINGS: AmaAgentCallSettings = {
+  maxOutputTokens: 512,
+}
 
 export const AMA_PROMPT_MANIFEST = {
   instructions: AMA_INSTRUCTIONS,
@@ -176,7 +181,64 @@ export interface CreateAmaAgentOptions {
   modelConfig?: AmaModelConfig
   callSettings?: AmaAgentCallSettings
   prepareCall?: ToolLoopAgentSettings['prepareCall']
+  prepareStep?: ToolLoopAgentSettings['prepareStep']
   onFinish?: ToolLoopAgentOnFinishCallback
+}
+
+const AMA_CONTEXT_TOOL_NAMES = [
+  'get_public_site_content',
+  'get_resume',
+  'search_work_context',
+  'search_personal_context',
+] as const
+
+function pruneAmaMessages(messages: ModelMessage[]): ModelMessage[] {
+  return pruneMessages({
+    messages,
+    reasoning: 'all',
+    toolCalls: [
+      {
+        type: 'before-last-message',
+        tools: [...AMA_CONTEXT_TOOL_NAMES],
+      },
+    ],
+    emptyMessages: 'remove',
+  })
+}
+
+function pruneAmaCallMessages<
+  T extends {
+    prompt?: string | ModelMessage[]
+    messages?: ModelMessage[]
+  },
+>(callOptions: T): T {
+  if (Array.isArray(callOptions.messages)) {
+    return {
+      ...callOptions,
+      messages: pruneAmaMessages(callOptions.messages),
+    }
+  }
+
+  if (Array.isArray(callOptions.prompt)) {
+    return {
+      ...callOptions,
+      prompt: pruneAmaMessages(callOptions.prompt),
+    }
+  }
+
+  return callOptions
+}
+
+function compactContextSearchResult(result: AmaContextSearchResult) {
+  return {
+    ...result,
+    matches: result.matches.map(({ pathname, uploadedAt, size, score }) => ({
+      pathname,
+      uploadedAt,
+      size,
+      score,
+    })),
+  }
 }
 
 export function createAmaAgent(options: CreateAmaAgentOptions = {}) {
@@ -185,6 +247,26 @@ export function createAmaAgent(options: CreateAmaAgentOptions = {}) {
   const resumeContextLoader = options.getResumeContext ?? getResumeContextFromBlob
   const workContextSearch = options.searchWorkContext ?? searchWorkContextFromBlob
   const personalContextSearch = options.searchPersonalContext ?? searchPersonalContextFromBlob
+  const prepareCall: NonNullable<ToolLoopAgentSettings['prepareCall']> = async (callOptions) => {
+    const prunedCallOptions = pruneAmaCallMessages(callOptions)
+    const preparedCallOptions = options.prepareCall
+      ? await options.prepareCall(prunedCallOptions)
+      : prunedCallOptions
+
+    return pruneAmaCallMessages(preparedCallOptions)
+  }
+  const prepareStep: NonNullable<ToolLoopAgentSettings['prepareStep']> = async (stepOptions) => {
+    const messages = pruneAmaMessages(stepOptions.messages)
+    const preparedStep = await options.prepareStep?.({
+      ...stepOptions,
+      messages,
+    })
+
+    return {
+      ...preparedStep,
+      messages: pruneAmaMessages(preparedStep?.messages ?? messages),
+    }
+  }
 
   return new ToolLoopAgent<never>({
     model: resolveAmaLanguageModel(modelConfig),
@@ -192,7 +274,8 @@ export function createAmaAgent(options: CreateAmaAgentOptions = {}) {
     ...DEFAULT_AMA_CALL_SETTINGS,
     ...options.callSettings,
     instructions: AMA_INSTRUCTIONS,
-    prepareCall: options.prepareCall,
+    prepareCall,
+    prepareStep,
     onFinish: options.onFinish,
     tools: {
       get_public_site_content: tool({
@@ -235,14 +318,14 @@ export function createAmaAgent(options: CreateAmaAgentOptions = {}) {
         description: WORK_CONTEXT_DESCRIPTION,
         inputSchema: contextSearchInputSchema,
         execute: async ({ query }) => {
-          return workContextSearch(query)
+          return compactContextSearchResult(await workContextSearch(query))
         },
       }),
       search_personal_context: tool({
         description: PERSONAL_CONTEXT_DESCRIPTION,
         inputSchema: contextSearchInputSchema,
         execute: async ({ query }) => {
-          return personalContextSearch(query)
+          return compactContextSearchResult(await personalContextSearch(query))
         },
       }),
     },
