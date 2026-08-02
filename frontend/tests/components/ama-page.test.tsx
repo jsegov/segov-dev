@@ -1,4 +1,6 @@
 import React from 'react'
+import type { ComponentProps } from 'react'
+import type * as StreamdownModule from 'streamdown'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import AMAPage from '@/app/ama/page'
@@ -9,6 +11,7 @@ const {
   sendMessageMock,
   setMessagesMock,
   stopMock,
+  streamdownModes,
   toastMock,
   useChatMock,
 } = vi.hoisted(() => ({
@@ -17,6 +20,7 @@ const {
   sendMessageMock: vi.fn(),
   setMessagesMock: vi.fn(),
   stopMock: vi.fn(),
+  streamdownModes: [] as Array<'static' | 'streaming' | undefined>,
   toastMock: vi.fn(),
   useChatMock: vi.fn(),
 }))
@@ -24,6 +28,19 @@ const {
 vi.mock('@ai-sdk/react', () => ({
   useChat: useChatMock,
 }))
+
+vi.mock('streamdown', async (importOriginal) => {
+  const actual = await importOriginal<typeof StreamdownModule>()
+  const { createElement } = await import('react')
+
+  return {
+    ...actual,
+    Streamdown: (props: ComponentProps<typeof actual.Streamdown>) => {
+      streamdownModes.push(props.mode)
+      return createElement(actual.Streamdown, props)
+    },
+  }
+})
 
 vi.mock('@/components/navbar', () => ({
   Navbar: () => <div data-testid="navbar" />,
@@ -40,6 +57,7 @@ describe('AMA page', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    streamdownModes.length = 0
     const storage = new Map<string, string>()
     Object.defineProperty(window, 'localStorage', {
       value: {
@@ -78,13 +96,92 @@ describe('AMA page', () => {
     cleanup()
   })
 
-  it('renders streamed assistant output in terminal view', () => {
+  it('renders completed assistant output in static mode', () => {
     render(<AMAPage />)
     expect(
       screen.getByText(
         'Error: Query outside permitted scope. This terminal only responds to questions about me, Jonathan Segovia.',
       ),
     ).toBeInTheDocument()
+    expect(streamdownModes).toContain('static')
+    expect(streamdownModes).not.toContain('streaming')
+  })
+
+  it('uses Streamdown streaming mode only for the active assistant response', () => {
+    useChatMock.mockReturnValue({
+      status: 'streaming',
+      error: undefined,
+      clearError: clearErrorMock,
+      regenerate: regenerateMock,
+      sendMessage: sendMessageMock,
+      setMessages: setMessagesMock,
+      stop: stopMock,
+      messages: [
+        {
+          id: 'assistant-1',
+          role: 'assistant',
+          parts: [{ type: 'text', text: 'Streaming response' }],
+        },
+      ],
+    })
+
+    render(<AMAPage />)
+
+    expect(streamdownModes).toContain('streaming')
+  })
+
+  it('logs only sanitized client stream diagnostics', () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    render(<AMAPage />)
+
+    const chatOptions = useChatMock.mock.calls[0]?.[0] as {
+      onFinish?: (event: {
+        message: {
+          id: string
+          role: 'assistant'
+          parts: Array<{ type: 'text'; text: string }>
+        }
+        finishReason: 'stop'
+        isAbort: boolean
+        isDisconnect: boolean
+        isError: boolean
+      }) => void
+      onError?: (error: Error) => void
+    }
+    chatOptions.onFinish?.({
+      message: {
+        id: 'assistant-1',
+        role: 'assistant',
+        parts: [{ type: 'text', text: 'private response text' }],
+      },
+      finishReason: 'stop',
+      isAbort: false,
+      isDisconnect: false,
+      isError: false,
+    })
+    chatOptions.onError?.(new TypeError('private browser failure'))
+
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[ama-ui] stream finished',
+      expect.objectContaining({
+        message: {
+          id: 'assistant-1',
+          role: 'assistant',
+          partTypes: ['text'],
+          textLength: 21,
+          trimmedTextLength: 21,
+        },
+      }),
+    )
+    expect(errorSpy).toHaveBeenCalledWith('[ama-ui] stream error', {
+      errorType: 'TypeError',
+    })
+    expect(JSON.stringify(infoSpy.mock.calls)).not.toContain('private')
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain('browser failure')
+
+    infoSpy.mockRestore()
+    errorSpy.mockRestore()
   })
 
   it('shows the server-side storage and sensitive-information notice', () => {

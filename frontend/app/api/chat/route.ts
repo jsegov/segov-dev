@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { after } from 'next/server'
 import { createAmaAgent, getAmaCallSettings } from '@/lib/ama-agent'
 import { getAmaModelConfig } from '@/lib/ama-model-config'
+import { getAmaStreamErrorType, summarizeAmaUiMessage } from '@/lib/ama-stream-diagnostics'
 import { createAmaTraceCollector, persistAmaTrace, type AmaRequestTrigger } from '@/lib/ama-traces'
 
 export const runtime = 'nodejs'
@@ -72,8 +73,39 @@ export async function POST(req: Request) {
   try {
     const streamOptions = {
       agent,
-      messages,
       uiMessages: messages,
+      onFinish: ({
+        responseMessage,
+        finishReason,
+        isAborted,
+        isContinuation,
+      }: {
+        responseMessage: Parameters<typeof summarizeAmaUiMessage>[0]
+        finishReason?: string
+        isAborted: boolean
+        isContinuation: boolean
+      }) => {
+        console.info(
+          JSON.stringify({
+            event: 'ama_ui_stream_finish',
+            traceId,
+            finishReason,
+            isAborted,
+            isContinuation,
+            responseMessage: summarizeAmaUiMessage(responseMessage),
+          }),
+        )
+      },
+      onError: (error: unknown) => {
+        console.error(
+          JSON.stringify({
+            event: 'ama_ui_stream_error',
+            traceId,
+            errorType: getAmaStreamErrorType(error),
+          }),
+        )
+        return 'An error occurred.'
+      },
       consumeSseStream: async ({ stream }: { stream: ReadableStream<string> }) => {
         try {
           await consumeStream({
@@ -95,8 +127,15 @@ export async function POST(req: Request) {
     })
 
     return response
-  } catch {
+  } catch (error) {
     traceCollector.settleWithoutTrace()
+    console.error(
+      JSON.stringify({
+        event: 'ama_chat_route_error',
+        traceId,
+        errorType: getAmaStreamErrorType(error),
+      }),
+    )
     return new Response('Chat service unavailable.', { status: 500 })
   }
 }

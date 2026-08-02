@@ -6,6 +6,7 @@ import { useToast } from '@/hooks/use-toast'
 import { type UIMessage, useChat } from '@ai-sdk/react'
 import { RotateCcw, Square, Trash2 } from 'lucide-react'
 import { Streamdown } from 'streamdown'
+import { getAmaStreamErrorType, summarizeAmaUiMessage } from '@/lib/ama-stream-diagnostics'
 
 const LEGACY_INITIAL_ASSISTANT_MESSAGE = 'segov@terminal:~$ ./ama \nAsk me anything about Jonathan.'
 const INITIAL_ASSISTANT_MESSAGE =
@@ -207,6 +208,20 @@ export default function AMAPage() {
   const { messages, sendMessage, status, error, stop, regenerate, setMessages, clearError } =
     useChat({
       messages: INITIAL_MESSAGES,
+      onFinish: ({ message, finishReason, isAbort, isDisconnect, isError }) => {
+        console.info('[ama-ui] stream finished', {
+          finishReason,
+          isAbort,
+          isDisconnect,
+          isError,
+          message: summarizeAmaUiMessage(message),
+        })
+      },
+      onError: (chatError) => {
+        console.error('[ama-ui] stream error', {
+          errorType: getAmaStreamErrorType(chatError),
+        })
+      },
     })
 
   const isLoading = status === 'submitted' || status === 'streaming'
@@ -379,6 +394,7 @@ export default function AMAPage() {
                       className="ama-markdown whitespace-pre-line text-foreground"
                       disallowedElements={['img']}
                       isAnimating={isStreamingAssistantMessage}
+                      mode={isStreamingAssistantMessage ? 'streaming' : 'static'}
                       skipHtml
                       urlTransform={transformMarkdownUrl}
                     >

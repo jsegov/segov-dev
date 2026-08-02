@@ -290,6 +290,83 @@ describe('/api/chat route', () => {
         ],
       }),
     )
+    expect(createAgentUIStreamResponseMock.mock.calls[0]?.[0]).not.toHaveProperty('messages')
+  })
+
+  it('logs UI stream completion and errors without response text or tool payloads', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const { POST } = await import('@/app/api/chat/route')
+
+    await POST(
+      new Request('http://localhost/api/chat', {
+        method: 'POST',
+        body: JSON.stringify({
+          messages: [
+            {
+              id: 'conversation-user',
+              role: 'user',
+              parts: [{ type: 'text', text: 'Hello' }],
+            },
+          ],
+        }),
+      }),
+    )
+
+    const streamOptions = createAgentUIStreamResponseMock.mock.calls[0]?.[0] as unknown as {
+      onFinish?: (event: {
+        responseMessage: {
+          id: string
+          role: 'assistant'
+          parts: Array<
+            | { type: 'text'; text: string }
+            | {
+                type: 'dynamic-tool'
+                toolName: string
+                toolCallId: string
+                state: 'output-available'
+                input: unknown
+                output: unknown
+              }
+          >
+        }
+        finishReason: 'stop'
+        isAborted: boolean
+        isContinuation: boolean
+      }) => void
+      onError?: (error: unknown) => string
+    }
+    streamOptions.onFinish?.({
+      responseMessage: {
+        id: 'assistant-response',
+        role: 'assistant',
+        parts: [
+          { type: 'text', text: 'private response text' },
+          {
+            type: 'dynamic-tool',
+            toolName: 'search_personal_context',
+            toolCallId: 'tool-1',
+            state: 'output-available',
+            input: { query: 'private query' },
+            output: { content: 'private context' },
+          },
+        ],
+      },
+      finishReason: 'stop',
+      isAborted: false,
+      isContinuation: false,
+    })
+    expect(streamOptions.onError?.(new TypeError('private provider failure'))).toBe(
+      'An error occurred.',
+    )
+
+    expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining('"event":"ama_ui_stream_finish"'))
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('"errorType":"TypeError"'))
+    expect(JSON.stringify(infoSpy.mock.calls)).not.toContain('private')
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain('provider failure')
+
+    infoSpy.mockRestore()
+    errorSpy.mockRestore()
   })
 
   it('returns the response before the after callback and Neon write finish', async () => {
