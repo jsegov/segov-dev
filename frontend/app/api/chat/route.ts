@@ -1,7 +1,7 @@
 import { consumeStream, createAgentUIStreamResponse } from 'ai'
 import { randomUUID } from 'node:crypto'
 import { after } from 'next/server'
-import { createAmaAgent } from '@/lib/ama-agent'
+import { createAmaAgent, getAmaCallSettings } from '@/lib/ama-agent'
 import { getAmaModelConfig } from '@/lib/ama-model-config'
 import { createAmaTraceCollector, persistAmaTrace, type AmaRequestTrigger } from '@/lib/ama-traces'
 
@@ -61,6 +61,7 @@ export async function POST(req: Request) {
     requestTrigger,
     deploymentEnvironment: process.env.VERCEL_ENV ?? 'development',
     model: modelConfig.model,
+    callSettings: getAmaCallSettings(modelConfig),
   })
   const agent = createAmaAgent({
     modelConfig,

@@ -98,7 +98,13 @@ Modal: a 3B went ~118s → ~12s median cold start. Design points:
   creation; eager mode costs ~3x decode throughput on a small model. (This also
   makes the persisted `/root/.cache/vllm` compile cache meaningful — under
   eager mode it was inert.) CUDA graphs are captured only at real batch sizes
-  (`cudagraph_capture_sizes: [1,2,4,8]`, matching `max_inputs=8`).
+  (`cudagraph_capture_sizes: [1,2,4,8]`, matching `max_inputs=8`). The cache is
+  a deployment-specific, effectively immutable Volume; bump
+  `VLLM_CACHE_VOLUME_NAME` when the model, vLLM, or compilation flags change.
+  Do not clear it in place while a snapshot is live because Volume mutations
+  do not invalidate Modal memory snapshots.
+- **`min_containers=0`.** The service remains scale-to-zero; snapshots reduce
+  restoration work without paying for an always-on L4.
 - **`scaledown_window=600`.** The 60s default is chat-hostile — a visitor who
   pauses two minutes to read an answer eats a mid-conversation cold start.
   10 idle minutes on an L4 costs pennies at personal-site traffic.

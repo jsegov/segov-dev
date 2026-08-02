@@ -18,6 +18,7 @@ import {
   resolveAmaLanguageModel,
   type AmaModelConfig,
 } from '@/lib/ama-model-config'
+import { withAmaInferenceReliability } from '@/lib/ama-model-reliability'
 import { getPublicSiteContent, type SiteContent } from '@/lib/content'
 import {
   getResumeContextFromBlob,
@@ -123,15 +124,44 @@ export const DEFAULT_AMA_CALL_SETTINGS: AmaAgentCallSettings = {
   maxOutputTokens: 512,
 }
 
-export const AMA_PROMPT_MANIFEST = {
-  instructions: AMA_INSTRUCTIONS,
-  tools: AMA_TOOL_DECLARATIONS,
-  callSettings: DEFAULT_AMA_CALL_SETTINGS,
-} as const
+// The fine-tuned checkpoint was evaluated greedily. Set these explicitly for
+// the OpenAI-compatible inference path so a restored vLLM worker cannot inherit
+// stochastic server defaults. Gateway models keep their provider defaults.
+export const DEFAULT_AMA_INFERENCE_CALL_SETTINGS: AmaAgentCallSettings = {
+  temperature: 0,
+  seed: 1,
+}
 
-export const AMA_SYSTEM_PROMPT_VERSION = createHash('sha256')
-  .update(JSON.stringify(AMA_PROMPT_MANIFEST))
-  .digest('hex')
+export function getAmaCallSettings(
+  modelConfig: AmaModelConfig,
+  overrides: AmaAgentCallSettings = {},
+): AmaAgentCallSettings {
+  return {
+    ...DEFAULT_AMA_CALL_SETTINGS,
+    ...(modelConfig.inference ? DEFAULT_AMA_INFERENCE_CALL_SETTINGS : {}),
+    ...overrides,
+  }
+}
+
+export function createAmaPromptManifest(
+  callSettings: AmaAgentCallSettings = DEFAULT_AMA_CALL_SETTINGS,
+) {
+  return {
+    instructions: AMA_INSTRUCTIONS,
+    tools: AMA_TOOL_DECLARATIONS,
+    callSettings: { ...callSettings },
+  } as const
+}
+
+export function getAmaSystemPromptVersion(
+  promptManifest: ReturnType<typeof createAmaPromptManifest>,
+): string {
+  return createHash('sha256').update(JSON.stringify(promptManifest)).digest('hex')
+}
+
+export const AMA_PROMPT_MANIFEST = createAmaPromptManifest()
+
+export const AMA_SYSTEM_PROMPT_VERSION = getAmaSystemPromptVersion(AMA_PROMPT_MANIFEST)
 
 function formatPublicSiteContent(siteContent: SiteContent): string {
   return [
@@ -243,6 +273,9 @@ function compactContextSearchResult(result: AmaContextSearchResult) {
 
 export function createAmaAgent(options: CreateAmaAgentOptions = {}) {
   const modelConfig = options.modelConfig ?? getAmaModelConfig()
+  const resolvedModel = resolveAmaLanguageModel(modelConfig)
+  const model = modelConfig.inference ? withAmaInferenceReliability(resolvedModel) : resolvedModel
+  const callSettings = getAmaCallSettings(modelConfig, options.callSettings)
   const publicSiteContentLoader = options.getPublicSiteContent ?? getPublicSiteContent
   const resumeContextLoader = options.getResumeContext ?? getResumeContextFromBlob
   const workContextSearch = options.searchWorkContext ?? searchWorkContextFromBlob
@@ -269,10 +302,9 @@ export function createAmaAgent(options: CreateAmaAgentOptions = {}) {
   }
 
   return new ToolLoopAgent<never>({
-    model: resolveAmaLanguageModel(modelConfig),
+    model,
     providerOptions: modelConfig.providerOptions,
-    ...DEFAULT_AMA_CALL_SETTINGS,
-    ...options.callSettings,
+    ...callSettings,
     instructions: AMA_INSTRUCTIONS,
     prepareCall,
     prepareStep,

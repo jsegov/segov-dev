@@ -22,7 +22,9 @@ Consequences baked in below:
 - NO `--enforce-eager`: compile + CUDA-graph cost is paid once at snapshot
   creation, and eager costs ~3x decode throughput on a small model. This also
   makes the persisted /root/.cache/vllm compile cache meaningful (it is inert
-  under eager mode).
+  under eager mode). The cache Volume is deployment-specific because changing
+  or deleting Volume files does not invalidate a Modal memory snapshot and can
+  make a restored process reference files that no longer exist.
 - Snapshots build over the first 2-3 cold boots after EVERY deploy; those
   stay slow. Don't judge cold-start latency until ~boot 4.
 - GPU snapshots are alpha and gated on NVIDIA driver 570+; official examples
@@ -70,6 +72,10 @@ VLLM_BASE = f"http://127.0.0.1:{VLLM_PORT}"
 # vLLM moves fast and parser names change between releases — pin explicitly and
 # re-verify the flags against this version (see deploy/README.md version notes).
 VLLM_VERSION = "0.21.0"
+# Treat this cache as immutable while this deployment is live. Bump the suffix
+# when changing vLLM, the model, or compilation flags instead of clearing files
+# in place; Modal snapshots do not track Volume mutations.
+VLLM_CACHE_VOLUME_NAME = "ama-vllm-cache-v0210-qwen35-4b-32k-v1"
 
 # Training-matched template (deploy/chat_template_parity.jinja, staged on the
 # ama-merged Volume). The stock template diverged from the tinker renderer at
@@ -100,11 +106,13 @@ vllm_image = (
 app = modal.App("ama-vllm")
 
 # The merged model is self-contained (weights + tokenizer + config), so serving
-# needs no HF download — just this Volume. vllm-cache persists torch.compile
-# artifacts, which matters on the slow first boots after a redeploy (before the
-# snapshot exists).
+# needs no HF download — just this Volume. A deployment-specific cache persists
+# torch.compile artifacts across the 2-3 snapshot-building boots without
+# allowing an unrelated deployment to mutate paths captured by this snapshot.
 merged_volume = modal.Volume.from_name("ama-merged", create_if_missing=True)
-vllm_cache = modal.Volume.from_name("vllm-cache", create_if_missing=True)
+vllm_cache = modal.Volume.from_name(
+    VLLM_CACHE_VOLUME_NAME, create_if_missing=True
+)
 
 VOLUMES = {
     "/models": merged_volume,
@@ -112,9 +120,11 @@ VOLUMES = {
 }
 
 
-def _wait_for_vllm(timeout_s: float) -> None:
+def _wait_for_vllm(process: subprocess.Popen, timeout_s: float) -> None:
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
+        if (return_code := process.poll()) is not None:
+            raise subprocess.CalledProcessError(return_code, process.args)
         try:
             with urllib.request.urlopen(f"{VLLM_BASE}/health", timeout=5) as resp:
                 if resp.status == 200:
@@ -146,6 +156,7 @@ def _post(path: str, payload: dict | None = None, timeout: float = 120) -> None:
     # an answer eats a cold start mid-conversation. 10 min idle on an L4 costs
     # pennies at personal-site traffic; Modal's own vLLM examples use 5-15 min.
     scaledown_window=10 * 60,
+    min_containers=0,
     timeout=10 * 60,
     # GPU memory snapshots (alpha): checkpoint the fully-booted engine so cold
     # starts become restores. min_containers=1 (~$580/mo) stays not-worth-it.
@@ -186,8 +197,8 @@ class AmaVllm:
         if CUSTOM_CHAT_TEMPLATE:
             cmd += ["--chat-template", CUSTOM_CHAT_TEMPLATE]
         print("launching:", " ".join(cmd))
-        subprocess.Popen(cmd)
-        _wait_for_vllm(timeout_s=10 * 60)
+        self.process = subprocess.Popen(cmd)
+        _wait_for_vllm(self.process, timeout_s=10 * 60)
         # Warm the compiled paths so they're inside the snapshot, not paid by
         # the first visitor.
         for _ in range(2):
@@ -197,6 +208,8 @@ class AmaVllm:
                     "model": SERVED_NAME,
                     "messages": [{"role": "user", "content": "warmup"}],
                     "max_tokens": 8,
+                    "temperature": 0,
+                    "seed": 1,
                 },
                 timeout=300,
             )
@@ -210,6 +223,19 @@ class AmaVllm:
         """After snapshot restore (or on non-snapshot boots), wake the engine."""
         _post("/wake_up", timeout=300)
         print("vLLM awake")
+
+    @modal.exit()
+    def stop_vllm(self) -> None:
+        """Terminate the snapshotted server process during container shutdown."""
+        process = getattr(self, "process", None)
+        if process is None or process.poll() is not None:
+            return
+
+        process.terminate()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
 
     # requires_proxy_auth: Modal's edge rejects unauthenticated requests BEFORE
     # a container starts — without it this is a public URL where every scraper

@@ -81,6 +81,8 @@ describe('createAmaAgent', () => {
       model: DEFAULT_AMA_CHAT_MODEL,
     })
     expect(toolLoopAgentSettings[0]?.providerOptions).toBeUndefined()
+    expect(toolLoopAgentSettings[0]).not.toHaveProperty('temperature')
+    expect(toolLoopAgentSettings[0]).not.toHaveProperty('seed')
   })
 
   it('registers resume plus work and personal context tools with routing instructions', async () => {
@@ -318,6 +320,11 @@ describe('createAmaAgent', () => {
     })
     expect(toolLoopAgentSettings[0]?.providerOptions).toEqual({
       inference: { reasoning_effort: 'high' },
+    })
+    expect(toolLoopAgentSettings[0]).toMatchObject({
+      maxOutputTokens: 512,
+      temperature: 0,
+      seed: 1,
     })
   })
 

@@ -25,7 +25,12 @@ import {
   persistAmaTrace,
   type AmaTracePayload,
 } from '@/lib/ama-traces'
-import { AMA_PROMPT_MANIFEST, AMA_SYSTEM_PROMPT_VERSION } from '@/lib/ama-agent'
+import {
+  AMA_PROMPT_MANIFEST,
+  AMA_SYSTEM_PROMPT_VERSION,
+  createAmaPromptManifest,
+  getAmaSystemPromptVersion,
+} from '@/lib/ama-agent'
 
 const inputMessages = [
   {
@@ -160,6 +165,31 @@ describe('AMA trace collection', () => {
 
     await expect(collector.payload).resolves.toMatchObject({
       provider: null,
+    })
+  })
+
+  it('versions traces with the effective inference sampling settings', async () => {
+    const callSettings = {
+      maxOutputTokens: 512,
+      temperature: 0,
+      seed: 1,
+    }
+    const promptManifest = createAmaPromptManifest(callSettings)
+    const collector = createAmaTraceCollector({
+      conversationId: 'conversation-1',
+      requestTrigger: 'submit-message',
+      deploymentEnvironment: 'preview',
+      model: 'ama',
+      callSettings,
+    })
+    collector.prepareCall({
+      prompt: inputMessages,
+    } as Parameters<typeof collector.prepareCall>[0])
+    collector.onFinish(createFinishEvent() as Parameters<typeof collector.onFinish>[0])
+
+    await expect(collector.payload).resolves.toMatchObject({
+      promptManifest,
+      systemPromptVersion: getAmaSystemPromptVersion(promptManifest),
     })
   })
 
