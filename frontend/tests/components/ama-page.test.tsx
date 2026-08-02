@@ -162,19 +162,26 @@ describe('AMA page', () => {
     })
     chatOptions.onError?.(new TypeError('private browser failure'))
 
-    expect(infoSpy).toHaveBeenCalledWith(
-      '[ama-ui] stream finished',
-      expect.objectContaining({
-        message: {
-          id: 'assistant-1',
-          role: 'assistant',
-          partTypes: ['text'],
-          textLength: 21,
-          trimmedTextLength: 21,
-        },
-      }),
-    )
-    expect(errorSpy).toHaveBeenCalledWith('[ama-ui] stream error', {
+    expect(infoSpy).toHaveBeenCalledTimes(1)
+    expect(infoSpy.mock.calls[0]).toHaveLength(1)
+    expect(JSON.parse(String(infoSpy.mock.calls[0]?.[0]))).toEqual({
+      event: 'ama_client_ui_stream_finish',
+      finishReason: 'stop',
+      isAbort: false,
+      isDisconnect: false,
+      isError: false,
+      message: {
+        id: 'assistant-1',
+        role: 'assistant',
+        partTypes: ['text'],
+        textLength: 21,
+        trimmedTextLength: 21,
+      },
+    })
+    expect(errorSpy).toHaveBeenCalledTimes(1)
+    expect(errorSpy.mock.calls[0]).toHaveLength(1)
+    expect(JSON.parse(String(errorSpy.mock.calls[0]?.[0]))).toEqual({
+      event: 'ama_client_ui_stream_error',
       errorType: 'TypeError',
     })
     expect(JSON.stringify(infoSpy.mock.calls)).not.toContain('private')

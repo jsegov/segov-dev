@@ -209,18 +209,24 @@ export default function AMAPage() {
     useChat({
       messages: INITIAL_MESSAGES,
       onFinish: ({ message, finishReason, isAbort, isDisconnect, isError }) => {
-        console.info('[ama-ui] stream finished', {
-          finishReason,
-          isAbort,
-          isDisconnect,
-          isError,
-          message: summarizeAmaUiMessage(message),
-        })
+        console.info(
+          JSON.stringify({
+            event: 'ama_client_ui_stream_finish',
+            finishReason,
+            isAbort,
+            isDisconnect,
+            isError,
+            message: summarizeAmaUiMessage(message),
+          }),
+        )
       },
       onError: (chatError) => {
-        console.error('[ama-ui] stream error', {
-          errorType: getAmaStreamErrorType(chatError),
-        })
+        console.error(
+          JSON.stringify({
+            event: 'ama_client_ui_stream_error',
+            errorType: getAmaStreamErrorType(chatError),
+          }),
+        )
       },
     })
 
