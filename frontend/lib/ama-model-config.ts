@@ -16,6 +16,13 @@ const PROVIDER_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 const NAMED_REASONING_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'] as const
 
+export class AmaModelConfigurationError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'AmaModelConfigurationError'
+  }
+}
+
 export interface AmaModelConfig {
   model: string
   /**
@@ -50,7 +57,9 @@ export function parseAmaModelId(
   }
 
   if (!MODEL_ID_PATTERN.test(model)) {
-    throw new Error(`${variableName} must use "creator/model-name" format. Received: "${model}"`)
+    throw new AmaModelConfigurationError(
+      `${variableName} must use "creator/model-name" format. Received: "${model}"`,
+    )
   }
 
   return model
@@ -81,7 +90,7 @@ export function parseAmaProviderSlugs(
 
   const invalidProvider = providers.find((provider) => !PROVIDER_SLUG_PATTERN.test(provider))
   if (invalidProvider) {
-    throw new Error(
+    throw new AmaModelConfigurationError(
       `${variableName} must be a comma-separated list of provider slugs like "openai" or "vertex,anthropic". Invalid slug: "${invalidProvider}"`,
     )
   }
@@ -103,13 +112,13 @@ export function parseAmaInferenceHeaders(
   try {
     parsed = JSON.parse(raw)
   } catch {
-    throw new Error(
+    throw new AmaModelConfigurationError(
       `${variableName} must be a JSON object of header names to string values, e.g. {"Modal-Key":"wk-...","Modal-Secret":"ws-..."}.`,
     )
   }
 
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw new Error(
+    throw new AmaModelConfigurationError(
       `${variableName} must be a JSON object of header names to string values, e.g. {"Modal-Key":"wk-...","Modal-Secret":"ws-..."}.`,
     )
   }
@@ -117,7 +126,9 @@ export function parseAmaInferenceHeaders(
   const entries = Object.entries(parsed)
   const invalidEntry = entries.find(([, value]) => typeof value !== 'string')
   if (invalidEntry) {
-    throw new Error(`${variableName} header "${invalidEntry[0]}" must have a string value.`)
+    throw new AmaModelConfigurationError(
+      `${variableName} header "${invalidEntry[0]}" must have a string value.`,
+    )
   }
 
   return entries.length > 0 ? Object.fromEntries(entries) : undefined
@@ -142,7 +153,7 @@ export function parseAmaReasoningEffort(
     return numericEffort
   }
 
-  throw new Error(
+  throw new AmaModelConfigurationError(
     `${variableName} must be one of ${NAMED_REASONING_EFFORTS.join(', ')} or a number in [0, 0.99]. Received: "${configuredEffort}"`,
   )
 }
@@ -153,7 +164,9 @@ export function getAmaModelConfig(): AmaModelConfig {
   if (inferenceBaseUrl) {
     const model = process.env.AMA_DEPLOYMENT_MODEL?.trim()
     if (!model) {
-      throw new Error('AMA_DEPLOYMENT_MODEL is required when AMA_INFERENCE_BASE_URL is set.')
+      throw new AmaModelConfigurationError(
+        'AMA_DEPLOYMENT_MODEL is required when AMA_INFERENCE_BASE_URL is set.',
+      )
     }
 
     return createAmaInferenceModelConfig({

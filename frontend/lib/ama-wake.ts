@@ -23,15 +23,15 @@ export async function wakeAmaInferenceEndpoint(
     return 'skipped'
   }
 
-  const headers: Record<string, string> = {
-    ...parseAmaInferenceHeaders(process.env.AMA_INFERENCE_HEADERS, 'AMA_INFERENCE_HEADERS'),
-  }
-  const apiKey = process.env.AMA_INFERENCE_API_KEY?.trim()
-  if (apiKey) {
-    headers.Authorization = `Bearer ${apiKey}`
-  }
-
   try {
+    const headers: Record<string, string> = {
+      ...parseAmaInferenceHeaders(process.env.AMA_INFERENCE_HEADERS, 'AMA_INFERENCE_HEADERS'),
+    }
+    const apiKey = process.env.AMA_INFERENCE_API_KEY?.trim()
+    if (apiKey) {
+      headers.Authorization = `Bearer ${apiKey}`
+    }
+
     const response = await fetch(`${baseURL.replace(/\/$/, '')}/models`, {
       method: 'GET',
       headers,

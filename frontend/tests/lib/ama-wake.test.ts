@@ -68,4 +68,14 @@ describe('wakeAmaInferenceEndpoint', () => {
 
     await expect(wakeAmaInferenceEndpoint()).resolves.toBe('failed')
   })
+
+  it('returns failed without fetching when custom auth headers are invalid', async () => {
+    process.env.AMA_INFERENCE_BASE_URL = 'https://example.modal.run/v1'
+    process.env.AMA_INFERENCE_HEADERS = 'private malformed credentials'
+    const fetchSpy = vi.fn()
+    globalThis.fetch = fetchSpy as unknown as typeof fetch
+
+    await expect(wakeAmaInferenceEndpoint()).resolves.toBe('failed')
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
 })

@@ -54,9 +54,11 @@ vi.mock('@/hooks/use-toast', () => ({
 
 describe('AMA page', () => {
   const storageKey = 'segov-dev:ama:v1'
+  const originalFetch = globalThis.fetch
 
   beforeEach(() => {
     vi.clearAllMocks()
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(null, { status: 200 }))
     streamdownModes.length = 0
     const storage = new Map<string, string>()
     Object.defineProperty(window, 'localStorage', {
@@ -93,6 +95,7 @@ describe('AMA page', () => {
   })
 
   afterEach(() => {
+    globalThis.fetch = originalFetch
     cleanup()
   })
 
@@ -160,7 +163,7 @@ describe('AMA page', () => {
       isDisconnect: false,
       isError: false,
     })
-    chatOptions.onError?.(new TypeError('private browser failure'))
+    chatOptions.onError?.(new TypeError('Failed to fetch private browser response'))
 
     expect(infoSpy).toHaveBeenCalledTimes(1)
     expect(infoSpy.mock.calls[0]).toHaveLength(1)
@@ -183,12 +186,119 @@ describe('AMA page', () => {
     expect(JSON.parse(String(errorSpy.mock.calls[0]?.[0]))).toEqual({
       event: 'ama_client_ui_stream_error',
       errorType: 'TypeError',
+      errorKind: 'network',
+      retryable: true,
     })
     expect(JSON.stringify(infoSpy.mock.calls)).not.toContain('private')
     expect(JSON.stringify(errorSpy.mock.calls)).not.toContain('browser failure')
 
     infoSpy.mockRestore()
     errorSpy.mockRestore()
+  })
+
+  it.each([
+    [
+      'length',
+      'answer',
+      {
+        title: 'Response truncated',
+        description: 'The response reached its length limit. Try a narrower question.',
+      },
+    ],
+    [
+      'content-filter',
+      'partial answer',
+      {
+        title: 'Response filtered',
+        description: 'The provider stopped this response. Try rephrasing your question.',
+      },
+    ],
+    [
+      'error',
+      'partial answer',
+      {
+        title: 'Response interrupted',
+        description: 'The model response could not be completed. Please retry.',
+        variant: 'destructive',
+      },
+    ],
+    [
+      'stop',
+      '   ',
+      {
+        title: 'No answer generated',
+        description: 'The model did not produce a usable answer. Please retry.',
+        variant: 'destructive',
+      },
+    ],
+    [
+      undefined,
+      'partial answer',
+      {
+        title: 'Response interrupted',
+        description: 'The response ended before its completion status arrived. Please retry.',
+        variant: 'destructive',
+      },
+    ],
+  ] as const)('explains the %s completion outcome', (finishReason, text, expectedToast) => {
+    render(<AMAPage />)
+
+    const chatOptions = useChatMock.mock.calls.at(-1)?.[0] as {
+      onFinish?: (event: {
+        message: {
+          id: string
+          role: 'assistant'
+          parts: Array<{ type: 'text'; text: string }>
+        }
+        finishReason?: 'stop' | 'length' | 'content-filter' | 'error'
+        isAbort: boolean
+        isDisconnect: boolean
+        isError: boolean
+      }) => void
+    }
+    chatOptions.onFinish?.({
+      message: {
+        id: 'assistant-outcome',
+        role: 'assistant',
+        parts: [{ type: 'text', text }],
+      },
+      finishReason,
+      isAbort: false,
+      isDisconnect: false,
+      isError: false,
+    })
+
+    expect(toastMock).toHaveBeenCalledWith(expectedToast)
+  })
+
+  it('does not report a user-initiated abort as an error', () => {
+    render(<AMAPage />)
+
+    const chatOptions = useChatMock.mock.calls.at(-1)?.[0] as {
+      onFinish?: (event: {
+        message: {
+          id: string
+          role: 'assistant'
+          parts: Array<{ type: 'text'; text: string }>
+        }
+        finishReason?: 'stop'
+        isAbort: boolean
+        isDisconnect: boolean
+        isError: boolean
+      }) => void
+    }
+    chatOptions.onFinish?.({
+      message: {
+        id: 'assistant-aborted',
+        role: 'assistant',
+        parts: [{ type: 'text', text: 'partial answer' }],
+      },
+      isAbort: true,
+      isDisconnect: false,
+      isError: false,
+    })
+
+    expect(toastMock).not.toHaveBeenCalled()
   })
 
   it('shows the server-side storage and sensitive-information notice', () => {
@@ -305,7 +415,7 @@ describe('AMA page', () => {
   it('shows a toast when the chat hook reports an error', () => {
     useChatMock.mockReturnValue({
       status: 'ready',
-      error: new Error('chat unavailable'),
+      error: new Error('AMA_ERROR:timeout'),
       clearError: clearErrorMock,
       regenerate: regenerateMock,
       sendMessage: sendMessageMock,
@@ -317,8 +427,8 @@ describe('AMA page', () => {
     render(<AMAPage />)
 
     expect(toastMock).toHaveBeenCalledWith({
-      title: 'API Error',
-      description: 'Failed to get a response from the API. Please try again later.',
+      title: 'Response timed out',
+      description: 'The model took too long to respond. Please retry.',
       variant: 'destructive',
     })
   })

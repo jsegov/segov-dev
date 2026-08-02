@@ -3,10 +3,16 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { Navbar } from '@/components/navbar'
 import { useToast } from '@/hooks/use-toast'
+import { DefaultChatTransport } from 'ai'
 import { type UIMessage, useChat } from '@ai-sdk/react'
 import { RotateCcw, Square, Trash2 } from 'lucide-react'
 import { Streamdown } from 'streamdown'
-import { getAmaStreamErrorType, summarizeAmaUiMessage } from '@/lib/ama-stream-diagnostics'
+import {
+  getAmaErrorPresentation,
+  getAmaStreamErrorDetails,
+  sanitizeAmaChatHttpResponse,
+  summarizeAmaUiMessage,
+} from '@/lib/ama-stream-diagnostics'
 
 const LEGACY_INITIAL_ASSISTANT_MESSAGE = 'segov@terminal:~$ ./ama \nAsk me anything about Jonathan.'
 const INITIAL_ASSISTANT_MESSAGE =
@@ -50,6 +56,9 @@ const PROJECT_FOLLOW_UPS = [
   'How did you build segov.dev?',
 ]
 const SAFE_MARKDOWN_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:'])
+const AMA_CHAT_TRANSPORT = new DefaultChatTransport({
+  fetch: async (input, init) => sanitizeAmaChatHttpResponse(await fetch(input, init)),
+})
 
 function transformMarkdownUrl(url: string): string | null {
   const trimmedUrl = url.trim()
@@ -208,7 +217,9 @@ export default function AMAPage() {
   const { messages, sendMessage, status, error, stop, regenerate, setMessages, clearError } =
     useChat({
       messages: INITIAL_MESSAGES,
+      transport: AMA_CHAT_TRANSPORT,
       onFinish: ({ message, finishReason, isAbort, isDisconnect, isError }) => {
+        const messageSummary = summarizeAmaUiMessage(message)
         console.info(
           JSON.stringify({
             event: 'ama_client_ui_stream_finish',
@@ -216,15 +227,49 @@ export default function AMAPage() {
             isAbort,
             isDisconnect,
             isError,
-            message: summarizeAmaUiMessage(message),
+            message: messageSummary,
           }),
         )
+
+        if (isAbort || isDisconnect || isError) {
+          return
+        }
+
+        if (finishReason === 'length') {
+          toast({
+            title: 'Response truncated',
+            description: 'The response reached its length limit. Try a narrower question.',
+          })
+        } else if (finishReason === 'content-filter') {
+          toast({
+            title: 'Response filtered',
+            description: 'The provider stopped this response. Try rephrasing your question.',
+          })
+        } else if (finishReason === 'error') {
+          toast({
+            title: 'Response interrupted',
+            description: 'The model response could not be completed. Please retry.',
+            variant: 'destructive',
+          })
+        } else if (finishReason === undefined) {
+          toast({
+            title: 'Response interrupted',
+            description: 'The response ended before its completion status arrived. Please retry.',
+            variant: 'destructive',
+          })
+        } else if (messageSummary.trimmedTextLength === 0) {
+          toast({
+            title: 'No answer generated',
+            description: 'The model did not produce a usable answer. Please retry.',
+            variant: 'destructive',
+          })
+        }
       },
       onError: (chatError) => {
         console.error(
           JSON.stringify({
             event: 'ama_client_ui_stream_error',
-            errorType: getAmaStreamErrorType(chatError),
+            ...getAmaStreamErrorDetails(chatError, 'client_stream'),
           }),
         )
       },
@@ -277,9 +322,9 @@ export default function AMAPage() {
     if (!error) {
       return
     }
+    const presentation = getAmaErrorPresentation(error)
     toast({
-      title: 'API Error',
-      description: 'Failed to get a response from the API. Please try again later.',
+      ...presentation,
       variant: 'destructive',
     })
   }, [error, toast])
