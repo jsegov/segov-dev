@@ -152,6 +152,20 @@ def _get_json(path: str, timeout: float = 30) -> object:
         return json.load(resp)
 
 
+def _is_vllm_sleeping(payload: object) -> bool:
+    """Read vLLM's sleep-state response without accepting ambiguous values."""
+    # Current vLLM returns {"is_sleeping": bool}. Retain bare-bool support for
+    # older/custom OpenAI-compatible servers, but fail closed on malformed JSON
+    # instead of treating a truthy response object as "still sleeping" forever.
+    if isinstance(payload, bool):
+        return payload
+    if isinstance(payload, dict):
+        is_sleeping = payload.get("is_sleeping")
+        if isinstance(is_sleeping, bool):
+            return is_sleeping
+    raise ValueError("vLLM /is_sleeping returned an invalid response")
+
+
 def _wait_for_serving_ready(
     process: subprocess.Popen, timeout_s: float
 ) -> None:
@@ -163,7 +177,7 @@ def _wait_for_serving_ready(
             raise subprocess.CalledProcessError(return_code, process.args)
 
         try:
-            if _get_json("/is_sleeping", timeout=5) is not False:
+            if _is_vllm_sleeping(_get_json("/is_sleeping", timeout=5)):
                 raise RuntimeError("vLLM is still sleeping")
             with urllib.request.urlopen(f"{VLLM_BASE}/health", timeout=5) as resp:
                 if resp.status != 200:
