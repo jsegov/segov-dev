@@ -128,6 +128,10 @@ export const DEFAULT_AMA_CALL_SETTINGS: AmaAgentCallSettings = {
 // the OpenAI-compatible inference path so a restored vLLM worker cannot inherit
 // stochastic server defaults. Gateway models keep their provider defaults.
 export const DEFAULT_AMA_INFERENCE_CALL_SETTINGS: AmaAgentCallSettings = {
+  // The readiness loop owns scale-to-zero startup retries. Disable AI SDK's
+  // default two retries so one cold worker does not become three concurrent
+  // completion requests after the bounded readiness budget is exhausted.
+  maxRetries: 0,
   temperature: 0,
   seed: 1,
 }

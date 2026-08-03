@@ -86,6 +86,27 @@ modal volume put ama-merged deploy/chat_template_parity.jinja /chat_template_par
 modal deploy deploy/modal_app.py     # `deploy`, not `run` (snapshots/URL need deploy)
 ```
 
+Prime the deployed endpoint immediately after every deploy, before sending
+preview or production traffic to it. The primer makes an authenticated, real
+chat-completion request with a 10-minute startup budget. It retries Modal's
+documented scale-to-zero `503` response and client-side request timeouts, but
+fails immediately for auth, configuration, and other network/HTTP errors:
+
+```bash
+export AMA_INFERENCE_BASE_URL=https://<deployed-app-server>.modal.direct/v1
+export AMA_DEPLOYMENT_MODEL=ama
+export AMA_INFERENCE_HEADERS='{"Modal-Key":"wk-…","Modal-Secret":"ws-…"}'
+python deploy/prime_modal.py
+```
+
+The first successful run proves that the snapshot-building cold boot finished
+and that vLLM can generate a non-empty completion. For Modal's recommended
+2–3-snapshot coverage, stop the active server container in the Modal dashboard
+and rerun the primer for two more cold boots. Then stop it once more, rerun the
+primer, and record that restore time as the deployment's scale-to-zero gate.
+This keeps `min_containers=0`; do not change the application to an always-on
+worker just to pass the gate.
+
 ### Cold starts — GPU memory snapshots + vLLM sleep mode
 
 The app scales to zero and mitigates cold starts with Modal's GPU memory
@@ -118,8 +139,10 @@ Modal: a 3B went ~118s → ~12s median cold start. Design points:
   pings `<base>/models`, booting the container while the visitor types their
   first message. `@app.server` returns a retryable 503 while a container is
   restoring; if the visitor submits before it is ready, the chat route polls
-  only that startup state with bounded backoff, sharing one 285-second budget
-  between readiness and generation. No silent fallback to a gateway model —
+  that state and bounded client timeouts with backoff, sharing one 285-second
+  budget between readiness and generation. The AI SDK's own model-call retries
+  are disabled on this path so a single cold worker does not receive three
+  duplicate completion requests. No silent fallback to a gateway model —
   substituting a different model while ours warms would defeat the point of
   serving the fine-tune.
 

@@ -12,6 +12,7 @@ describe('wakeAmaInferenceEndpoint', () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch
+    vi.restoreAllMocks()
   })
 
   it('skips without touching the network when no inference endpoint is set', async () => {
@@ -86,6 +87,27 @@ describe('wakeAmaInferenceEndpoint', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(3)
   })
 
+  it('polls an internally timed-out readiness request until the endpoint is ready', async () => {
+    process.env.AMA_INFERENCE_BASE_URL = 'https://example.modal.direct/v1'
+    const timeoutController = new AbortController()
+    vi.spyOn(AbortSignal, 'timeout')
+      .mockReturnValueOnce(timeoutController.signal)
+      .mockReturnValueOnce(new AbortController().signal)
+    const fetchSpy = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        timeoutController.abort(new DOMException('timed out', 'TimeoutError'))
+        throw timeoutController.signal.reason
+      })
+      .mockResolvedValueOnce({ ok: true, status: 200 })
+    globalThis.fetch = fetchSpy as unknown as typeof fetch
+
+    await expect(
+      waitForAmaInferenceEndpoint({ timeoutMs: 1_000, initialDelayMs: 0 }),
+    ).resolves.toBe('warmed')
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+  })
+
   it('stops polling when the readiness budget expires', async () => {
     process.env.AMA_INFERENCE_BASE_URL = 'https://example.modal.direct/v1'
     const fetchSpy = vi.fn().mockResolvedValue({ ok: false, status: 503 })
@@ -97,9 +119,36 @@ describe('wakeAmaInferenceEndpoint', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1)
   })
 
-  it('returns failed when the request throws or times out', async () => {
+  it('reports its own request timeout as warming', async () => {
+    process.env.AMA_INFERENCE_BASE_URL = 'https://example.modal.direct/v1'
+    const timeoutController = new AbortController()
+    vi.spyOn(AbortSignal, 'timeout').mockReturnValue(timeoutController.signal)
+    globalThis.fetch = vi.fn().mockImplementation(async () => {
+      timeoutController.abort(new DOMException('timed out', 'TimeoutError'))
+      throw timeoutController.signal.reason
+    }) as unknown as typeof fetch
+
+    await expect(wakeAmaInferenceEndpoint({ timeoutMs: 10 })).resolves.toBe('warming')
+  })
+
+  it('propagates a caller abort instead of treating it as warming', async () => {
+    process.env.AMA_INFERENCE_BASE_URL = 'https://example.modal.direct/v1'
+    const caller = new AbortController()
+    globalThis.fetch = vi.fn().mockImplementation(async () => {
+      caller.abort(new DOMException('request cancelled', 'AbortError'))
+      throw caller.signal.reason
+    }) as unknown as typeof fetch
+
+    await expect(wakeAmaInferenceEndpoint({ signal: caller.signal })).rejects.toMatchObject({
+      name: 'AbortError',
+    })
+  })
+
+  it('returns failed when the request throws an ordinary network error', async () => {
     process.env.AMA_INFERENCE_BASE_URL = 'https://example.modal.run/v1'
-    globalThis.fetch = vi.fn().mockRejectedValue(new Error('timeout')) as unknown as typeof fetch
+    globalThis.fetch = vi
+      .fn()
+      .mockRejectedValue(new Error('connection refused')) as unknown as typeof fetch
 
     await expect(wakeAmaInferenceEndpoint()).resolves.toBe('failed')
   })

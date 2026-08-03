@@ -83,6 +83,7 @@ describe('createAmaAgent', () => {
     expect(toolLoopAgentSettings[0]?.providerOptions).toBeUndefined()
     expect(toolLoopAgentSettings[0]).not.toHaveProperty('temperature')
     expect(toolLoopAgentSettings[0]).not.toHaveProperty('seed')
+    expect(toolLoopAgentSettings[0]).not.toHaveProperty('maxRetries')
   })
 
   it('registers resume plus work and personal context tools with routing instructions', async () => {
@@ -323,6 +324,7 @@ describe('createAmaAgent', () => {
     })
     expect(toolLoopAgentSettings[0]).toMatchObject({
       maxOutputTokens: 512,
+      maxRetries: 0,
       temperature: 0,
       seed: 1,
     })

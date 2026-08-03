@@ -9,11 +9,6 @@ const DEFAULT_READINESS_REQUEST_TIMEOUT_MS = 10_000
 const DEFAULT_READINESS_INITIAL_DELAY_MS = 500
 const DEFAULT_READINESS_MAX_DELAY_MS = 5_000
 
-function getRequestSignal(timeoutMs: number, signal?: AbortSignal): AbortSignal {
-  const timeoutSignal = AbortSignal.timeout(Math.max(1, timeoutMs))
-  return signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal
-}
-
 function delay(ms: number, signal?: AbortSignal): Promise<void> {
   signal?.throwIfAborted()
   if (ms <= 0) {
@@ -55,6 +50,7 @@ export async function wakeAmaInferenceEndpoint(
     return 'skipped'
   }
 
+  let timeoutSignal: AbortSignal | undefined
   try {
     const headers: Record<string, string> = {
       ...parseAmaInferenceHeaders(process.env.AMA_INFERENCE_HEADERS, 'AMA_INFERENCE_HEADERS'),
@@ -64,10 +60,14 @@ export async function wakeAmaInferenceEndpoint(
       headers.Authorization = `Bearer ${apiKey}`
     }
 
+    timeoutSignal = AbortSignal.timeout(Math.max(1, options.timeoutMs ?? DEFAULT_WAKE_TIMEOUT_MS))
+    const requestSignal = options.signal
+      ? AbortSignal.any([options.signal, timeoutSignal])
+      : timeoutSignal
     const response = await fetch(`${baseURL.replace(/\/$/, '')}/models`, {
       method: 'GET',
       headers,
-      signal: getRequestSignal(options.timeoutMs ?? DEFAULT_WAKE_TIMEOUT_MS, options.signal),
+      signal: requestSignal,
     })
     const result: AmaWakeResult = response.ok
       ? 'warmed'
@@ -83,12 +83,19 @@ export async function wakeAmaInferenceEndpoint(
     if (options.signal?.aborted) {
       throw options.signal.reason ?? error
     }
+    // Modal can keep the edge request open while it assigns/restores a worker.
+    // Treat our own bounded client timeout like its documented startup 503 so
+    // the outer readiness loop can retry without starting model generation.
+    if (timeoutSignal?.aborted) {
+      return 'warming'
+    }
     return 'failed'
   }
 }
 
 /**
- * Waits only for the documented scale-to-zero 503 state. Authentication,
+ * Waits for Modal's documented scale-to-zero 503 state and for bounded client
+ * timeouts while Modal assigns or restores a worker. Authentication,
  * configuration, and other endpoint failures are returned immediately so the
  * real model request can surface their more specific AI SDK classification.
  */
