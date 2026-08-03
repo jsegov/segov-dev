@@ -7,6 +7,7 @@ import { DefaultChatTransport } from 'ai'
 import { type UIMessage, useChat } from '@ai-sdk/react'
 import { RotateCcw, Square, Trash2 } from 'lucide-react'
 import { Streamdown } from 'streamdown'
+import { observeAmaSseResponse } from '@/lib/ama-sse-diagnostics'
 import {
   getAmaErrorPresentation,
   getAmaStreamErrorDetails,
@@ -57,7 +58,42 @@ const PROJECT_FOLLOW_UPS = [
 ]
 const SAFE_MARKDOWN_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:'])
 const AMA_CHAT_TRANSPORT = new DefaultChatTransport({
-  fetch: async (input, init) => sanitizeAmaChatHttpResponse(await fetch(input, init)),
+  fetch: async (input, init) => {
+    const response = sanitizeAmaChatHttpResponse(await fetch(input, init))
+    return observeAmaSseResponse(response, {
+      onComplete: ({ traceId, summary }) => {
+        console.info(
+          JSON.stringify({
+            event: 'ama_client_sse_wire_finish',
+            traceId,
+            outcome: 'complete',
+            summary,
+          }),
+        )
+      },
+      onError: (error, { traceId, summary }) => {
+        console.error(
+          JSON.stringify({
+            event: 'ama_client_sse_wire_error',
+            traceId,
+            outcome: 'error',
+            ...getAmaStreamErrorDetails(error, 'client_stream'),
+            summary,
+          }),
+        )
+      },
+      onCancel: ({ traceId, summary }) => {
+        console.info(
+          JSON.stringify({
+            event: 'ama_client_sse_wire_finish',
+            traceId,
+            outcome: 'cancel',
+            summary,
+          }),
+        )
+      },
+    })
+  },
 })
 
 function transformMarkdownUrl(url: string): string | null {

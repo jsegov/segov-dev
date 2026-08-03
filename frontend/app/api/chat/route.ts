@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { after } from 'next/server'
 import { createAmaAgent, getAmaCallSettings } from '@/lib/ama-agent'
 import { getAmaModelConfig } from '@/lib/ama-model-config'
+import { AMA_TRACE_ID_HEADER, createAmaSseWireCollector } from '@/lib/ama-sse-diagnostics'
 import {
   AMA_ERROR_KIND_HEADER,
   createAmaErrorTokenForKind,
@@ -155,10 +156,20 @@ export async function POST(req: Request) {
         return createAmaPublicErrorToken(error, 'server_stream')
       },
       consumeSseStream: async ({ stream }: { stream: ReadableStream<string> }) => {
+        const collector = createAmaSseWireCollector()
+        let outcome: 'complete' | 'error' = 'complete'
         try {
           await consumeStream({
-            stream,
+            stream: stream.pipeThrough(
+              new TransformStream<string, string>({
+                transform(chunk, controller) {
+                  collector.push(chunk)
+                  controller.enqueue(chunk)
+                },
+              }),
+            ),
             onError: (error) => {
+              outcome = 'error'
               console.error(
                 JSON.stringify({
                   event: 'ama_sse_consumer_error',
@@ -169,11 +180,20 @@ export async function POST(req: Request) {
             },
           })
         } finally {
+          console.info(
+            JSON.stringify({
+              event: 'ama_sse_wire_finish',
+              traceId,
+              outcome,
+              summary: collector.finish(),
+            }),
+          )
           activeTraceCollector.settleWithoutTrace()
         }
       },
     }
     const response = await createAgentUIStreamResponse(streamOptions)
+    response.headers.set(AMA_TRACE_ID_HEADER, traceId)
 
     after(async () => {
       const trace = await activeTraceCollector.payload
@@ -193,6 +213,9 @@ export async function POST(req: Request) {
         ...errorDetails,
       }),
     )
-    return createErrorResponse(errorDetails.errorKind, getHttpStatusForError(errorDetails.errorKind))
+    return createErrorResponse(
+      errorDetails.errorKind,
+      getHttpStatusForError(errorDetails.errorKind),
+    )
   }
 }

@@ -280,6 +280,9 @@ describe('/api/chat route', () => {
     const response = await POST(request)
 
     expect(response.status).toBe(200)
+    expect(response.headers.get('X-Ama-Trace-Id')).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    )
     expect(await response.text()).toBe('stream-ok')
     expect(createAgentUIStreamResponseMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -415,7 +418,9 @@ describe('/api/chat route', () => {
     expect(streamOptions.onError?.(providerError)).toBe('AMA_ERROR:provider_unavailable')
 
     expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining('"event":"ama_ui_stream_finish"'))
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('"errorKind":"provider_unavailable"'))
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"errorKind":"provider_unavailable"'),
+    )
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('"statusCode":503'))
     expect(JSON.stringify(infoSpy.mock.calls)).not.toContain('private')
     expect(JSON.stringify(errorSpy.mock.calls)).not.toContain('provider failure')

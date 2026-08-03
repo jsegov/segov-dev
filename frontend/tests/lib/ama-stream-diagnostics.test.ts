@@ -1,4 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import {
+  AMA_TRACE_ID_HEADER,
+  createAmaSseWireCollector,
+  observeAmaSseResponse,
+} from '@/lib/ama-sse-diagnostics'
 import {
   createAmaPublicErrorToken,
   getAmaErrorPresentation,
@@ -142,5 +147,122 @@ describe('AMA stream diagnostics', () => {
     )
 
     expect(await response.text()).toBe('AMA_ERROR:configuration')
+  })
+
+  it('summarizes fragmented SSE frames without retaining their payloads', () => {
+    const privateDelta = 'private response text'
+    const wire = [
+      'data: {"type":"start"}\n\n',
+      `data: {"type":"text-delta","id":"text-1","delta":"${privateDelta}"}\n\n`,
+      'data: {"type":"finish","finishReason":"stop"}\n\n',
+      'data: [DONE]\n\n',
+    ].join('')
+    const collector = createAmaSseWireCollector()
+
+    collector.push(wire.slice(0, 13))
+    collector.push(wire.slice(13, 57))
+    collector.push(wire.slice(57))
+
+    const summary = collector.finish()
+    expect(summary).toMatchObject({
+      byteLength: new TextEncoder().encode(wire).byteLength,
+      eventCount: 3,
+      unknownEventCount: 0,
+      invalidJsonCount: 0,
+      textDeltaLength: privateDelta.length,
+      finishReason: 'stop',
+      sawDone: true,
+      truncatedFrame: false,
+    })
+    expect(summary.eventCounts).toMatchObject({
+      start: 1,
+      'text-delta': 1,
+      finish: 1,
+      error: 0,
+    })
+    expect(JSON.stringify(summary)).not.toContain(privateDelta)
+    expect(JSON.stringify(summary)).not.toContain('text-1')
+  })
+
+  it('reports invalid and incomplete SSE frames without exposing their contents', () => {
+    const collector = createAmaSseWireCollector()
+    collector.push(
+      'data: private invalid json\n\ndata: {"type":"text-delta","delta":"secret tail"}',
+    )
+
+    const summary = collector.finish()
+    expect(summary).toMatchObject({
+      eventCount: 0,
+      invalidJsonCount: 1,
+      textDeltaLength: 0,
+      sawDone: false,
+      truncatedFrame: true,
+    })
+    expect(JSON.stringify(summary)).not.toContain('private')
+    expect(JSON.stringify(summary)).not.toContain('secret')
+  })
+
+  it('observes the browser stream while preserving its exact bytes and trace ID', async () => {
+    const traceId = '5dbcf4b4-438e-4af1-8841-78081b0d07c1'
+    const wire = 'data: {"type":"text-delta","id":"text-1","delta":"answer"}\n\ndata: [DONE]\n\n'
+    const encoded = new TextEncoder().encode(wire)
+    const onComplete = vi.fn()
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoded.slice(0, 17))
+          controller.enqueue(encoded.slice(17))
+          controller.close()
+        },
+      }),
+      { headers: { [AMA_TRACE_ID_HEADER]: traceId } },
+    )
+
+    const observed = observeAmaSseResponse(response, { onComplete })
+
+    expect(await observed.text()).toBe(wire)
+    expect(onComplete).toHaveBeenCalledTimes(1)
+    expect(onComplete).toHaveBeenCalledWith({
+      traceId,
+      summary: expect.objectContaining({
+        byteLength: encoded.byteLength,
+        eventCount: 1,
+        textDeltaLength: 6,
+        sawDone: true,
+        truncatedFrame: false,
+      }),
+    })
+  })
+
+  it('reports a browser body failure with the safely summarized partial stream', async () => {
+    const privateError = new TypeError('private browser stream failure')
+    const encoded = new TextEncoder().encode('data: {"type":"start"}\n\n')
+    const onError = vi.fn()
+    let pullCount = 0
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (pullCount++ === 0) {
+            controller.enqueue(encoded)
+            return
+          }
+
+          controller.error(privateError)
+        },
+      }),
+    )
+
+    const observed = observeAmaSseResponse(response, { onError })
+
+    await expect(observed.text()).rejects.toThrow()
+    expect(onError).toHaveBeenCalledWith(privateError, {
+      summary: expect.objectContaining({
+        byteLength: encoded.byteLength,
+        eventCount: 1,
+        sawDone: false,
+        truncatedFrame: false,
+      }),
+    })
+    expect(JSON.stringify(onError.mock.calls[0]?.[1])).not.toContain('private')
   })
 })
