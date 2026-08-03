@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ModelMessage } from 'ai'
 import { DEFAULT_AMA_CHAT_MODEL } from '@/lib/ama-model-config'
 
 const { getPublicSiteContentMock, toolLoopAgentSettings } = vi.hoisted(() => ({
@@ -6,7 +7,9 @@ const { getPublicSiteContentMock, toolLoopAgentSettings } = vi.hoisted(() => ({
   toolLoopAgentSettings: [] as Array<Record<string, unknown>>,
 }))
 
-vi.mock('ai', () => {
+vi.mock('ai', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>()
+
   class ToolLoopAgent {
     settings: Record<string, unknown>
     tools: Record<string, { execute?: (...args: unknown[]) => Promise<unknown> | unknown }>
@@ -23,6 +26,7 @@ vi.mock('ai', () => {
   }
 
   return {
+    ...actual,
     tool: (definition: unknown) => definition,
     ToolLoopAgent,
   }
@@ -77,6 +81,9 @@ describe('createAmaAgent', () => {
       model: DEFAULT_AMA_CHAT_MODEL,
     })
     expect(toolLoopAgentSettings[0]?.providerOptions).toBeUndefined()
+    expect(toolLoopAgentSettings[0]).not.toHaveProperty('temperature')
+    expect(toolLoopAgentSettings[0]).not.toHaveProperty('seed')
+    expect(toolLoopAgentSettings[0]).not.toHaveProperty('maxRetries')
   })
 
   it('registers resume plus work and personal context tools with routing instructions', async () => {
@@ -97,6 +104,7 @@ describe('createAmaAgent', () => {
     expect(instructions).toContain('search_personal_context')
     expect(instructions).toContain('how did you build X')
     expect(instructions).toContain('even if public site content has a short project summary')
+    expect(instructions).toContain('Never call the same context tool more than once in a turn')
     expect(instructions).toContain('Work context disclosure policy')
     expect(instructions).toContain('Never include')
   })
@@ -134,9 +142,268 @@ describe('createAmaAgent', () => {
     expect(AMA_PROMPT_MANIFEST.tools.map((declaration) => declaration.name)).toEqual(
       Object.keys(tools),
     )
-    expect(AMA_PROMPT_MANIFEST.callSettings).toEqual({})
+    expect(AMA_PROMPT_MANIFEST.callSettings).toEqual({ maxOutputTokens: 512 })
     expect(() => JSON.stringify(AMA_PROMPT_MANIFEST)).not.toThrow()
     expect(AMA_SYSTEM_PROMPT_VERSION).toMatch(/^[a-f0-9]{64}$/)
+  })
+
+  it('sets an explicit output budget and prunes completed retrieval calls before each step', async () => {
+    const { createAmaAgent } = await import('@/lib/ama-agent')
+    const messages = [
+      { role: 'user', content: 'How did you build segov.dev?' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'old-context-call',
+            toolName: 'search_personal_context',
+            input: { query: 'How did you build segov.dev?' },
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'old-context-call',
+            toolName: 'search_personal_context',
+            output: {
+              type: 'json',
+              value: { content: 'Large retrieved context' },
+            },
+          },
+        ],
+      },
+      { role: 'assistant', content: 'I built it with Next.js.' },
+      { role: 'user', content: 'How did you build the fine-tuning flywheel?' },
+    ] satisfies ModelMessage[]
+
+    createAmaAgent()
+
+    const prepareStep = toolLoopAgentSettings[0]?.prepareStep as (options: {
+      messages: ModelMessage[]
+    }) => Promise<{ messages?: ModelMessage[] }>
+    const prepared = await prepareStep({ messages })
+
+    expect(toolLoopAgentSettings[0]).toMatchObject({ maxOutputTokens: 512 })
+    expect(prepared.messages).toEqual([messages[0], messages[3], messages[4]])
+  })
+
+  it('keeps the current retrieval call/result pair for the model step that answers it', async () => {
+    const { createAmaAgent } = await import('@/lib/ama-agent')
+    const messages = [
+      { role: 'user', content: 'How did you build the fine-tuning flywheel?' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'current-context-call',
+            toolName: 'search_personal_context',
+            input: { query: 'How did you build the fine-tuning flywheel?' },
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'current-context-call',
+            toolName: 'search_personal_context',
+            output: {
+              type: 'json',
+              value: { content: 'Current retrieved context' },
+            },
+          },
+        ],
+      },
+    ] satisfies ModelMessage[]
+
+    createAmaAgent()
+
+    const prepareStep = toolLoopAgentSettings[0]?.prepareStep as (options: {
+      messages: ModelMessage[]
+    }) => Promise<{ messages?: ModelMessage[] }>
+    const prepared = await prepareStep({ messages })
+
+    expect(prepared.messages).toEqual(messages)
+  })
+
+  it('keeps every retrieval call/result pair from the current turn', async () => {
+    const { createAmaAgent } = await import('@/lib/ama-agent')
+    const messages = [
+      { role: 'user', content: 'What did you build for the unknown Quartz Ledger project?' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'personal-context-call',
+            toolName: 'search_personal_context',
+            input: { query: 'Quartz Ledger' },
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'personal-context-call',
+            toolName: 'search_personal_context',
+            output: {
+              type: 'json',
+              value: { available: true, matches: [], content: 'No matching context.' },
+            },
+          },
+        ],
+      },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'public-context-call',
+            toolName: 'get_public_site_content',
+            input: {},
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'public-context-call',
+            toolName: 'get_public_site_content',
+            output: {
+              type: 'json',
+              value: { available: false, content: 'Public content is unavailable.' },
+            },
+          },
+        ],
+      },
+    ] satisfies ModelMessage[]
+
+    createAmaAgent()
+
+    const prepareStep = toolLoopAgentSettings[0]?.prepareStep as (options: {
+      messages: ModelMessage[]
+      steps: Array<{ toolCalls: Array<{ toolName: string }> }>
+      stepNumber: number
+    }) => Promise<{ messages?: ModelMessage[]; toolChoice?: string }>
+    const prepared = await prepareStep({
+      messages,
+      steps: [
+        { toolCalls: [{ toolName: 'search_personal_context' }] },
+        { toolCalls: [{ toolName: 'get_public_site_content' }] },
+      ],
+      stepNumber: 2,
+    })
+
+    expect(prepared.messages).toEqual(messages)
+    expect(prepared.toolChoice).toBeUndefined()
+  })
+
+  it('forces a final text answer after a repeated context tool call', async () => {
+    const { createAmaAgent } = await import('@/lib/ama-agent')
+    const messages = [
+      { role: 'user', content: 'Tell me about Quartz Ledger.' },
+    ] satisfies ModelMessage[]
+
+    createAmaAgent()
+
+    const prepareStep = toolLoopAgentSettings[0]?.prepareStep as (options: {
+      messages: ModelMessage[]
+      steps: Array<{ toolCalls: Array<{ toolName: string }> }>
+      stepNumber: number
+    }) => Promise<{ toolChoice?: string }>
+    const prepared = await prepareStep({
+      messages,
+      steps: [
+        { toolCalls: [{ toolName: 'search_personal_context' }] },
+        { toolCalls: [{ toolName: 'get_public_site_content' }] },
+        { toolCalls: [{ toolName: 'search_personal_context' }] },
+      ],
+      stepNumber: 3,
+    })
+
+    expect(prepared.toolChoice).toBe('none')
+  })
+
+  it('forces a final text answer after checking every context source once', async () => {
+    const { createAmaAgent } = await import('@/lib/ama-agent')
+    const messages = [
+      { role: 'user', content: 'Give me the broad overview.' },
+    ] satisfies ModelMessage[]
+
+    createAmaAgent()
+
+    const prepareStep = toolLoopAgentSettings[0]?.prepareStep as (options: {
+      messages: ModelMessage[]
+      steps: Array<{ toolCalls: Array<{ toolName: string }> }>
+      stepNumber: number
+    }) => Promise<{ toolChoice?: string }>
+    const prepared = await prepareStep({
+      messages,
+      steps: [
+        { toolCalls: [{ toolName: 'search_personal_context' }] },
+        { toolCalls: [{ toolName: 'get_public_site_content' }] },
+        { toolCalls: [{ toolName: 'get_resume' }] },
+        { toolCalls: [{ toolName: 'search_work_context' }] },
+      ],
+      stepNumber: 4,
+    })
+
+    expect(prepared.toolChoice).toBe('none')
+  })
+
+  it('prunes the initial call before trace capture so traces match effective model input', async () => {
+    const tracePrepareCall = vi.fn((callOptions: Record<string, unknown>) => callOptions)
+    const { createAmaAgent } = await import('@/lib/ama-agent')
+    const prompt = [
+      { role: 'user', content: 'First question' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'completed-call',
+            toolName: 'get_public_site_content',
+            input: {},
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'completed-call',
+            toolName: 'get_public_site_content',
+            output: { type: 'json', value: { content: 'Public context' } },
+          },
+        ],
+      },
+      { role: 'assistant', content: 'First answer' },
+      { role: 'user', content: 'Follow-up question' },
+    ] satisfies ModelMessage[]
+
+    createAmaAgent({
+      prepareCall: tracePrepareCall as never,
+    })
+
+    const prepareCall = toolLoopAgentSettings[0]?.prepareCall as (options: {
+      prompt: ModelMessage[]
+    }) => Promise<{ prompt?: ModelMessage[] }>
+    const prepared = await prepareCall({ prompt })
+    const expectedPrompt = [prompt[0], prompt[3], prompt[4]]
+
+    expect(tracePrepareCall).toHaveBeenCalledWith({ prompt: expectedPrompt })
+    expect(prepared.prompt).toEqual(expectedPrompt)
   })
 
   it('uses the env-specified model string', async () => {
@@ -184,6 +451,12 @@ describe('createAmaAgent', () => {
     })
     expect(toolLoopAgentSettings[0]?.providerOptions).toEqual({
       inference: { reasoning_effort: 'high' },
+    })
+    expect(toolLoopAgentSettings[0]).toMatchObject({
+      maxOutputTokens: 512,
+      maxRetries: 0,
+      temperature: 0,
+      seed: 1,
     })
   })
 
@@ -291,5 +564,47 @@ describe('createAmaAgent', () => {
       query: 'personal routing',
       content: 'Injected personal context',
     })
+  })
+
+  it('does not duplicate retrieved excerpts in model-facing tool results', async () => {
+    const excerpt = 'Fine-tuning flywheel implementation details.'
+    const searchPersonalContext = vi.fn(async (query: string) => ({
+      available: true,
+      source: 'blob' as const,
+      query,
+      matches: [
+        {
+          pathname: 'personal/segov-dev.md',
+          uploadedAt: '2026-08-02T00:00:00.000Z',
+          size: 1234,
+          score: 8,
+          excerpt,
+        },
+      ],
+      content: `Source: personal/segov-dev.md\n${excerpt}`,
+    }))
+    const { createAmaAgent } = await import('@/lib/ama-agent')
+    const agent = createAmaAgent({ searchPersonalContext }) as {
+      tools: Record<string, { execute?: (...args: unknown[]) => Promise<unknown> | unknown }>
+    }
+
+    const result = await agent.tools.search_personal_context.execute?.({
+      query: 'How did you build the fine-tuning flywheel?',
+    })
+    const serializedResult = JSON.stringify(result)
+
+    expect(result).toMatchObject({
+      matches: [
+        {
+          pathname: 'personal/segov-dev.md',
+          score: 8,
+        },
+      ],
+      content: expect.stringContaining(excerpt),
+    })
+    expect((result as { matches: Array<Record<string, unknown>> }).matches[0]).not.toHaveProperty(
+      'excerpt',
+    )
+    expect(serializedResult.split(excerpt)).toHaveLength(2)
   })
 })

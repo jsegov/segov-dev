@@ -4,9 +4,10 @@ import { get as getEdgeConfig } from '@vercel/edge-config'
 import { createAgentUIStreamResponse } from 'ai'
 import type * as AmaTracesModule from '@/lib/ama-traces'
 
-const { afterCallbacks, persistAmaTraceMock } = vi.hoisted(() => ({
+const { afterCallbacks, persistAmaTraceMock, waitForAmaInferenceEndpointMock } = vi.hoisted(() => ({
   afterCallbacks: [] as Array<() => Promise<void>>,
   persistAmaTraceMock: vi.fn(),
+  waitForAmaInferenceEndpointMock: vi.fn(),
 }))
 
 vi.mock('@vercel/blob', () => ({
@@ -32,7 +33,13 @@ vi.mock('@/lib/ama-traces', async (importOriginal) => {
   }
 })
 
-vi.mock('ai', () => {
+vi.mock('@/lib/ama-wake', () => ({
+  waitForAmaInferenceEndpoint: waitForAmaInferenceEndpointMock,
+}))
+
+vi.mock('ai', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>()
+
   class ToolLoopAgent {
     settings: Record<string, unknown>
     tools: Record<string, { execute?: (...args: unknown[]) => Promise<unknown> | unknown }>
@@ -48,6 +55,7 @@ vi.mock('ai', () => {
   }
 
   return {
+    ...actual,
     gateway: (id: string) => id,
     tool: (definition: unknown) => definition,
     ToolLoopAgent,
@@ -228,7 +236,11 @@ describe('/api/chat route', () => {
     vi.clearAllMocks()
     afterCallbacks.length = 0
     persistAmaTraceMock.mockResolvedValue(undefined)
+    waitForAmaInferenceEndpointMock.mockResolvedValue('skipped')
     delete process.env.BLOB_RESUME_PATH
+    delete process.env.AMA_INFERENCE_BASE_URL
+    delete process.env.AMA_DEPLOYMENT_MODEL
+    delete process.env.AMA_INFERENCE_HEADERS
     process.env.EDGE_CONFIG = 'https://edge-config.example'
     getEdgeConfigMock.mockResolvedValue({
       about: {
@@ -258,23 +270,25 @@ describe('/api/chat route', () => {
 
   it('returns stream response for valid messages payload', async () => {
     const { POST } = await import('@/app/api/chat/route')
-
-    const response = await POST(
-      new Request('http://localhost/api/chat', {
-        method: 'POST',
-        body: JSON.stringify({
-          messages: [
-            {
-              id: '1',
-              role: 'user',
-              parts: [{ type: 'text', text: 'Hello' }],
-            },
-          ],
-        }),
+    const request = new Request('http://localhost/api/chat', {
+      method: 'POST',
+      body: JSON.stringify({
+        messages: [
+          {
+            id: '1',
+            role: 'user',
+            parts: [{ type: 'text', text: 'Hello' }],
+          },
+        ],
       }),
-    )
+    })
+
+    const response = await POST(request)
 
     expect(response.status).toBe(200)
+    expect(response.headers.get('X-Ama-Trace-Id')).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    )
     expect(await response.text()).toBe('stream-ok')
     expect(createAgentUIStreamResponseMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -285,8 +299,189 @@ describe('/api/chat route', () => {
             parts: [{ type: 'text', text: 'Hello' }],
           },
         ],
+        abortSignal: request.signal,
+        timeout: { totalMs: 285_000 },
       }),
     )
+    expect(createAgentUIStreamResponseMock.mock.calls[0]?.[0]).not.toHaveProperty('messages')
+  })
+
+  it('returns a safe 400 when AI SDK message validation fails before streaming', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    createAgentUIStreamResponseMock.mockRejectedValueOnce(
+      Object.assign(new Error('private invalid message content'), {
+        name: 'AI_TypeValidationError',
+      }),
+    )
+    const { POST } = await import('@/app/api/chat/route')
+
+    const response = await POST(
+      new Request('http://localhost/api/chat', {
+        method: 'POST',
+        body: JSON.stringify({
+          messages: [{ id: 'invalid', role: 'user', parts: [] }],
+        }),
+      }),
+    )
+
+    expect(response.status).toBe(400)
+    expect(response.headers.get('X-Ama-Error-Kind')).toBe('invalid_request')
+    expect(await response.text()).toBe('AMA_ERROR:invalid_request')
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('"errorKind":"invalid_request"'))
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain('private invalid message content')
+    errorSpy.mockRestore()
+  })
+
+  it('returns a safe configuration error when inference settings are incomplete', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    process.env.AMA_INFERENCE_BASE_URL = 'https://inference.example/v1'
+    const { POST } = await import('@/app/api/chat/route')
+
+    const response = await POST(
+      new Request('http://localhost/api/chat', {
+        method: 'POST',
+        body: JSON.stringify({
+          messages: [{ id: '1', role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+        }),
+      }),
+    )
+
+    expect(response.status).toBe(500)
+    expect(await response.text()).toBe('AMA_ERROR:configuration')
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('"errorKind":"configuration"'))
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain('AMA_DEPLOYMENT_MODEL is required')
+    errorSpy.mockRestore()
+  })
+
+  it('waits for a scale-to-zero inference endpoint before starting the agent', async () => {
+    process.env.AMA_INFERENCE_BASE_URL = 'https://inference.example/v1'
+    process.env.AMA_DEPLOYMENT_MODEL = 'ama'
+    waitForAmaInferenceEndpointMock.mockResolvedValueOnce('warmed')
+    const { POST } = await import('@/app/api/chat/route')
+    const request = new Request('http://localhost/api/chat', {
+      method: 'POST',
+      body: JSON.stringify({
+        messages: [{ id: '1', role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+      }),
+    })
+
+    const response = await POST(request)
+
+    expect(response.status).toBe(200)
+    expect(waitForAmaInferenceEndpointMock).toHaveBeenCalledWith({
+      timeoutMs: 135_000,
+      signal: request.signal,
+    })
+    const streamOptions = createAgentUIStreamResponseMock.mock.calls[0]?.[0] as unknown as {
+      timeout: { totalMs: number }
+    }
+    expect(streamOptions.timeout.totalMs).toBeGreaterThan(0)
+    expect(streamOptions.timeout.totalMs).toBeLessThanOrEqual(285_000)
+  })
+
+  it('returns a safe timeout when cold restoration exceeds its readiness budget', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    process.env.AMA_INFERENCE_BASE_URL = 'https://inference.example/v1'
+    process.env.AMA_DEPLOYMENT_MODEL = 'ama'
+    waitForAmaInferenceEndpointMock.mockResolvedValueOnce('timed_out')
+    const { POST } = await import('@/app/api/chat/route')
+
+    const response = await POST(
+      new Request('http://localhost/api/chat', {
+        method: 'POST',
+        body: JSON.stringify({
+          messages: [{ id: '1', role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+        }),
+      }),
+    )
+
+    expect(response.status).toBe(504)
+    expect(await response.text()).toBe('AMA_ERROR:timeout')
+    expect(createAgentUIStreamResponseMock).not.toHaveBeenCalled()
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('"errorKind":"timeout"'))
+    errorSpy.mockRestore()
+  })
+
+  it('logs UI stream completion and errors without response text or tool payloads', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const { POST } = await import('@/app/api/chat/route')
+
+    await POST(
+      new Request('http://localhost/api/chat', {
+        method: 'POST',
+        body: JSON.stringify({
+          messages: [
+            {
+              id: 'conversation-user',
+              role: 'user',
+              parts: [{ type: 'text', text: 'Hello' }],
+            },
+          ],
+        }),
+      }),
+    )
+
+    const streamOptions = createAgentUIStreamResponseMock.mock.calls[0]?.[0] as unknown as {
+      onFinish?: (event: {
+        responseMessage: {
+          id: string
+          role: 'assistant'
+          parts: Array<
+            | { type: 'text'; text: string }
+            | {
+                type: 'dynamic-tool'
+                toolName: string
+                toolCallId: string
+                state: 'output-available'
+                input: unknown
+                output: unknown
+              }
+          >
+        }
+        finishReason: 'stop'
+        isAborted: boolean
+        isContinuation: boolean
+      }) => void
+      onError?: (error: unknown) => string
+    }
+    streamOptions.onFinish?.({
+      responseMessage: {
+        id: 'assistant-response',
+        role: 'assistant',
+        parts: [
+          { type: 'text', text: 'private response text' },
+          {
+            type: 'dynamic-tool',
+            toolName: 'search_personal_context',
+            toolCallId: 'tool-1',
+            state: 'output-available',
+            input: { query: 'private query' },
+            output: { content: 'private context' },
+          },
+        ],
+      },
+      finishReason: 'stop',
+      isAborted: false,
+      isContinuation: false,
+    })
+    const providerError = Object.assign(new Error('private provider failure'), {
+      name: 'AI_APICallError',
+      statusCode: 503,
+      isRetryable: true,
+    })
+    expect(streamOptions.onError?.(providerError)).toBe('AMA_ERROR:provider_unavailable')
+
+    expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining('"event":"ama_ui_stream_finish"'))
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"errorKind":"provider_unavailable"'),
+    )
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('"statusCode":503'))
+    expect(JSON.stringify(infoSpy.mock.calls)).not.toContain('private')
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain('provider failure')
+
+    infoSpy.mockRestore()
+    errorSpy.mockRestore()
   })
 
   it('returns the response before the after callback and Neon write finish', async () => {
@@ -357,6 +552,7 @@ describe('/api/chat route', () => {
   })
 
   it('settles stream errors without attempting a partial trace write', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const { POST } = await import('@/app/api/chat/route')
 
     const response = await POST(
@@ -377,6 +573,11 @@ describe('/api/chat route', () => {
     expect(await response.text()).toBe('stream-ok')
     await afterCallbacks[0]()
     expect(persistAmaTraceMock).not.toHaveBeenCalled()
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"event":"ama_sse_consumer_error"'),
+    )
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain('provider stream failed')
+    errorSpy.mockRestore()
   })
 
   it('creates distinct trace IDs for regenerations of the same turn', async () => {
@@ -597,6 +798,7 @@ describe('/api/chat route', () => {
     )
 
     expect(response.status).toBe(400)
+    expect(await response.text()).toBe('AMA_ERROR:invalid_request')
   })
 
   it('returns 400 for unknown AI SDK request triggers', async () => {
@@ -613,5 +815,6 @@ describe('/api/chat route', () => {
     )
 
     expect(response.status).toBe(400)
+    expect(await response.text()).toBe('AMA_ERROR:invalid_request')
   })
 })

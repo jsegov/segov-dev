@@ -10,6 +10,8 @@ import type {
 import {
   AMA_PROMPT_MANIFEST,
   AMA_SYSTEM_PROMPT_VERSION,
+  createAmaPromptManifest,
+  getAmaSystemPromptVersion,
   type AmaAgentCallSettings,
   type AMA_TOOL_DECLARATIONS,
 } from '@/lib/ama-agent'
@@ -45,6 +47,7 @@ interface CreateAmaTraceCollectorOptions {
   requestTrigger: AmaRequestTrigger
   deploymentEnvironment: string
   model: string
+  callSettings?: AmaAgentCallSettings
 }
 
 export interface AmaTraceCollector {
@@ -141,6 +144,12 @@ export function createAmaTraceCollector(
   options: CreateAmaTraceCollectorOptions,
 ): AmaTraceCollector {
   const traceId = options.traceId ?? randomUUID()
+  const promptManifest = options.callSettings
+    ? createAmaPromptManifest(options.callSettings)
+    : AMA_PROMPT_MANIFEST
+  const systemPromptVersion = options.callSettings
+    ? getAmaSystemPromptVersion(promptManifest)
+    : AMA_SYSTEM_PROMPT_VERSION
   let capturedInputMessages: readonly ModelMessage[] | null = null
   let settled = false
   let settlePayload: (payload: AmaTracePayload | null) => void = () => undefined
@@ -176,8 +185,8 @@ export function createAmaTraceCollector(
         turn: capturedInputMessages.filter((message) => message.role === 'user').length,
         requestTrigger: options.requestTrigger,
         deploymentEnvironment: options.deploymentEnvironment,
-        systemPromptVersion: AMA_SYSTEM_PROMPT_VERSION,
-        promptManifest: AMA_PROMPT_MANIFEST,
+        systemPromptVersion,
+        promptManifest,
         model: options.model,
         responseModel: event.response.modelId,
         provider: getGatewayProvider(event.providerMetadata),
