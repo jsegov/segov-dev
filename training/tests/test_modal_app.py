@@ -12,6 +12,11 @@ pytest.importorskip("modal")
 from deploy import modal_app
 
 
+def test_disables_only_cross_rank_nccl_dump_polling():
+    assert modal_app.VLLM_ENV["TORCH_NCCL_DUMP_ON_TIMEOUT"] == "0"
+    assert modal_app.VLLM_ENV.get("TORCH_NCCL_ENABLE_MONITORING", "1") == "1"
+
+
 @pytest.mark.parametrize(
     ("payload", "expected"),
     [

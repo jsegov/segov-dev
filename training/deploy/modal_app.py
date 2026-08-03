@@ -77,6 +77,18 @@ VLLM_VERSION = "0.21.0"
 # in place; Modal snapshots do not track Volume mutations.
 VLLM_CACHE_VOLUME_NAME = "ama-vllm-cache-v0210-qwen35-4b-32k-v1"
 
+VLLM_ENV = {
+    # Exposes vLLM's /sleep and /wake_up endpoints (sleep-mode control).
+    "VLLM_SERVER_DEV_MODE": "1",
+    # Multi-threaded inductor compiles break Modal snapshot creation.
+    "TORCHINDUCTOR_COMPILE_THREADS": "1",
+    # A Modal restore can leave PyTorch's snapshotted TCPStore connection stale.
+    # A world-size-1 server has no peer ranks to coordinate diagnostic dumps
+    # with, so disable only that store poll while retaining the NCCL watchdog
+    # and heartbeat monitor.
+    "TORCH_NCCL_DUMP_ON_TIMEOUT": "0",
+}
+
 # Training-matched template (deploy/chat_template_parity.jinja, staged on the
 # ama-merged Volume). The stock template diverged from the tinker renderer at
 # token 20: it dumps tools OpenAI-wrapped ({"type":"function","function":...})
@@ -93,14 +105,7 @@ vllm_image = (
     )
     .entrypoint([])
     .uv_pip_install(f"vllm=={VLLM_VERSION}")
-    .env(
-        {
-            # Exposes vLLM's /sleep and /wake_up endpoints (sleep-mode control).
-            "VLLM_SERVER_DEV_MODE": "1",
-            # Multi-threaded inductor compiles break Modal snapshot creation.
-            "TORCHINDUCTOR_COMPILE_THREADS": "1",
-        }
-    )
+    .env(VLLM_ENV)
 )
 
 app = modal.App("ama-vllm")
