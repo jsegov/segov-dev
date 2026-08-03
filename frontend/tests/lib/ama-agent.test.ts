@@ -104,6 +104,7 @@ describe('createAmaAgent', () => {
     expect(instructions).toContain('search_personal_context')
     expect(instructions).toContain('how did you build X')
     expect(instructions).toContain('even if public site content has a short project summary')
+    expect(instructions).toContain('Never call the same context tool more than once in a turn')
     expect(instructions).toContain('Work context disclosure policy')
     expect(instructions).toContain('Never include')
   })
@@ -229,6 +230,135 @@ describe('createAmaAgent', () => {
     const prepared = await prepareStep({ messages })
 
     expect(prepared.messages).toEqual(messages)
+  })
+
+  it('keeps every retrieval call/result pair from the current turn', async () => {
+    const { createAmaAgent } = await import('@/lib/ama-agent')
+    const messages = [
+      { role: 'user', content: 'What did you build for the unknown Quartz Ledger project?' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'personal-context-call',
+            toolName: 'search_personal_context',
+            input: { query: 'Quartz Ledger' },
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'personal-context-call',
+            toolName: 'search_personal_context',
+            output: {
+              type: 'json',
+              value: { available: true, matches: [], content: 'No matching context.' },
+            },
+          },
+        ],
+      },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'public-context-call',
+            toolName: 'get_public_site_content',
+            input: {},
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'public-context-call',
+            toolName: 'get_public_site_content',
+            output: {
+              type: 'json',
+              value: { available: false, content: 'Public content is unavailable.' },
+            },
+          },
+        ],
+      },
+    ] satisfies ModelMessage[]
+
+    createAmaAgent()
+
+    const prepareStep = toolLoopAgentSettings[0]?.prepareStep as (options: {
+      messages: ModelMessage[]
+      steps: Array<{ toolCalls: Array<{ toolName: string }> }>
+      stepNumber: number
+    }) => Promise<{ messages?: ModelMessage[]; toolChoice?: string }>
+    const prepared = await prepareStep({
+      messages,
+      steps: [
+        { toolCalls: [{ toolName: 'search_personal_context' }] },
+        { toolCalls: [{ toolName: 'get_public_site_content' }] },
+      ],
+      stepNumber: 2,
+    })
+
+    expect(prepared.messages).toEqual(messages)
+    expect(prepared.toolChoice).toBeUndefined()
+  })
+
+  it('forces a final text answer after a repeated context tool call', async () => {
+    const { createAmaAgent } = await import('@/lib/ama-agent')
+    const messages = [
+      { role: 'user', content: 'Tell me about Quartz Ledger.' },
+    ] satisfies ModelMessage[]
+
+    createAmaAgent()
+
+    const prepareStep = toolLoopAgentSettings[0]?.prepareStep as (options: {
+      messages: ModelMessage[]
+      steps: Array<{ toolCalls: Array<{ toolName: string }> }>
+      stepNumber: number
+    }) => Promise<{ toolChoice?: string }>
+    const prepared = await prepareStep({
+      messages,
+      steps: [
+        { toolCalls: [{ toolName: 'search_personal_context' }] },
+        { toolCalls: [{ toolName: 'get_public_site_content' }] },
+        { toolCalls: [{ toolName: 'search_personal_context' }] },
+      ],
+      stepNumber: 3,
+    })
+
+    expect(prepared.toolChoice).toBe('none')
+  })
+
+  it('forces a final text answer after checking every context source once', async () => {
+    const { createAmaAgent } = await import('@/lib/ama-agent')
+    const messages = [
+      { role: 'user', content: 'Give me the broad overview.' },
+    ] satisfies ModelMessage[]
+
+    createAmaAgent()
+
+    const prepareStep = toolLoopAgentSettings[0]?.prepareStep as (options: {
+      messages: ModelMessage[]
+      steps: Array<{ toolCalls: Array<{ toolName: string }> }>
+      stepNumber: number
+    }) => Promise<{ toolChoice?: string }>
+    const prepared = await prepareStep({
+      messages,
+      steps: [
+        { toolCalls: [{ toolName: 'search_personal_context' }] },
+        { toolCalls: [{ toolName: 'get_public_site_content' }] },
+        { toolCalls: [{ toolName: 'get_resume' }] },
+        { toolCalls: [{ toolName: 'search_work_context' }] },
+      ],
+      stepNumber: 4,
+    })
+
+    expect(prepared.toolChoice).toBe('none')
   })
 
   it('prunes the initial call before trace capture so traces match effective model input', async () => {
