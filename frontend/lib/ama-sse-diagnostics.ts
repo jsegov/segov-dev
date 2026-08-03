@@ -50,10 +50,24 @@ export interface AmaSseWireObservation {
   summary: AmaSseWireSummary
 }
 
+export type AmaSseTerminalEvent =
+  | {
+      outcome: 'upstream_closed'
+      observation: AmaSseWireObservation
+    }
+  | {
+      outcome: 'upstream_errored'
+      error: unknown
+      observation: AmaSseWireObservation
+    }
+  | {
+      outcome: 'downstream_canceled'
+      reason: unknown
+      observation: AmaSseWireObservation
+    }
+
 export interface AmaSseResponseObserver {
-  onComplete?: (observation: AmaSseWireObservation) => void
-  onError?: (error: unknown, observation: AmaSseWireObservation) => void
-  onCancel?: (observation: AmaSseWireObservation) => void
+  onTerminal?: (event: AmaSseTerminalEvent) => void
 }
 
 const EVENT_TYPE_SET = new Set<string>(AMA_SSE_EVENT_TYPES)
@@ -209,42 +223,99 @@ export function observeAmaSseResponse(
   const decoder = new TextDecoder()
   const collector = createAmaSseWireCollector()
   const traceId = getSafeTraceId(response)
-  let settled = false
+  let diagnosticsActive = true
+  let terminalOutcome: AmaSseTerminalEvent['outcome'] | undefined
+  let finishedObservation: AmaSseWireObservation | undefined
 
-  function finishObservation(): AmaSseWireObservation {
-    if (!settled) {
-      collector.push(decoder.decode(), 0)
-      settled = true
+  function collectChunk(chunk: Uint8Array) {
+    if (!diagnosticsActive) {
+      return
     }
 
-    return { ...(traceId ? { traceId } : {}), summary: collector.finish() }
+    try {
+      collector.push(decoder.decode(chunk, { stream: true }), chunk.byteLength)
+    } catch {
+      diagnosticsActive = false
+    }
   }
 
-  const body = new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      try {
-        const { done, value } = await reader.read()
-        if (done) {
-          const observation = finishObservation()
-          notifySafely(() => observer.onComplete?.(observation))
+  function finishObservation(): AmaSseWireObservation {
+    if (finishedObservation) {
+      return finishedObservation
+    }
+
+    let summary: AmaSseWireSummary
+    try {
+      if (diagnosticsActive) {
+        collector.push(decoder.decode(), 0)
+      }
+      summary = collector.finish()
+    } catch {
+      diagnosticsActive = false
+      summary = createAmaSseWireCollector().finish()
+    }
+
+    finishedObservation = { ...(traceId ? { traceId } : {}), summary }
+    return finishedObservation
+  }
+
+  function claimTerminal(event: AmaSseTerminalEvent): boolean {
+    if (terminalOutcome) {
+      return false
+    }
+
+    terminalOutcome = event.outcome
+    notifySafely(() => observer.onTerminal?.(event))
+    return true
+  }
+
+  const body = new ReadableStream<Uint8Array>(
+    {
+      async pull(controller) {
+        let result: ReadableStreamReadResult<Uint8Array>
+        try {
+          result = await reader.read()
+        } catch (error) {
+          if (terminalOutcome) {
+            return
+          }
+
+          claimTerminal({
+            outcome: 'upstream_errored',
+            error,
+            observation: finishObservation(),
+          })
+          controller.error(error)
+          return
+        }
+
+        if (terminalOutcome) {
+          return
+        }
+
+        if (result.done) {
+          claimTerminal({
+            outcome: 'upstream_closed',
+            observation: finishObservation(),
+          })
           controller.close()
           return
         }
 
-        collector.push(decoder.decode(value, { stream: true }), value.byteLength)
-        controller.enqueue(value)
-      } catch (error) {
-        const observation = finishObservation()
-        notifySafely(() => observer.onError?.(error, observation))
-        controller.error(error)
-      }
+        collectChunk(result.value)
+        controller.enqueue(result.value)
+      },
+      async cancel(reason) {
+        claimTerminal({
+          outcome: 'downstream_canceled',
+          reason,
+          observation: finishObservation(),
+        })
+        await reader.cancel(reason)
+      },
     },
-    async cancel(reason) {
-      const observation = finishObservation()
-      notifySafely(() => observer.onCancel?.(observation))
-      await reader.cancel(reason)
-    },
-  })
+    { highWaterMark: 0 },
+  )
 
   return new Response(body, {
     status: response.status,

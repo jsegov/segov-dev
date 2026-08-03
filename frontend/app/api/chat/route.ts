@@ -13,13 +13,21 @@ import {
   type AmaStreamErrorKind,
 } from '@/lib/ama-stream-diagnostics'
 import { createAmaTraceCollector, persistAmaTrace, type AmaRequestTrigger } from '@/lib/ama-traces'
+import { waitForAmaInferenceEndpoint } from '@/lib/ama-wake'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
 
 // Leave enough headroom for the AI SDK to emit a classified stream error
 // before Vercel's Fluid Compute invocation limit terminates the function.
-const AMA_AGENT_TIMEOUT_MS = 285_000
+const AMA_REQUEST_BUDGET_MS = 285_000
+const AMA_INFERENCE_STARTUP_TIMEOUT_MS = 135_000
+
+function createInferenceStartupTimeoutError(): Error {
+  const error = new Error('The inference endpoint did not become ready in time.')
+  error.name = 'TimeoutError'
+  return error
+}
 
 function createErrorResponse(kind: AmaStreamErrorKind, status: number): Response {
   return new Response(createAmaErrorTokenForKind(kind), {
@@ -78,6 +86,7 @@ function getFirstUserMessageId(messages: unknown[]): string | null {
 }
 
 export async function POST(req: Request) {
+  const requestStartedAt = Date.now()
   let body: unknown
   try {
     body = await req.json()
@@ -112,6 +121,31 @@ export async function POST(req: Request) {
       callSettings: getAmaCallSettings(modelConfig),
     })
     traceCollector = activeTraceCollector
+
+    let agentTimeoutMs = AMA_REQUEST_BUDGET_MS
+    if (modelConfig.inference) {
+      const readiness = await waitForAmaInferenceEndpoint({
+        timeoutMs: AMA_INFERENCE_STARTUP_TIMEOUT_MS,
+        signal: req.signal,
+      })
+      console.info(
+        JSON.stringify({
+          event: 'ama_inference_readiness',
+          traceId,
+          readiness,
+        }),
+      )
+
+      if (readiness === 'timed_out') {
+        throw createInferenceStartupTimeoutError()
+      }
+
+      // Startup polling and generation share the function's 285s safety
+      // budget, preserving 15s for classified errors before Vercel's 300s
+      // invocation limit.
+      agentTimeoutMs = Math.max(1_000, AMA_REQUEST_BUDGET_MS - (Date.now() - requestStartedAt))
+    }
+
     const agent = createAmaAgent({
       modelConfig,
       prepareCall: activeTraceCollector.prepareCall,
@@ -121,7 +155,7 @@ export async function POST(req: Request) {
       agent,
       uiMessages: messages,
       abortSignal: req.signal,
-      timeout: { totalMs: AMA_AGENT_TIMEOUT_MS },
+      timeout: { totalMs: agentTimeoutMs },
       onFinish: ({
         responseMessage,
         finishReason,

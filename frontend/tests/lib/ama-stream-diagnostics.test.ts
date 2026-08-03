@@ -206,7 +206,7 @@ describe('AMA stream diagnostics', () => {
     const traceId = '5dbcf4b4-438e-4af1-8841-78081b0d07c1'
     const wire = 'data: {"type":"text-delta","id":"text-1","delta":"answer"}\n\ndata: [DONE]\n\n'
     const encoded = new TextEncoder().encode(wire)
-    const onComplete = vi.fn()
+    const onTerminal = vi.fn()
     const response = new Response(
       new ReadableStream<Uint8Array>({
         start(controller) {
@@ -218,26 +218,29 @@ describe('AMA stream diagnostics', () => {
       { headers: { [AMA_TRACE_ID_HEADER]: traceId } },
     )
 
-    const observed = observeAmaSseResponse(response, { onComplete })
+    const observed = observeAmaSseResponse(response, { onTerminal })
 
     expect(await observed.text()).toBe(wire)
-    expect(onComplete).toHaveBeenCalledTimes(1)
-    expect(onComplete).toHaveBeenCalledWith({
-      traceId,
-      summary: expect.objectContaining({
-        byteLength: encoded.byteLength,
-        eventCount: 1,
-        textDeltaLength: 6,
-        sawDone: true,
-        truncatedFrame: false,
-      }),
+    expect(onTerminal).toHaveBeenCalledTimes(1)
+    expect(onTerminal).toHaveBeenCalledWith({
+      outcome: 'upstream_closed',
+      observation: {
+        traceId,
+        summary: expect.objectContaining({
+          byteLength: encoded.byteLength,
+          eventCount: 1,
+          textDeltaLength: 6,
+          sawDone: true,
+          truncatedFrame: false,
+        }),
+      },
     })
   })
 
   it('reports a browser body failure with the safely summarized partial stream', async () => {
     const privateError = new TypeError('private browser stream failure')
     const encoded = new TextEncoder().encode('data: {"type":"start"}\n\n')
-    const onError = vi.fn()
+    const onTerminal = vi.fn()
     let pullCount = 0
     const response = new Response(
       new ReadableStream<Uint8Array>({
@@ -252,17 +255,73 @@ describe('AMA stream diagnostics', () => {
       }),
     )
 
-    const observed = observeAmaSseResponse(response, { onError })
+    const observed = observeAmaSseResponse(response, { onTerminal })
 
     await expect(observed.text()).rejects.toThrow()
-    expect(onError).toHaveBeenCalledWith(privateError, {
-      summary: expect.objectContaining({
-        byteLength: encoded.byteLength,
-        eventCount: 1,
-        sawDone: false,
-        truncatedFrame: false,
-      }),
+    expect(onTerminal).toHaveBeenCalledTimes(1)
+    expect(onTerminal).toHaveBeenCalledWith({
+      outcome: 'upstream_errored',
+      error: privateError,
+      observation: {
+        summary: expect.objectContaining({
+          byteLength: encoded.byteLength,
+          eventCount: 1,
+          sawDone: false,
+          truncatedFrame: false,
+        }),
+      },
     })
-    expect(JSON.stringify(onError.mock.calls[0]?.[1])).not.toContain('private')
+    expect(JSON.stringify(onTerminal.mock.calls[0]?.[0]?.observation)).not.toContain('private')
+  })
+
+  it('reports downstream cancellation exactly once while an upstream read is pending', async () => {
+    const onTerminal = vi.fn()
+    const upstreamCancel = vi.fn()
+    let finishPull: (() => void) | undefined
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        pull() {
+          return new Promise<void>((resolve) => {
+            finishPull = resolve
+          })
+        },
+        cancel: upstreamCancel,
+      }),
+    )
+    const observed = observeAmaSseResponse(response, { onTerminal })
+    const reader = observed.body!.getReader()
+    const pendingRead = reader.read()
+
+    await vi.waitFor(() => expect(finishPull).toBeTypeOf('function'))
+    await reader.cancel('user stopped the response')
+    finishPull?.()
+    await pendingRead
+
+    expect(upstreamCancel).toHaveBeenCalledWith('user stopped the response')
+    expect(onTerminal).toHaveBeenCalledTimes(1)
+    expect(onTerminal).toHaveBeenCalledWith({
+      outcome: 'downstream_canceled',
+      reason: 'user stopped the response',
+      observation: {
+        summary: expect.objectContaining({
+          byteLength: 0,
+          eventCount: 0,
+          sawDone: false,
+          truncatedFrame: false,
+        }),
+      },
+    })
+  })
+
+  it('does not let terminal observer failures interrupt the response stream', async () => {
+    const wire = 'data: {"type":"finish","finishReason":"stop"}\n\ndata: [DONE]\n\n'
+    const response = new Response(wire)
+    const observed = observeAmaSseResponse(response, {
+      onTerminal() {
+        throw new Error('diagnostic callback failed')
+      },
+    })
+
+    await expect(observed.text()).resolves.toBe(wire)
   })
 })

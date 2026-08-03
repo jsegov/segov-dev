@@ -110,6 +110,12 @@ describe('AMA page', () => {
     expect(streamdownModes).not.toContain('streaming')
   })
 
+  it('throttles streamed chat updates to protect React from large SSE chunks', () => {
+    render(<AMAPage />)
+
+    expect(useChatMock).toHaveBeenCalledWith(expect.objectContaining({ experimental_throttle: 50 }))
+  })
+
   it('uses Streamdown streaming mode only for the active assistant response', () => {
     useChatMock.mockReturnValue({
       status: 'streaming',

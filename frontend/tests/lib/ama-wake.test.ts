@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { wakeAmaInferenceEndpoint } from '@/lib/ama-wake'
+import { waitForAmaInferenceEndpoint, wakeAmaInferenceEndpoint } from '@/lib/ama-wake'
 
 describe('wakeAmaInferenceEndpoint', () => {
   const originalFetch = globalThis.fetch
@@ -60,6 +60,41 @@ describe('wakeAmaInferenceEndpoint', () => {
     globalThis.fetch = vi.fn().mockResolvedValue({ ok: false }) as unknown as typeof fetch
 
     await expect(wakeAmaInferenceEndpoint()).resolves.toBe('failed')
+  })
+
+  it('reports a 503 as warming instead of a terminal failure', async () => {
+    process.env.AMA_INFERENCE_BASE_URL = 'https://example.modal.direct/v1'
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValue({ ok: false, status: 503 }) as unknown as typeof fetch
+
+    await expect(wakeAmaInferenceEndpoint()).resolves.toBe('warming')
+  })
+
+  it('polls the scale-to-zero 503 state until the endpoint is ready', async () => {
+    process.env.AMA_INFERENCE_BASE_URL = 'https://example.modal.direct/v1'
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 503 })
+      .mockResolvedValueOnce({ ok: false, status: 503 })
+      .mockResolvedValueOnce({ ok: true, status: 200 })
+    globalThis.fetch = fetchSpy as unknown as typeof fetch
+
+    await expect(
+      waitForAmaInferenceEndpoint({ timeoutMs: 1_000, initialDelayMs: 0 }),
+    ).resolves.toBe('warmed')
+    expect(fetchSpy).toHaveBeenCalledTimes(3)
+  })
+
+  it('stops polling when the readiness budget expires', async () => {
+    process.env.AMA_INFERENCE_BASE_URL = 'https://example.modal.direct/v1'
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: false, status: 503 })
+    globalThis.fetch = fetchSpy as unknown as typeof fetch
+
+    await expect(waitForAmaInferenceEndpoint({ timeoutMs: 0, initialDelayMs: 0 })).resolves.toBe(
+      'timed_out',
+    )
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
   })
 
   it('returns failed when the request throws or times out', async () => {

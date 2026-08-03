@@ -4,9 +4,10 @@ import { get as getEdgeConfig } from '@vercel/edge-config'
 import { createAgentUIStreamResponse } from 'ai'
 import type * as AmaTracesModule from '@/lib/ama-traces'
 
-const { afterCallbacks, persistAmaTraceMock } = vi.hoisted(() => ({
+const { afterCallbacks, persistAmaTraceMock, waitForAmaInferenceEndpointMock } = vi.hoisted(() => ({
   afterCallbacks: [] as Array<() => Promise<void>>,
   persistAmaTraceMock: vi.fn(),
+  waitForAmaInferenceEndpointMock: vi.fn(),
 }))
 
 vi.mock('@vercel/blob', () => ({
@@ -31,6 +32,10 @@ vi.mock('@/lib/ama-traces', async (importOriginal) => {
     persistAmaTrace: persistAmaTraceMock,
   }
 })
+
+vi.mock('@/lib/ama-wake', () => ({
+  waitForAmaInferenceEndpoint: waitForAmaInferenceEndpointMock,
+}))
 
 vi.mock('ai', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>()
@@ -231,6 +236,7 @@ describe('/api/chat route', () => {
     vi.clearAllMocks()
     afterCallbacks.length = 0
     persistAmaTraceMock.mockResolvedValue(undefined)
+    waitForAmaInferenceEndpointMock.mockResolvedValue('skipped')
     delete process.env.BLOB_RESUME_PATH
     delete process.env.AMA_INFERENCE_BASE_URL
     delete process.env.AMA_DEPLOYMENT_MODEL
@@ -344,6 +350,55 @@ describe('/api/chat route', () => {
     expect(await response.text()).toBe('AMA_ERROR:configuration')
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('"errorKind":"configuration"'))
     expect(JSON.stringify(errorSpy.mock.calls)).not.toContain('AMA_DEPLOYMENT_MODEL is required')
+    errorSpy.mockRestore()
+  })
+
+  it('waits for a scale-to-zero inference endpoint before starting the agent', async () => {
+    process.env.AMA_INFERENCE_BASE_URL = 'https://inference.example/v1'
+    process.env.AMA_DEPLOYMENT_MODEL = 'ama'
+    waitForAmaInferenceEndpointMock.mockResolvedValueOnce('warmed')
+    const { POST } = await import('@/app/api/chat/route')
+    const request = new Request('http://localhost/api/chat', {
+      method: 'POST',
+      body: JSON.stringify({
+        messages: [{ id: '1', role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+      }),
+    })
+
+    const response = await POST(request)
+
+    expect(response.status).toBe(200)
+    expect(waitForAmaInferenceEndpointMock).toHaveBeenCalledWith({
+      timeoutMs: 135_000,
+      signal: request.signal,
+    })
+    const streamOptions = createAgentUIStreamResponseMock.mock.calls[0]?.[0] as unknown as {
+      timeout: { totalMs: number }
+    }
+    expect(streamOptions.timeout.totalMs).toBeGreaterThan(0)
+    expect(streamOptions.timeout.totalMs).toBeLessThanOrEqual(285_000)
+  })
+
+  it('returns a safe timeout when cold restoration exceeds its readiness budget', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    process.env.AMA_INFERENCE_BASE_URL = 'https://inference.example/v1'
+    process.env.AMA_DEPLOYMENT_MODEL = 'ama'
+    waitForAmaInferenceEndpointMock.mockResolvedValueOnce('timed_out')
+    const { POST } = await import('@/app/api/chat/route')
+
+    const response = await POST(
+      new Request('http://localhost/api/chat', {
+        method: 'POST',
+        body: JSON.stringify({
+          messages: [{ id: '1', role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+        }),
+      }),
+    )
+
+    expect(response.status).toBe(504)
+    expect(await response.text()).toBe('AMA_ERROR:timeout')
+    expect(createAgentUIStreamResponseMock).not.toHaveBeenCalled()
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('"errorKind":"timeout"'))
     errorSpy.mockRestore()
   })
 

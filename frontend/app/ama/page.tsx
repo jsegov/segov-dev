@@ -61,33 +61,26 @@ const AMA_CHAT_TRANSPORT = new DefaultChatTransport({
   fetch: async (input, init) => {
     const response = sanitizeAmaChatHttpResponse(await fetch(input, init))
     return observeAmaSseResponse(response, {
-      onComplete: ({ traceId, summary }) => {
+      onTerminal: (terminal) => {
+        const { traceId, summary } = terminal.observation
+        if (terminal.outcome === 'upstream_errored') {
+          console.error(
+            JSON.stringify({
+              event: 'ama_client_sse_wire_error',
+              traceId,
+              outcome: terminal.outcome,
+              ...getAmaStreamErrorDetails(terminal.error, 'client_stream'),
+              summary,
+            }),
+          )
+          return
+        }
+
         console.info(
           JSON.stringify({
             event: 'ama_client_sse_wire_finish',
             traceId,
-            outcome: 'complete',
-            summary,
-          }),
-        )
-      },
-      onError: (error, { traceId, summary }) => {
-        console.error(
-          JSON.stringify({
-            event: 'ama_client_sse_wire_error',
-            traceId,
-            outcome: 'error',
-            ...getAmaStreamErrorDetails(error, 'client_stream'),
-            summary,
-          }),
-        )
-      },
-      onCancel: ({ traceId, summary }) => {
-        console.info(
-          JSON.stringify({
-            event: 'ama_client_sse_wire_finish',
-            traceId,
-            outcome: 'cancel',
+            outcome: terminal.outcome,
             summary,
           }),
         )
@@ -254,6 +247,11 @@ export default function AMAPage() {
     useChat({
       messages: INITIAL_MESSAGES,
       transport: AMA_CHAT_TRANSPORT,
+      // AI SDK otherwise publishes every streamed tool-input delta directly to
+      // React. A single network chunk can contain more than React's nested
+      // update limit, so coalesce those store notifications without changing
+      // the wire stream or final message.
+      experimental_throttle: 50,
       onFinish: ({ message, finishReason, isAbort, isDisconnect, isError }) => {
         const messageSummary = summarizeAmaUiMessage(message)
         console.info(

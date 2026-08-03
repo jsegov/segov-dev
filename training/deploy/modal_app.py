@@ -147,7 +147,60 @@ def _post(path: str, payload: dict | None = None, timeout: float = 120) -> None:
         resp.read()
 
 
-@app.cls(
+def _get_json(path: str, timeout: float = 30) -> object:
+    with urllib.request.urlopen(f"{VLLM_BASE}{path}", timeout=timeout) as resp:
+        return json.load(resp)
+
+
+def _wait_for_serving_ready(
+    process: subprocess.Popen, timeout_s: float
+) -> None:
+    """Gate external traffic on a restored engine that can generate tokens."""
+    deadline = time.monotonic() + timeout_s
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        if (return_code := process.poll()) is not None:
+            raise subprocess.CalledProcessError(return_code, process.args)
+
+        try:
+            if _get_json("/is_sleeping", timeout=5) is not False:
+                raise RuntimeError("vLLM is still sleeping")
+            with urllib.request.urlopen(f"{VLLM_BASE}/health", timeout=5) as resp:
+                if resp.status != 200:
+                    raise RuntimeError(f"vLLM health returned HTTP {resp.status}")
+            _post(
+                "/v1/chat/completions",
+                {
+                    "model": SERVED_NAME,
+                    "messages": [{"role": "user", "content": "readiness"}],
+                    "max_tokens": 1,
+                    "temperature": 0,
+                    "seed": 1,
+                },
+                timeout=30,
+            )
+            return
+        except (
+            json.JSONDecodeError,
+            TimeoutError,
+            urllib.error.URLError,
+            ConnectionError,
+            OSError,
+            RuntimeError,
+        ) as error:
+            last_error = error
+            time.sleep(2)
+
+    raise RuntimeError(
+        f"vLLM did not become serving-ready within {timeout_s}s"
+    ) from last_error
+
+
+# app.server exposes the process directly and returns 503 while a scale-to-zero
+# container is restoring. Unlike @modal.web_server, it does not hold each HTTP
+# request against the 150-second web-function limit. Authentication remains on
+# because unauthenticated defaults to False; clients use Modal-Key/Modal-Secret.
+@app.server(
     image=vllm_image,
     gpu="L4",  # 9.3GB weights + runtime + bounded KV cache target 24GB. If GPU
     #           snapshots fail on L4 (unverified), switch to "A10".
@@ -157,13 +210,15 @@ def _post(path: str, payload: dict | None = None, timeout: float = 120) -> None:
     # pennies at personal-site traffic; Modal's own vLLM examples use 5-15 min.
     scaledown_window=10 * 60,
     min_containers=0,
-    timeout=10 * 60,
+    target_concurrency=MAX_CONCURRENT_INPUTS,
+    port=VLLM_PORT,
+    startup_timeout=15 * 60,
+    exit_grace_period=30,
     # GPU memory snapshots (alpha): checkpoint the fully-booted engine so cold
     # starts become restores. min_containers=1 (~$580/mo) stays not-worth-it.
     enable_memory_snapshot=True,
     experimental_options={"enable_gpu_snapshot": True},
 )
-@modal.concurrent(max_inputs=MAX_CONCURRENT_INPUTS)  # low-traffic personal site; not 100
 class AmaVllm:
     @modal.enter(snap=True)
     def start_vllm(self) -> None:
@@ -220,9 +275,14 @@ class AmaVllm:
 
     @modal.enter(snap=False)
     def wake_vllm(self) -> None:
-        """After snapshot restore (or on non-snapshot boots), wake the engine."""
+        """After restore, wake and prove the engine can serve a token."""
+        process = getattr(self, "process", None)
+        if process is None:
+            raise RuntimeError("snapshotted vLLM process is missing")
+
         _post("/wake_up", timeout=300)
-        print("vLLM awake")
+        _wait_for_serving_ready(process, timeout_s=5 * 60)
+        print("vLLM awake and serving-ready")
 
     @modal.exit()
     def stop_vllm(self) -> None:
@@ -236,16 +296,3 @@ class AmaVllm:
             process.wait(timeout=10)
         except subprocess.TimeoutExpired:
             process.kill()
-
-    # requires_proxy_auth: Modal's edge rejects unauthenticated requests BEFORE
-    # a container starts — without it this is a public URL where every scraper
-    # hit pays a GPU cold start. Proxy auth is NOT Bearer: clients must send
-    # `Modal-Key: wk-...` and `Modal-Secret: ws-...` headers (a proxy-auth token
-    # pair from the Modal dashboard). The AI SDK sends them via
-    # AMA_INFERENCE_HEADERS — see deploy/README.md.
-    #
-    # startup_timeout covers the un-snapshotted boots (weight load + full
-    # torch.compile); snapshot restores are seconds.
-    @modal.web_server(port=VLLM_PORT, startup_timeout=15 * 60, requires_proxy_auth=True)
-    def serve(self) -> None:
-        """vLLM is started in start_vllm (must pre-exist the snapshot)."""

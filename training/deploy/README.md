@@ -116,20 +116,24 @@ Modal: a 3B went ~118s → ~12s median cold start. Design points:
 - **Wake-ahead:** the chat UI fires a fire-and-forget `POST /api/chat/wake` on
   mount; the Next.js route (server-side, so it can hold the proxy-auth headers)
   pings `<base>/models`, booting the container while the visitor types their
-  first message. No silent fallback to a gateway model — substituting a
-  different model while ours warms would defeat the point of serving the
-  fine-tune.
+  first message. `@app.server` returns a retryable 503 while a container is
+  restoring; if the visitor submits before it is ready, the chat route polls
+  only that startup state with bounded backoff, sharing one 285-second budget
+  between readiness and generation. No silent fallback to a gateway model —
+  substituting a different model while ours warms would defeat the point of
+  serving the fine-tune.
 
-Endpoint is authenticated by Modal proxy auth (`requires_proxy_auth=True`):
-Modal's edge rejects unauthenticated requests before a container starts, so
-random traffic never pays a GPU cold start. Proxy auth is **not Bearer** — it
-requires `Modal-Key` / `Modal-Secret` HTTP headers (create a proxy-auth token
-pair in the Modal dashboard under Settings → Proxy Auth Tokens). The AI SDK
-reuses the existing `AMA_INFERENCE_BASE_URL` seam, sending those headers via
-`AMA_INFERENCE_HEADERS`:
+Endpoint is exposed with `@app.server` and its authenticated default
+(`unauthenticated=False`): Modal's edge rejects unauthenticated requests before
+a container starts, so random traffic never pays a GPU cold start. Proxy auth
+is **not Bearer** — it requires `Modal-Key` / `Modal-Secret` HTTP headers
+(create a proxy-auth token pair in the Modal dashboard under Settings → Proxy
+Auth Tokens). The AI SDK reuses the existing `AMA_INFERENCE_BASE_URL` seam,
+sending those headers via `AMA_INFERENCE_HEADERS`. Use the `.modal.direct` URL
+printed by `modal deploy` and append `/v1`:
 
 ```
-AMA_INFERENCE_BASE_URL = https://<workspace>--ama-vllm-amavllm-serve.modal.run/v1
+AMA_INFERENCE_BASE_URL = https://<deployed-app-server>.modal.direct/v1
 AMA_DEPLOYMENT_MODEL   = ama
 AMA_INFERENCE_HEADERS  = {"Modal-Key":"wk-…","Modal-Secret":"ws-…"}
 ```
@@ -189,7 +193,7 @@ Bearer-style endpoints like Tinker's OAI service or vLLM `--api-key`.)
   is undocumented (driver 570+ gate).
 - Qwen3.5 loads correctly in the pinned vLLM (hybrid linear-attention support is
   relatively recent — vLLM Qwen3-Next lineage).
-- `@modal.web_server` / `@modal.concurrent` API and `nvidia/cuda:12.9.0` base in
-  your installed `modal` version.
+- `@app.server` API and `nvidia/cuda:12.9.0` base in your installed `modal`
+  version. Verify the emitted `.modal.direct` URL after each deployment.
 - L4 per-second price; GPU memory snapshots (cold-start mitigation) are
   experimental — verify L4 support before enabling.
