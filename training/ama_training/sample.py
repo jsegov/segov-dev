@@ -13,7 +13,7 @@ import sys
 
 import tinker
 from ama_training.manifest import load_manifest
-from ama_training.registry import candidate
+from ama_training.registry import DEFAULT_REGISTRY, candidate
 from ama_training.train import resolve_config
 from ama_training.preflight import run_preflight
 from ama_training.provenance import digest, seal, write
@@ -70,8 +70,8 @@ def select_prompt_versions(manifest, candidate_versions, prompt_version=None):
     return {requested: manifest[requested]}
 
 
-async def run(candidate_id, config, output, *, prompt_version=None):
-    selected = candidate(candidate_id)
+async def run(candidate_id, config, output, *, prompt_version=None, registry_path=DEFAULT_REGISTRY):
+    selected = candidate(candidate_id, registry_path)
     preflight = run_preflight(config)
     if (
         selected["preflight_sha256"] != preflight["artifact_sha256"]
@@ -169,7 +169,7 @@ def main(argv):
     own, rest = {}, []
     for arg in argv:
         key, _, value = arg.partition("=")
-        if key in {"candidate", "output", "prompt_version"}:
+        if key in {"candidate", "output", "prompt_version", "registry"}:
             if key in own:
                 raise ValueError(f"duplicate {key}= option")
             own[key] = value
@@ -177,9 +177,16 @@ def main(argv):
             rest.append(arg)
     if not all(own.get(key, "").strip() for key in ("candidate", "output")):
         raise ValueError("candidate= and output= required, with actual training overrides")
-    _, config = resolve_config(rest)
+    registry_path = own.get("registry", DEFAULT_REGISTRY)
+    _, config = resolve_config(rest, candidate_id=own["candidate"], registry_path=registry_path)
     asyncio.run(
-        run(own["candidate"], config, own["output"], prompt_version=own.get("prompt_version"))
+        run(
+            own["candidate"],
+            config,
+            own["output"],
+            prompt_version=own.get("prompt_version"),
+            registry_path=registry_path,
+        )
     )
 
 

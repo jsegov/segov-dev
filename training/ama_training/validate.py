@@ -61,7 +61,7 @@ def main(argv):
             limit = parse_preview_limit(arg.split("=", 1)[1])
         else:
             args.append(arg)
-    _, config = resolve_config(args)
+    _, config = resolve_config(args, resume=True)
     report = run_preflight(config, output)
     print(
         f"Validated {report['validated_rows']} rows, rendered {report['rendered_rows']} train/selection rows: {report['counts']}; max tokens={report['max_tokens']}; preflight={report['artifact_sha256']}"

@@ -143,7 +143,7 @@ def test_smoke_runs_every_prompt_version_with_matching_tool_results(
         "dataset_sha256": preflight["dataset_sha256"],
         "preflight_sha256": preflight["artifact_sha256"],
     }
-    monkeypatch.setattr(sample, "candidate", lambda _: selected)
+    monkeypatch.setattr(sample, "candidate", lambda *_: selected)
     queue = []
     for _version in ["v1", "v2"]:
         for fixture in load_fixtures()["fixtures"]:

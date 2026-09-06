@@ -27,7 +27,7 @@ def smoke_setup(monkeypatch, versions=("v1", "v2")):
         version: SimpleNamespace(tools=[], system_prompt=f"PRIVATE_SYSTEM_{version}")
         for version in versions
     }
-    monkeypatch.setattr(sample, "candidate", lambda _: selected)
+    monkeypatch.setattr(sample, "candidate", lambda *_: selected)
     monkeypatch.setattr(sample, "run_preflight", lambda _: preflight)
     monkeypatch.setattr(sample, "load_manifest", lambda _: manifest)
     monkeypatch.setattr(
@@ -134,8 +134,15 @@ def test_sample_cli_separates_prompt_selection_from_training_overrides(monkeypat
     monkeypatch.setattr(sample, "resolve_config", resolve)
     monkeypatch.setattr(sample, "run", run)
     sample.main(["candidate=id", "output=report.json", "prompt_version=all", "preset=qwen3.5-4b"])
-    resolve.assert_called_once_with(["preset=qwen3.5-4b"])
-    assert calls == [(("id", config, "report.json"), {"prompt_version": "all"})]
+    resolve.assert_called_once_with(
+        ["preset=qwen3.5-4b"], candidate_id="id", registry_path=sample.DEFAULT_REGISTRY
+    )
+    assert calls == [
+        (
+            ("id", config, "report.json"),
+            {"prompt_version": "all", "registry_path": sample.DEFAULT_REGISTRY},
+        )
+    ]
 
 
 def validation_setup(monkeypatch, invalid_last=False):
@@ -183,7 +190,7 @@ def test_preview_limit_does_not_reduce_full_validation_or_saved_evidence(
     report = validate.main(["preset=qwen3.5-4b", "limit=1", f"output={output}"])
     assert checked == list(range(6))
     assert report == expected == json.loads(output.read_text())
-    resolve.assert_called_once_with(["preset=qwen3.5-4b"])
+    resolve.assert_called_once_with(["preset=qwen3.5-4b"], resume=True)
     preview_read.assert_called_once()
     stdout = capsys.readouterr().out
     previews = [

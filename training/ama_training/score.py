@@ -98,7 +98,9 @@ def main(argv):
         raise ValueError(
             "candidate= and output= required, followed by the actual training overrides"
         )
-    _, config = resolve_config(args)
+    _, config = resolve_config(
+        args, candidate_id=own["candidate"], registry_path=own.get("registry", DEFAULT_REGISTRY)
+    )
     asyncio.run(
         run(
             own["candidate"],
