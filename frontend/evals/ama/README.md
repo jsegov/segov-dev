@@ -14,6 +14,8 @@ Fixtures are synthetic and injected locally. These evaluations do not read produ
 
 `AMA_MAX_OUTPUT_TOKENS` is the shared positive-integer runtime cap; its default is **1536**, selected by the [three-repetition budget experiment](reports/budget-experiment-2026-09-06.md) for the locally configured `openai/gpt-5-mini`. Repeat the comparison for a different model or inference endpoint. `AMA_EVAL_MAX_OUTPUT_TOKENS` is benchmark-only. Production and tuning reject benchmark-only model, provider, and token overrides. Unspecified gateway sampling/retry settings retain SDK/provider defaults; the installed SDK version is recorded. Inference endpoints inherit the runtime's deterministic temperature/seed and retry configuration.
 
+The subsequent [deployed-model comparison](reports/deployed-budget-experiment-2026-09-06.md) completed all twelve runs but selected no budget: every cap failed the same critical retrieval checks. The default remains 1536. Its report preserves later interrupted-run failures and incomplete judge evidence; it does not establish release readiness.
+
 The **selection** partition retains the original 150 cases. The **final** partition is a separately authored frozen suite of 32 cases, four in each of the same eight categories, with different organizations, projects, education facts, and private canaries. Its fixtures and cases are frozen together in `final-release.json` under this canonical SHA-256:
 
 ```text
