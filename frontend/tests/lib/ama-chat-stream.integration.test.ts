@@ -49,6 +49,7 @@ vi.mock('@vercel/blob', () => ({
 }))
 
 type GenerateResult = Awaited<ReturnType<MockLanguageModelV3['doGenerate']>>
+type GenerateParameters = Parameters<MockLanguageModelV3['doGenerate']>[0]
 const usage: GenerateResult['usage'] = {
   inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
   outputTokens: { total: 1, text: 1, reasoning: 0 },
@@ -82,13 +83,14 @@ function getText(message: UIMessage) {
     .map((part) => part.text)
     .join('')
 }
-function useModel(responses: GenerateResult[]) {
+function useModel(responses: GenerateResult[], calls: GenerateParameters[] = []) {
   const prompts: string[] = []
   let index = 0
   state.model = wrapLanguageModel({
     model: new MockLanguageModelV3({
-      doGenerate: async ({ prompt }) => {
-        prompts.push(JSON.stringify(prompt))
+      doGenerate: async (parameters) => {
+        calls.push(parameters)
+        prompts.push(JSON.stringify(parameters.prompt))
         const response = responses[index++]
         if (!response) {
           throw new Error('Unexpected model call')
@@ -99,6 +101,18 @@ function useModel(responses: GenerateResult[]) {
     middleware: simulateStreamingMiddleware(),
   })
   return prompts
+}
+
+function offeredTools(call: GenerateParameters | undefined) {
+  return (call?.tools ?? []).map((tool) => tool.name)
+}
+
+function returnedSource(call: GenerateParameters | undefined, toolName: string) {
+  return call?.prompt
+    .flatMap((message) => (message.role === 'tool' ? message.content : []))
+    .flatMap((part) =>
+      part.type === 'tool-result' && part.toolName === toolName ? [part.output] : [],
+    )[0]
 }
 
 describe('production AMA route → SDK transport', () => {
@@ -118,14 +132,18 @@ describe('production AMA route → SDK transport', () => {
   })
 
   it('retains private retrieval in model steps and persisted traces, but never in the public stream or next-turn history', async () => {
-    const prompts = useModel([
-      toolCall('get_public_site_content', 'public'),
-      toolCall('get_resume', 'resume'),
-      answer('First answer'),
-      toolCall('search_work_context', 'work'),
-      toolCall('search_personal_context', 'personal'),
-      answer('Second answer'),
-    ])
+    const calls: GenerateParameters[] = []
+    const prompts = useModel(
+      [
+        toolCall('get_public_site_content', 'public'),
+        toolCall('get_resume', 'resume'),
+        answer('First answer'),
+        toolCall('search_work_context', 'work'),
+        toolCall('search_personal_context', 'personal'),
+        answer('Second answer'),
+      ],
+      calls,
+    )
     const { POST } = await import('@/app/api/chat/route')
     const wire: Array<Promise<string>> = []
     const requests: string[] = []
@@ -155,17 +173,156 @@ describe('production AMA route → SDK transport', () => {
     expect(prompts[2]).toContain('PRIVATE_resume/private.md')
     expect(prompts[5]).toContain('PRIVATE_work/private.md')
     expect(prompts[5]).toContain('PRIVATE_personal/private.md')
+    expect(offeredTools(calls[3])).toContain('search_work_context')
+    expect(offeredTools(calls[4])).toContain('search_personal_context')
+    expect(offeredTools(calls[4])).not.toContain('search_work_context')
+    expect(calls[4]?.toolChoice).not.toEqual({ type: 'none' })
+    expect(returnedSource(calls[5], 'search_work_context')).toMatchObject({
+      type: 'json',
+      value: { sourceKind: 'work', retrievalStatus: 'found' },
+    })
+    expect(returnedSource(calls[5], 'search_personal_context')).toMatchObject({
+      type: 'json',
+      value: { sourceKind: 'personal', retrievalStatus: 'found' },
+    })
     expect(state.persist).toHaveBeenCalledTimes(2)
     expect(JSON.stringify(state.persist.mock.calls)).toContain('PRIVATE_resume/private.md')
     expect(JSON.stringify(state.persist.mock.calls)).toContain('PRIVATE_work/private.md')
     expect(JSON.stringify(state.persist.mock.calls)).toContain('PRIVATE_personal/private.md')
     for (const browserData of [publicWire, JSON.stringify(chat.messages), requests[1]]) {
       expect(browserData).not.toMatch(
-        /PRIVATE_|tool-|search_work_context|search_personal_context|get_resume/,
+        /PRIVATE_|tool-|search_work_context|search_personal_context|get_resume|sourceKind|retrievalStatus/,
       )
     }
     expect(new Set(traceIds).size).toBe(2)
     expect(traceIds.every((id) => Boolean(id))).toBe(true)
+  })
+
+  it('forces clear education retrieval through public then resume on the actual route', async () => {
+    const calls: GenerateParameters[] = []
+    useModel(
+      [
+        toolCall('get_public_site_content', 'education-public'),
+        toolCall('get_resume', 'education-resume'),
+        answer('My education details come from my resume.'),
+      ],
+      calls,
+    )
+    const { POST } = await import('@/app/api/chat/route')
+    const wire: Array<Promise<string>> = []
+    const chat = new Chat({
+      transport: new DefaultChatTransport({
+        fetch: async (_url, init) => {
+          const response = await POST(new Request('http://localhost/api/chat', init))
+          wire.push(response.clone().text())
+          return response
+        },
+      }),
+    })
+
+    await chat.sendMessage({ text: 'Where did you go to school?' })
+    await Promise.all(state.after.map((callback) => callback()))
+
+    expect(chat.error).toBeUndefined()
+    expect(chat.status).toBe('ready')
+    expect(getText(chat.messages.at(-1)!)).toBe('My education details come from my resume.')
+    expect(calls).toHaveLength(3)
+    expect(calls[0]?.toolChoice).toEqual({ type: 'tool', toolName: 'get_public_site_content' })
+    expect(offeredTools(calls[0])).toContain('get_public_site_content')
+    expect(offeredTools(calls[0])).not.toContain('get_resume')
+    expect(calls[1]?.toolChoice).toEqual({ type: 'tool', toolName: 'get_resume' })
+    expect(offeredTools(calls[1])).toContain('get_resume')
+    expect(offeredTools(calls[1])).not.toContain('get_public_site_content')
+    expect(returnedSource(calls[2], 'get_resume')).toMatchObject({
+      type: 'json',
+      value: {
+        sourceKind: 'resume',
+        retrievalStatus: 'found',
+        content: 'Architecture build notes PRIVATE_resume/private.md',
+      },
+    })
+    expect(state.persist).toHaveBeenCalledTimes(1)
+    expect(JSON.stringify(state.persist.mock.calls)).toContain('PRIVATE_resume/private.md')
+    for (const browserData of [(await Promise.all(wire)).join(''), JSON.stringify(chat.messages)]) {
+      expect(browserData).not.toMatch(/PRIVATE_|tool-|sourceKind|retrievalStatus/)
+    }
+  })
+
+  it('ends a single personal retrieval with retained source facts and regenerates without leaking them', async () => {
+    const calls: GenerateParameters[] = []
+    useModel(
+      [
+        toolCall('search_personal_context', 'personal-original'),
+        answer('I built explicit recovery paths.'),
+        toolCall('search_personal_context', 'personal-regenerated'),
+        answer('I preserve local drafts through interrupted work.'),
+        answer('You are welcome.'),
+      ],
+      calls,
+    )
+    const { POST } = await import('@/app/api/chat/route')
+    const wire: Array<Promise<string>> = []
+    const requests: string[] = []
+    const chat = new Chat({
+      transport: new DefaultChatTransport({
+        fetch: async (_url, init) => {
+          requests.push(String(init?.body))
+          const response = await POST(new Request('http://localhost/api/chat', init))
+          wire.push(response.clone().text())
+          return response
+        },
+      }),
+    })
+
+    await chat.sendMessage({ text: 'How did you build your side project?' })
+    await chat.regenerate()
+    await chat.sendMessage({ text: 'Thank you.' })
+    await Promise.all(state.after.map((callback) => callback()))
+
+    expect(chat.error).toBeUndefined()
+    expect(chat.status).toBe('ready')
+    expect(calls).toHaveLength(5)
+    for (const index of [0, 2]) {
+      expect(offeredTools(calls[index])).toContain('search_personal_context')
+      expect(returnedSource(calls[index], 'search_personal_context')).toBeUndefined()
+    }
+    for (const index of [1, 3]) {
+      expect(offeredTools(calls[index])).toEqual([])
+      expect(calls[index]?.toolChoice).toEqual({ type: 'none' })
+      expect(returnedSource(calls[index], 'search_personal_context')).toMatchObject({
+        type: 'json',
+        value: {
+          sourceKind: 'personal',
+          retrievalStatus: 'found',
+          available: true,
+          content: expect.stringContaining('PRIVATE_personal/private.md'),
+        },
+      })
+    }
+    expect(returnedSource(calls[4], 'search_personal_context')).toBeUndefined()
+    expect(JSON.stringify(calls[4]?.prompt)).not.toContain('PRIVATE_personal/private.md')
+    expect(state.persist).toHaveBeenCalledTimes(3)
+    for (const index of [0, 1]) {
+      const trace = state.persist.mock.calls[index]?.[0]
+      expect(JSON.stringify(trace)).toContain('PRIVATE_personal/private.md')
+      expect(JSON.stringify(trace)).toContain('"sourceKind":"personal"')
+      expect(JSON.stringify(trace)).toContain('"retrievalStatus":"found"')
+    }
+    expect(state.persist.mock.calls[1]?.[0].requestTrigger).toBe('regenerate-message')
+    expect(state.persist.mock.calls[1]?.[0].id).not.toBe(state.persist.mock.calls[0]?.[0].id)
+    expect(chat.messages.filter((message) => message.role === 'assistant').map(getText)).toEqual([
+      'I preserve local drafts through interrupted work.',
+      'You are welcome.',
+    ])
+    for (const browserData of [
+      (await Promise.all(wire)).join(''),
+      JSON.stringify(chat.messages),
+      ...requests,
+    ]) {
+      expect(browserData).not.toMatch(
+        /PRIVATE_|tool-|search_personal_context|sourceKind|retrievalStatus/,
+      )
+    }
   })
 
   it('regenerates through the public transport with distinct traces', async () => {

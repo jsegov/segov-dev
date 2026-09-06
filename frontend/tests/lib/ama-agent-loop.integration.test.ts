@@ -106,9 +106,10 @@ describe('AMA agent retrieval loop', () => {
   it('retains current-turn results but refuses to execute a hallucinated repeated retrieval', async () => {
     setModelResponses([
       createToolCall('personal-1', 'search_personal_context', { query: 'Quartz Ledger' }),
-      createToolCall('public-1', 'get_public_site_content'),
       createToolCall('personal-2', 'search_personal_context', { query: 'Quartz Ledger' }),
-      createAnswer('I do not have reliable context for that project. Try my Projects page.'),
+      createAnswer(
+        'I keep drafts in a local queue; these notes do not specify the crash algorithm.',
+      ),
     ])
     const { createAmaAgent } = await import('@/lib/ama-agent')
     const modelConfig: AmaModelConfig = { model: 'openai/test-model' }
@@ -120,7 +121,7 @@ describe('AMA agent retrieval loop', () => {
       source: 'blob' as const,
       query,
       matches: [],
-      content: 'No matching personal context was found.',
+      content: 'Drafts survive offline in a local queue.',
     }))
     const agent = createAmaAgent({
       modelConfig,
@@ -130,11 +131,11 @@ describe('AMA agent retrieval loop', () => {
 
     const result = await agent.generate({ prompt: 'Tell me about Quartz Ledger.' })
 
-    expect(result.text).toContain('Projects page')
-    expect(result.steps).toHaveLength(4)
-    expect(mockModel.doGenerateCalls).toHaveLength(4)
+    expect(result.text).toContain('local queue')
+    expect(result.steps).toHaveLength(3)
+    expect(mockModel.doGenerateCalls).toHaveLength(3)
     expect(searchPersonalContext).toHaveBeenCalledExactlyOnceWith('Quartz Ledger')
-    expect(getPublicSiteContent).toHaveBeenCalledTimes(1)
+    expect(getPublicSiteContent).not.toHaveBeenCalled()
     expect(availableTools(0)).toContain('search_personal_context')
     expect(availableTools(1)).not.toContain('search_personal_context')
     expect(availableTools(2)).not.toContain('search_personal_context')
@@ -145,38 +146,37 @@ describe('AMA agent retrieval loop', () => {
           toolCallId: 'personal-1',
           output: expect.objectContaining({
             type: 'json',
-            value: expect.objectContaining({ content: 'No matching personal context was found.' }),
-          }),
-        }),
-        expect.objectContaining({
-          toolCallId: 'public-1',
-          output: expect.objectContaining({
-            type: 'json',
-            value: expect.objectContaining({ available: false }),
+            value: expect.objectContaining({
+              content: 'Drafts survive offline in a local queue.',
+              sourceKind: 'personal',
+              retrievalStatus: 'found',
+            }),
           }),
         }),
       ]),
     )
-    expect(result.steps[2]?.toolCalls).toEqual([
+    expect(result.steps[1]?.toolCalls).toEqual([
       expect.objectContaining({
         toolCallId: 'personal-2',
         invalid: true,
         error: expect.any(NoSuchToolError),
       }),
     ])
-    expect(mockModel.doGenerateCalls[3]?.toolChoice).not.toEqual({ type: 'none' })
-    expect(availableTools(3)).toEqual(['get_resume', 'search_work_context'])
     expect(stepReminderLines(0)).toEqual([])
     expect(stepReminderLines(1)).toEqual([
       `${STEP_REMINDER_PREFIX}search_personal_context. Do not call them again.`,
     ])
-    for (const callIndex of [2, 3]) {
+    for (const callIndex of [1, 2]) {
+      expect(mockModel.doGenerateCalls[callIndex]?.toolChoice).toEqual({ type: 'none' })
+      expect(availableTools(callIndex)).toEqual([])
       expect(stepReminderLines(callIndex)).toEqual([
-        `${STEP_REMINDER_PREFIX}get_public_site_content, search_personal_context. Do not call them again.`,
+        `${STEP_REMINDER_PREFIX}search_personal_context. Do not call them again.`,
       ])
+      expect(systemInstructions(callIndex)).toContain(
+        'Source personal: found. Further calls allowed: no.',
+      )
     }
-    expect(systemInstructions(3)).toContain('an unavailable result or error is not usable context')
-    expect(toolResults(3)).toEqual(expect.arrayContaining(toolResults(2)))
+    expect(toolResults(2)).toEqual(expect.arrayContaining(toolResults(1)))
   })
 
   it('offers resume retrieval only after the public source has been checked', async () => {
@@ -234,6 +234,162 @@ describe('AMA agent retrieval loop', () => {
     expect(systemInstructions(2)).not.toContain(
       'Before saying a career, education, or background fact is unknown or absent, call get_resume',
     )
+  })
+
+  it('coalesces same-step duplicate reads without hiding attempts and resets on a new turn', async () => {
+    const duplicate = createToolCall('personal-first', 'search_personal_context', {
+      query: 'Quartz Ledger',
+    })
+    duplicate.content.push(
+      ...createToolCall('personal-repeat', 'search_personal_context', { query: 'another query' })
+        .content,
+    )
+    setModelResponses([
+      duplicate,
+      createAnswer('I use a local queue.'),
+      duplicate,
+      createAnswer('I use a local queue.'),
+    ])
+    const searchPersonalContext = vi.fn(async (query: string) => ({
+      available: true,
+      source: 'blob' as const,
+      query,
+      matches: [],
+      content: 'PRIVATE_QUEUE_FACT',
+    }))
+    const { createAmaAgent } = await import('@/lib/ama-agent')
+    const agent = createAmaAgent({
+      modelConfig: { model: 'openai/test-model' },
+      searchPersonalContext,
+    })
+    for (let turn = 0; turn < 2; turn += 1) {
+      const result = await agent.generate({ prompt: 'How did you build your side project?' })
+      expect(result.steps[0]!.toolCalls).toHaveLength(2)
+      expect(result.steps[0]!.toolResults.map((result) => result.output)).toEqual([
+        expect.objectContaining({
+          executionStatus: 'executed',
+          retrievalStatus: 'found',
+          content: 'PRIVATE_QUEUE_FACT',
+        }),
+        expect.objectContaining({
+          executionStatus: 'reused',
+          retrievalStatus: 'found',
+          content: 'PRIVATE_QUEUE_FACT',
+        }),
+      ])
+      expect(mockModel.doGenerateCalls[turn * 2 + 1]?.toolChoice).toEqual({ type: 'none' })
+    }
+    expect(searchPersonalContext.mock.calls).toEqual([['Quartz Ledger'], ['Quartz Ledger']])
+  })
+
+  it('plans using the actual user messages supplied by a custom step callback', async () => {
+    setModelResponses([
+      createToolCall('public', 'get_public_site_content'),
+      createToolCall('resume', 'get_resume'),
+      createAnswer('I studied computing.'),
+    ])
+    const { createAmaAgent } = await import('@/lib/ama-agent')
+    const agent = createAmaAgent({
+      modelConfig: { model: 'openai/test-model' },
+      getPublicSiteContent: async () => publicContent(),
+      getResumeContext: async () => ({
+        available: true,
+        source: 'blob',
+        content: 'I studied computing.',
+      }),
+      prepareStep: ({ messages }) => ({
+        messages: messages.map((message) =>
+          message.role === 'user' ? { role: 'user', content: 'Where did you study?' } : message,
+        ),
+      }),
+    })
+    await agent.generate({ prompt: 'How did you build your side project?' })
+    expect(mockModel.doGenerateCalls[0]?.toolChoice).toEqual({
+      type: 'tool',
+      toolName: 'get_public_site_content',
+    })
+    expect(mockModel.doGenerateCalls[1]?.toolChoice).toEqual({
+      type: 'tool',
+      toolName: 'get_resume',
+    })
+  })
+
+  it('keeps resume pending after coalescing duplicate public calls in the same step', async () => {
+    const duplicate = createToolCall('public-first', 'get_public_site_content')
+    duplicate.content.push(...createToolCall('public-repeat', 'get_public_site_content').content)
+    setModelResponses([
+      duplicate,
+      createToolCall('resume', 'get_resume'),
+      createAnswer('I studied computing.'),
+    ])
+    const { createAmaAgent } = await import('@/lib/ama-agent')
+    const getPublicSiteContent = vi.fn(async () => publicContent())
+    const getResumeContext = vi.fn(async () => ({
+      available: true,
+      source: 'blob' as const,
+      content: 'I studied computing.',
+    }))
+    const agent = createAmaAgent({
+      modelConfig: { model: 'openai/test-model' },
+      getPublicSiteContent,
+      getResumeContext,
+    })
+    const result = await agent.generate({ prompt: 'Where did you study?' })
+    expect(getPublicSiteContent).toHaveBeenCalledTimes(1)
+    expect(getResumeContext).toHaveBeenCalledTimes(1)
+    expect(result.steps[0]!.toolCalls).toHaveLength(2)
+    expect(mockModel.doGenerateCalls[1]?.toolChoice).toEqual({
+      type: 'tool',
+      toolName: 'get_resume',
+    })
+  })
+
+  it('does not repeat a failed loader when the same step requests it twice', async () => {
+    const duplicate = createToolCall('personal-first', 'search_personal_context', {
+      query: 'Quartz Ledger',
+    })
+    duplicate.content.push(
+      ...createToolCall('personal-repeat', 'search_personal_context', { query: 'another query' })
+        .content,
+    )
+    setModelResponses([duplicate, createAnswer('I cannot retrieve those notes right now.')])
+    const { createAmaAgent } = await import('@/lib/ama-agent')
+    const searchPersonalContext = vi.fn(async () => {
+      throw new Error('PRIVATE_FAILURE')
+    })
+    const agent = createAmaAgent({
+      modelConfig: { model: 'openai/test-model' },
+      searchPersonalContext,
+    })
+    const result = await agent.generate({ prompt: 'How did you build your side project?' })
+    expect(searchPersonalContext).toHaveBeenCalledTimes(1)
+    expect(result.steps[0]!.toolCalls).toHaveLength(2)
+    expect(result.steps[0]!.toolResults).toEqual([
+      expect.objectContaining({
+        toolCallId: 'personal-repeat',
+        output: expect.objectContaining({
+          executionStatus: 'reused',
+          sourceKind: 'personal',
+          retrievalStatus: 'unavailable',
+        }),
+      }),
+    ])
+    expect(systemInstructions(1)).toContain('Source personal: unavailable')
+    expect(systemInstructions(1)).not.toContain('PRIVATE_FAILURE')
+    expect(mockModel.doGenerateCalls[1]?.toolChoice).toEqual({ type: 'none' })
+  })
+
+  it('respects a custom no-tools restriction even when the source plan requires retrieval', async () => {
+    setModelResponses([createAnswer('I cannot retrieve those details in this request.')])
+    const { createAmaAgent } = await import('@/lib/ama-agent')
+    const agent = createAmaAgent({
+      modelConfig: { model: 'openai/test-model' },
+      prepareStep: () => ({ toolChoice: 'none' }),
+    })
+    await agent.generate({ prompt: 'Where did you study?' })
+    expect(availableTools(0)).toEqual([])
+    expect(mockModel.doGenerateCalls[0]?.toolChoice).toEqual({ type: 'none' })
+    expect(systemInstructions(0)).toContain('Required source still pending: public_site')
   })
 
   it('refuses to execute a hallucinated resume call before public retrieval', async () => {
@@ -307,8 +463,8 @@ describe('AMA agent retrieval loop', () => {
       `${STEP_REMINDER_PREFIX}get_public_site_content. Do not call them again.`,
     ])
     expect(availableTools(3)).not.toContain('get_resume')
-    expect(availableTools(3)).toEqual(['search_work_context', 'search_personal_context'])
-    expect(mockModel.doGenerateCalls[3]?.toolChoice).not.toEqual({ type: 'none' })
+    expect(availableTools(3)).toEqual([])
+    expect(mockModel.doGenerateCalls[3]?.toolChoice).toEqual({ type: 'none' })
     expect(toolResults(3)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ toolCallId: 'premature-resume' }),
@@ -376,7 +532,7 @@ describe('AMA agent retrieval loop', () => {
     ])
     expect(toolResults(1).some((part) => part.toolCallId === 'resume-1')).toBe(false)
     expect(availableTools(2)).not.toContain('get_resume')
-    expect(mockModel.doGenerateCalls[2]?.toolChoice).not.toEqual({ type: 'none' })
+    expect(mockModel.doGenerateCalls[2]?.toolChoice).toEqual({ type: 'none' })
     expect(stepReminderLines(2)).toEqual([
       `${STEP_REMINDER_PREFIX}get_public_site_content, get_resume. Do not call them again.`,
     ])
@@ -586,9 +742,9 @@ describe('AMA agent retrieval loop', () => {
 
     expect(prepareStep).toHaveBeenCalledTimes(2)
     expect(availableTools(0)).toEqual(['search_personal_context'])
-    expect(availableTools(1)).toEqual(['get_public_site_content'])
+    expect(availableTools(1)).toEqual([])
     expect(systemInstructions(1)).toContain(
-      'Tools still available: get_public_site_content. Use another source only if the question requires it.',
+      'No more tools are available. Answer using the existing results',
     )
   })
 
@@ -596,7 +752,6 @@ describe('AMA agent retrieval loop', () => {
     setModelResponses([
       createToolCall('work-1', 'search_work_context', { query: 'reliable systems' }),
       createToolCall('personal-1', 'search_personal_context', { query: 'Quartz Ledger' }),
-      createToolCall('public-1', 'get_public_site_content'),
       createAnswer('My work and side project both use explicit recovery paths.'),
     ])
     const { createAmaAgent } = await import('@/lib/ama-agent')
@@ -629,17 +784,15 @@ describe('AMA agent retrieval loop', () => {
     expect(searchPersonalContext).toHaveBeenCalledExactlyOnceWith('Quartz Ledger')
     expect(availableTools(1)).toContain('search_personal_context')
     expect(availableTools(1)).not.toContain('search_work_context')
-    expect(availableTools(2)).toEqual(['get_public_site_content'])
+    expect(availableTools(2)).toEqual([])
     expect(stepReminderLines(1)).toEqual([
       `${STEP_REMINDER_PREFIX}search_work_context. Do not call them again.`,
     ])
     expect(stepReminderLines(2)).toEqual([
       `${STEP_REMINDER_PREFIX}search_work_context, search_personal_context. Do not call them again.`,
     ])
-    expect(stepReminderLines(3)).toEqual([
-      `${STEP_REMINDER_PREFIX}get_public_site_content, search_work_context, search_personal_context. Do not call them again.`,
-    ])
-    expect(toolResults(3)).toEqual(
+    expect(mockModel.doGenerateCalls[2]?.toolChoice).toEqual({ type: 'none' })
+    expect(toolResults(2)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           toolCallId: 'work-1',

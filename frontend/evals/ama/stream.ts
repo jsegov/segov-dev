@@ -12,21 +12,34 @@ import { getAmaModelConfig } from '@/lib/ama-model-config'
 import { prepareAmaGeneration } from '@/lib/ama-request-budget'
 import { createAmaPublicStreamResponse } from '@/lib/ama-public-stream'
 import { getAmaStreamErrorDetails } from '@/lib/ama-stream-diagnostics'
-import type { AmaEvalCase, AmaEvalGenerationDiagnostics } from './types'
+import type { AmaEvalCase, AmaEvalGenerationDiagnostics, AmaEvalToolOutcome } from './types'
 
-export interface GenerateResultWithToolCalls {
-  text?: string
+interface EvalToolCall {
+  toolName?: string
+  toolCallId?: string
+  invalid?: boolean
+}
+
+interface EvalToolResult {
+  toolName?: string
+  toolCallId?: string
+  output?: unknown
+}
+
+interface EvalStep {
   finishReason?: string
   usage?: unknown
+  toolCalls?: EvalToolCall[]
+  toolResults?: EvalToolResult[]
+  content?: Array<{ type?: string; toolName?: string; toolCallId?: string }>
+}
+
+export interface GenerateResultWithToolCalls extends EvalStep {
+  text?: string
   totalUsage?: unknown
-  toolCalls?: Array<{ toolName?: string }>
   response?: { modelId?: string }
   providerMetadata?: { gateway?: { provider?: unknown } }
-  steps?: Array<{
-    finishReason?: string
-    usage?: unknown
-    toolCalls?: Array<{ toolName?: string }>
-  }>
+  steps?: EvalStep[]
 }
 
 function sanitizeUsageMetadata(usage: unknown): Record<string, number> | undefined {
@@ -53,6 +66,82 @@ export function extractToolCalls(result: GenerateResultWithToolCalls): string[] 
   ).flatMap((call) => (typeof call.toolName === 'string' ? [call.toolName] : []))
 }
 
+const KNOWN_TOOL_NAMES = new Set<string>([
+  'get_public_site_content',
+  'get_resume',
+  'search_work_context',
+  'search_personal_context',
+])
+
+function isKnownToolName(name: unknown): name is AmaEvalToolOutcome['name'] {
+  return typeof name === 'string' && KNOWN_TOOL_NAMES.has(name)
+}
+
+function toolResultStatus(output: unknown): AmaEvalToolOutcome['status'] {
+  if (!output || typeof output !== 'object' || Array.isArray(output)) {
+    return 'unavailable'
+  }
+  // Step results contain the raw execute() output, not the ModelMessage output wrapper.
+  const result = output as Record<string, unknown>
+  if (result.retrievalStatus === 'no_match' || result.source === 'no_matches') {
+    return 'no_match'
+  }
+  if (
+    result.retrievalStatus === 'empty' ||
+    result.source === 'empty_blob' ||
+    result.source === 'empty_files'
+  ) {
+    return 'empty'
+  }
+  if (result.available !== true || result.retrievalStatus === 'unavailable') {
+    return 'unavailable'
+  }
+  return typeof result.content === 'string' && result.content.trim() ? 'found' : 'empty'
+}
+
+export function extractToolOutcomes(result: GenerateResultWithToolCalls): AmaEvalToolOutcome[] {
+  return (result.steps ?? [result]).flatMap((step, index) =>
+    (step.toolCalls ?? []).flatMap((call): AmaEvalToolOutcome[] => {
+      if (!isKnownToolName(call.toolName)) {
+        return []
+      }
+      const invalid = call.invalid === true
+      const matchesCall = (part: { toolCallId?: string; toolName?: string }) =>
+        typeof call.toolCallId === 'string' &&
+        call.toolCallId.length > 0 &&
+        part.toolCallId === call.toolCallId &&
+        part.toolName === call.toolName
+      const failed = (step.content ?? []).some(
+        (part) => part.type === 'tool-error' && matchesCall(part),
+      )
+      const completed = (step.toolResults ?? []).find(matchesCall)
+      // SDK invalid-call errors also appear in content. They never prove execution.
+      const hasOutcome = !invalid && (failed || completed !== undefined)
+      const output = completed?.output
+      const reused =
+        output !== null &&
+        typeof output === 'object' &&
+        'executionStatus' in output &&
+        output.executionStatus === 'reused'
+      // A deduplicated attempt retains its result but did not invoke the loader again.
+      const executed = hasOutcome && !reused
+      return [
+        {
+          step: index,
+          name: call.toolName,
+          invalid,
+          executed,
+          status: !hasOutcome
+            ? 'not_executed'
+            : failed
+              ? 'error'
+              : toolResultStatus(completed?.output),
+        },
+      ]
+    }),
+  )
+}
+
 export function extractGenerationDiagnostics(
   result: GenerateResultWithToolCalls,
 ): AmaEvalGenerationDiagnostics {
@@ -64,6 +153,7 @@ export function extractGenerationDiagnostics(
     stepFinishReasons: (result.steps ?? []).flatMap((step) =>
       typeof step.finishReason === 'string' ? [step.finishReason] : [],
     ),
+    toolOutcomes: extractToolOutcomes(result),
   }
 }
 

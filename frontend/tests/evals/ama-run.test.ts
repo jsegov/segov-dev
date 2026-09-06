@@ -88,6 +88,15 @@ describe('AMA eval runner helpers', () => {
         totalTokens: 70,
       },
       stepFinishReasons: ['tool-calls', 'stop'],
+      toolOutcomes: [
+        {
+          step: 0,
+          name: 'get_public_site_content',
+          invalid: false,
+          executed: false,
+          status: 'not_executed',
+        },
+      ],
     })
   })
 

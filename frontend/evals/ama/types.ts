@@ -62,6 +62,15 @@ export interface AmaEvalCase {
 
 export type AmaEvalUsage = Record<string, number>
 
+export interface AmaEvalToolOutcome {
+  step: number
+  name: 'get_public_site_content' | 'get_resume' | 'search_work_context' | 'search_personal_context'
+  invalid: boolean
+  /** Whether this attempt invoked the tool loader; reused results remain false. */
+  executed: boolean
+  status: 'found' | 'no_match' | 'empty' | 'unavailable' | 'error' | 'not_executed'
+}
+
 export interface AmaEvalGenerationDiagnostics {
   finishReason?: string
   stepCount: number
@@ -75,6 +84,8 @@ export interface AmaEvalGenerationDiagnostics {
   protocolPassed?: boolean
   serverFinishReceived?: boolean
   toolSequence?: Array<{ step: number; name: string }>
+  /** Allowlisted summaries only; never include arguments, IDs, results, or error text. */
+  toolOutcomes?: AmaEvalToolOutcome[]
   responseModel?: string
   provider?: string
 }

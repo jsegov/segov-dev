@@ -356,6 +356,7 @@ export async function runAmaEvalSuite(options: RunAmaEvalOptions = {}): Promise<
       new URL('../../lib/ama-request-budget.ts', import.meta.url),
       new URL('../../lib/ama-wake.ts', import.meta.url),
       new URL('../../lib/ama-agent.ts', import.meta.url),
+      new URL('../../lib/ama-source-policy.ts', import.meta.url),
       new URL('./profiles.ts', import.meta.url),
       new URL('./release.ts', import.meta.url),
     ]),
