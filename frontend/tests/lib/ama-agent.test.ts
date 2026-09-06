@@ -142,7 +142,7 @@ describe('createAmaAgent', () => {
     expect(AMA_PROMPT_MANIFEST.tools.map((declaration) => declaration.name)).toEqual(
       Object.keys(tools),
     )
-    expect(AMA_PROMPT_MANIFEST.callSettings).toEqual({ maxOutputTokens: 512 })
+    expect(AMA_PROMPT_MANIFEST.callSettings).toEqual({ maxOutputTokens: 1536 })
     expect(() => JSON.stringify(AMA_PROMPT_MANIFEST)).not.toThrow()
     expect(AMA_SYSTEM_PROMPT_VERSION).toMatch(/^[a-f0-9]{64}$/)
   })
@@ -187,7 +187,7 @@ describe('createAmaAgent', () => {
     }) => Promise<{ messages?: ModelMessage[] }>
     const prepared = await prepareStep({ messages })
 
-    expect(toolLoopAgentSettings[0]).toMatchObject({ maxOutputTokens: 512 })
+    expect(toolLoopAgentSettings[0]).toMatchObject({ maxOutputTokens: 1536 })
     expect(prepared.messages).toEqual([messages[0], messages[3], messages[4]])
   })
 
@@ -453,7 +453,7 @@ describe('createAmaAgent', () => {
       inference: { reasoning_effort: 'high' },
     })
     expect(toolLoopAgentSettings[0]).toMatchObject({
-      maxOutputTokens: 512,
+      maxOutputTokens: 1536,
       maxRetries: 0,
       temperature: 0,
       seed: 1,

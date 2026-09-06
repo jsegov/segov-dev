@@ -249,7 +249,8 @@ async function verifyFinalDecision(
     report.configuration.finalDatasetSha256 !== FINAL_RELEASE_DATASET_SHA256 ||
     report.configuration.sdkVersion !== summaryConfig.metadata.sdkVersion ||
     sha256(report.configuration.callSettings) !== sha256(comparison.callSettings) ||
-    sha256(report.configuration.judgeModelConfig) !== sha256(comparison.judgeModelConfig)
+    sha256(report.configuration.judgeModelConfig) !== sha256(comparison.judgeModelConfig) ||
+    sha256(report.configuration.judgeCallSettings) !== sha256(comparison.judgeCallSettings)
   ) {
     throw new Error('Final evaluation configuration does not match the frozen selection decision.')
   }

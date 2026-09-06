@@ -64,8 +64,8 @@ Two operational gotchas (both handled/expected, noted so they don't alarm):
   export at 0% CPU. `export_adapter` defaults `TINKER_TELEMETRY=0` to avoid it;
   if you invoke the SDK directly, set that env var yourself.
 
-The ~292 MB PEFT adapter (`merged=false`, the default) is kept documented for
-reuse on other models, but is NOT what we serve for Qwen3.5 (see the box).
+The ~292 MB PEFT adapter (`merged=false`) remains available for exploratory
+exports and reuse on other models. Qwen3.5 defaults to the merged export.
 
 ## 2. Stage the merged model into a Modal Volume
 
@@ -222,7 +222,7 @@ Create a runtime JSON file using the exact settings from production evaluation:
 ```json
 {
   "call_settings": {
-    "maxOutputTokens": 512,
+    "maxOutputTokens": 1536,
     "temperature": 0,
     "seed": 1,
     "maxRetries": 0

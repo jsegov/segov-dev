@@ -30,7 +30,7 @@ Set these in `frontend/.env.local` for local development and in Vercel project s
 
 - `AI_GATEWAY_API_KEY`
 - `AMA_CHAT_MODEL` (default: `openai/gpt-5-mini`)
-- `AMA_MAX_OUTPUT_TOKENS` (positive integer; defaults to the committed value in `frontend/lib/ama-defaults.json`, initially 512)
+- `AMA_MAX_OUTPUT_TOKENS` (positive integer; defaults to 1536, recorded in `frontend/lib/ama-defaults.json`; see the [budget experiment](frontend/evals/ama/reports/budget-experiment-2026-09-06.md))
 - `AMA_CHAT_PROVIDERS` (optional: `openai` or `vertex,anthropic`)
 - `AMA_INFERENCE_BASE_URL` (optional: OpenAI-compatible endpoint for a fine-tuned deployment, e.g. Tinker's `.../oai/api/v1`; when set, it replaces AI Gateway routing)
 - `AMA_INFERENCE_API_KEY` (optional: bearer token for the inference endpoint)

@@ -70,6 +70,12 @@ function suite(budget: number, repetition: number, quality: number): AmaEvalSumm
     sdkVersion: '6.test',
     judgeModel: 'openai/judge',
     judgeModelConfig: { model: 'openai/judge' },
+    judgeCallSettings: {
+      temperature: 0,
+      maxRetries: 0,
+      timeout: { totalMs: 120_000 },
+      attempts: 2,
+    },
     judgeRequired: true,
     repetition,
     startedAt: '2026-01-01T00:00:00.000Z',
@@ -134,6 +140,18 @@ describe('budget selection evidence', () => {
     const report = buildBudgetSelectionReport(matrix())
     report.selected_budget = 512
     expect(() => validateSelectionReport(report)).toThrow('changed')
+  })
+
+  it.each([
+    { temperature: 0.5 },
+    { maxRetries: 1 },
+    { timeout: { totalMs: 60_000 } },
+    { attempts: 1 },
+  ])('rejects a changed judge call setting: %o', (changedSettings) => {
+    const runs = matrix()
+    const metadata = runs[0]!.summary.metadata!
+    metadata.judgeCallSettings = { ...metadata.judgeCallSettings, ...changedSettings }
+    expect(() => buildBudgetSelectionReport(runs)).toThrow('Only maxOutputTokens')
   })
 })
 

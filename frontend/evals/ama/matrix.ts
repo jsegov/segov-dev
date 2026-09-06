@@ -37,6 +37,7 @@ export function getComparisonConfiguration(summary: AmaEvalSummary) {
     finalDatasetSha256: metadata.finalDatasetSha256,
     judgeModel: metadata.judgeModel,
     judgeModelConfig: metadata.judgeModelConfig,
+    judgeCallSettings: metadata.judgeCallSettings,
     judgeRequired: metadata.judgeRequired,
     callSettings,
   }
