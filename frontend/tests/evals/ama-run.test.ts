@@ -9,7 +9,7 @@ import {
 import type { AmaEvalGenerationDiagnostics, AmaEvalSummary } from '@/evals/ama/types'
 
 describe('AMA eval runner helpers', () => {
-  it('keeps enough default output budget for reasoning models to return an answer', () => {
+  it('preserves the historical 2400-token benchmark budget', () => {
     expect(DEFAULT_AMA_EVAL_MAX_OUTPUT_TOKENS).toBeGreaterThanOrEqual(2400)
   })
 

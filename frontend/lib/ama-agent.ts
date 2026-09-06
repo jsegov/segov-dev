@@ -14,10 +14,12 @@ import {
   type AmaContextSearchResult,
 } from '@/lib/ama-context'
 import {
+  AmaModelConfigurationError,
   getAmaModelConfig,
   resolveAmaLanguageModel,
   type AmaModelConfig,
 } from '@/lib/ama-model-config'
+import amaDefaults from '@/lib/ama-defaults.json'
 import { withAmaInferenceReliability } from '@/lib/ama-model-reliability'
 import { getPublicSiteContent, type SiteContent } from '@/lib/content'
 import {
@@ -118,11 +120,33 @@ export const AMA_TOOL_DECLARATIONS = [
   },
 ] as const
 
+export function validateAmaMaxOutputTokens(value: unknown, setting: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
+    throw new AmaModelConfigurationError(`${setting} must be a positive integer.`)
+  }
+  return value
+}
+
 // Generation settings used in production. Keep enough output headroom for a
 // concise terminal answer without allowing an unbounded provider default to
 // consume the model's combined input/output context window.
 export const DEFAULT_AMA_CALL_SETTINGS: AmaAgentCallSettings = {
-  maxOutputTokens: 512,
+  maxOutputTokens: validateAmaMaxOutputTokens(
+    amaDefaults.maxOutputTokens,
+    'ama-defaults.json maxOutputTokens',
+  ),
+}
+
+export function parseAmaMaxOutputTokens(value: string | undefined): number {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return DEFAULT_AMA_CALL_SETTINGS.maxOutputTokens!
+  }
+  const parsed = Number(trimmed)
+  if (!/^\d+$/.test(trimmed)) {
+    throw new AmaModelConfigurationError('AMA_MAX_OUTPUT_TOKENS must be a positive integer.')
+  }
+  return validateAmaMaxOutputTokens(parsed, 'AMA_MAX_OUTPUT_TOKENS')
 }
 
 // The fine-tuned checkpoint was evaluated greedily. Set these explicitly for
@@ -141,8 +165,13 @@ export function getAmaCallSettings(
   modelConfig: AmaModelConfig,
   overrides: AmaAgentCallSettings = {},
 ): AmaAgentCallSettings {
+  const maxOutputTokens = parseAmaMaxOutputTokens(process.env.AMA_MAX_OUTPUT_TOKENS)
+  if (overrides.maxOutputTokens !== undefined) {
+    validateAmaMaxOutputTokens(overrides.maxOutputTokens, 'maxOutputTokens')
+  }
   return {
     ...DEFAULT_AMA_CALL_SETTINGS,
+    maxOutputTokens,
     ...(modelConfig.inference ? DEFAULT_AMA_INFERENCE_CALL_SETTINGS : {}),
     ...overrides,
   }

@@ -13,6 +13,12 @@
     "test:watch": "vitest",
     "eval:ama": "vitest run --config vitest.eval.config.ts --pool=forks --testTimeout=1500000",
     "eval:ama:ci": "AMA_EVAL_CI=1 AMA_EVAL_CONCURRENCY=8 vitest run --config vitest.eval.config.ts --pool=forks --testTimeout=1500000",
+    "eval:ama:production": "AMA_EVAL_PROFILE=production vitest run --config vitest.eval.config.ts",
+    "eval:ama:benchmark": "AMA_EVAL_PROFILE=benchmark vitest run --config vitest.eval.config.ts",
+    "eval:ama:matrix": "AMA_EVAL_COMMAND=matrix vitest run --config vitest.eval.config.ts",
+    "eval:ama:select": "AMA_EVAL_COMMAND=select vitest run --config vitest.eval.config.ts",
+    "eval:ama:final": "AMA_EVAL_PROFILE=production AMA_EVAL_SUITE=final vitest run --config vitest.eval.config.ts",
+    "eval:ama:export-manifest": "AMA_EVAL_COMMAND=export-manifest vitest run --config vitest.eval.config.ts",
     "typecheck": "tsc --noEmit",
     "coverage": "vitest run --coverage"
   },

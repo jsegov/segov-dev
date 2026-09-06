@@ -64,8 +64,15 @@ jobs:
         id: ama-evals
         if: ${{ env.AI_GATEWAY_API_KEY != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         env:
-          AMA_EVAL_MODEL: ${{ vars.AMA_EVAL_MODEL }}
-          AMA_EVAL_PROVIDERS: ${{ vars.AMA_EVAL_PROVIDERS }}
+          AMA_EVAL_PROFILE: production
+          AMA_CHAT_MODEL: ${{ vars.AMA_CHAT_MODEL }}
+          AMA_CHAT_PROVIDERS: ${{ vars.AMA_CHAT_PROVIDERS }}
+          AMA_MAX_OUTPUT_TOKENS: ${{ vars.AMA_MAX_OUTPUT_TOKENS }}
+          AMA_INFERENCE_BASE_URL: ${{ vars.AMA_INFERENCE_BASE_URL }}
+          AMA_DEPLOYMENT_MODEL: ${{ vars.AMA_DEPLOYMENT_MODEL }}
+          AMA_INFERENCE_REASONING_EFFORT: ${{ vars.AMA_INFERENCE_REASONING_EFFORT }}
+          AMA_INFERENCE_API_KEY: ${{ secrets.AMA_INFERENCE_API_KEY }}
+          AMA_INFERENCE_HEADERS: ${{ secrets.AMA_INFERENCE_HEADERS }}
         run: pnpm --filter frontend eval:ama:ci
 
       - name: Skip AMA live evals
