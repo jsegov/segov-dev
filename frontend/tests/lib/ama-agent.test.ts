@@ -104,7 +104,9 @@ describe('createAmaAgent', () => {
     expect(instructions).toContain('search_personal_context')
     expect(instructions).toContain('how did you build X')
     expect(instructions).toContain('even if public site content has a short project summary')
-    expect(instructions).toContain('Never call the same context tool more than once in a turn')
+    expect(instructions).toContain(
+      'After a context tool executes, never call it again in the same turn',
+    )
     expect(instructions).toContain('Work context disclosure policy')
     expect(instructions).toContain('Never include')
   })

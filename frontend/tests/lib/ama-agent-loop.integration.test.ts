@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { NoSuchToolError } from 'ai'
+import { InvalidToolInputError, NoSuchToolError } from 'ai'
 import { MockLanguageModelV3 } from 'ai/test'
 import type { AmaAgentSettings, CreateAmaAgentOptions } from '@/lib/ama-agent'
 import type { AmaModelConfig } from '@/lib/ama-model-config'
@@ -25,7 +25,7 @@ const usage: GenerateResult['usage'] = {
 function createToolCall(
   toolCallId: string,
   toolName: string,
-  input: Record<string, string> = {},
+  input: Record<string, unknown> = {},
 ): GenerateResult {
   return {
     content: [
@@ -77,7 +77,7 @@ function toolResults(callIndex: number) {
   )
 }
 
-const STEP_REMINDER_PREFIX = 'Context tools already called this turn: '
+const STEP_REMINDER_PREFIX = 'Context tools already executed this turn: '
 
 function systemInstructions(callIndex: number) {
   const prompt = mockModel.doGenerateCalls[callIndex]?.prompt ?? []
@@ -164,7 +164,8 @@ describe('AMA agent retrieval loop', () => {
         error: expect.any(NoSuchToolError),
       }),
     ])
-    expect(mockModel.doGenerateCalls[3]?.toolChoice).toEqual({ type: 'none' })
+    expect(mockModel.doGenerateCalls[3]?.toolChoice).not.toEqual({ type: 'none' })
+    expect(availableTools(3)).toEqual(['get_resume', 'search_work_context'])
     expect(stepReminderLines(0)).toEqual([])
     expect(stepReminderLines(1)).toEqual([
       `${STEP_REMINDER_PREFIX}search_personal_context. Do not call them again.`,
@@ -174,7 +175,7 @@ describe('AMA agent retrieval loop', () => {
         `${STEP_REMINDER_PREFIX}get_public_site_content, search_personal_context. Do not call them again.`,
       ])
     }
-    expect(systemInstructions(3)).toContain('No more tools are available.')
+    expect(systemInstructions(3)).toContain('an unavailable result or error is not usable context')
     expect(toolResults(3)).toEqual(expect.arrayContaining(toolResults(2)))
   })
 
@@ -266,6 +267,243 @@ describe('AMA agent retrieval loop', () => {
       }),
     ])
     expect(JSON.stringify(toolResults(1))).not.toContain('This context must not be loaded')
+    expect(stepReminderLines(1)).toEqual([])
+    expect(availableTools(1)).not.toContain('get_resume')
+  })
+
+  it('recovers from premature resume retrieval without consuming eligibility or forcing an early final answer', async () => {
+    setModelResponses([
+      createToolCall('premature-resume', 'get_resume'),
+      createToolCall('public-1', 'get_public_site_content'),
+      createToolCall('resume-1', 'get_resume'),
+      createAnswer('I studied computer science.'),
+    ])
+    const { createAmaAgent } = await import('@/lib/ama-agent')
+    const getPublicSiteContent = vi.fn(async () => publicContent())
+    const getResumeContext = vi.fn(async () => ({
+      available: true,
+      source: 'blob' as const,
+      content: 'My degree is in computer science.',
+    }))
+    const onFinish = vi.fn<NonNullable<CreateAmaAgentOptions['onFinish']>>()
+    const agent = createAmaAgent({
+      modelConfig: { model: 'openai/test-model' },
+      getPublicSiteContent,
+      getResumeContext,
+      onFinish,
+    })
+
+    const result = await agent.generate({ prompt: 'Where did you study?' })
+
+    expect(getPublicSiteContent).toHaveBeenCalledTimes(1)
+    expect(getResumeContext).toHaveBeenCalledTimes(1)
+    expect(getPublicSiteContent.mock.invocationCallOrder[0]).toBeLessThan(
+      getResumeContext.mock.invocationCallOrder[0]!,
+    )
+    expect(stepReminderLines(1)).toEqual([])
+    expect(availableTools(1)).not.toContain('get_resume')
+    expect(availableTools(2)).toContain('get_resume')
+    expect(stepReminderLines(2)).toEqual([
+      `${STEP_REMINDER_PREFIX}get_public_site_content. Do not call them again.`,
+    ])
+    expect(availableTools(3)).not.toContain('get_resume')
+    expect(availableTools(3)).toEqual(['search_work_context', 'search_personal_context'])
+    expect(mockModel.doGenerateCalls[3]?.toolChoice).not.toEqual({ type: 'none' })
+    expect(toolResults(3)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ toolCallId: 'premature-resume' }),
+        expect.objectContaining({ toolCallId: 'public-1' }),
+        expect.objectContaining({
+          toolCallId: 'resume-1',
+          output: expect.objectContaining({
+            value: expect.objectContaining({ content: 'My degree is in computer science.' }),
+          }),
+        }),
+      ]),
+    )
+    // Invalid attempts remain in the full server completion used by traces and scorers.
+    const expectedAttempts = ['premature-resume', 'public-1', 'resume-1']
+    expect(result.steps.flatMap((step) => step.toolCalls.map((call) => call.toolCallId))).toEqual(
+      expectedAttempts,
+    )
+    expect(
+      onFinish.mock.calls[0]?.[0].steps.flatMap((step) =>
+        step.toolCalls.map((call) => call.toolCallId),
+      ),
+    ).toEqual(expectedAttempts)
+    expect(result.steps[0]?.toolCalls[0]).toMatchObject({
+      invalid: true,
+      error: expect.any(NoSuchToolError),
+    })
+  })
+
+  it('allows resume recovery after rejecting a same-step resume attempt alongside public retrieval', async () => {
+    const simultaneousCalls = createToolCall('public-1', 'get_public_site_content')
+    simultaneousCalls.content.push(...createToolCall('premature-resume', 'get_resume').content)
+    setModelResponses([
+      simultaneousCalls,
+      createToolCall('resume-1', 'get_resume'),
+      createAnswer('I studied computer science.'),
+    ])
+    const { createAmaAgent } = await import('@/lib/ama-agent')
+    const getPublicSiteContent = vi.fn(async () => publicContent())
+    const getResumeContext = vi.fn(async () => ({
+      available: true,
+      source: 'blob' as const,
+      content: 'My degree is in computer science.',
+    }))
+    const agent = createAmaAgent({
+      modelConfig: { model: 'openai/test-model' },
+      getPublicSiteContent,
+      getResumeContext,
+    })
+
+    const result = await agent.generate({ prompt: 'Where did you study?' })
+
+    expect(result.steps[0]?.toolCalls).toEqual([
+      expect.objectContaining({ toolCallId: 'public-1', toolName: 'get_public_site_content' }),
+      expect.objectContaining({
+        toolCallId: 'premature-resume',
+        invalid: true,
+        error: expect.any(NoSuchToolError),
+      }),
+    ])
+    expect(getPublicSiteContent).toHaveBeenCalledTimes(1)
+    expect(getResumeContext).toHaveBeenCalledTimes(1)
+    expect(availableTools(1)).toContain('get_resume')
+    expect(stepReminderLines(1)).toEqual([
+      `${STEP_REMINDER_PREFIX}get_public_site_content. Do not call them again.`,
+    ])
+    expect(toolResults(1).some((part) => part.toolCallId === 'resume-1')).toBe(false)
+    expect(availableTools(2)).not.toContain('get_resume')
+    expect(mockModel.doGenerateCalls[2]?.toolChoice).not.toEqual({ type: 'none' })
+    expect(stepReminderLines(2)).toEqual([
+      `${STEP_REMINDER_PREFIX}get_public_site_content, get_resume. Do not call them again.`,
+    ])
+    expect(toolResults(2).map((part) => part.toolCallId)).toEqual(
+      expect.arrayContaining(['premature-resume', 'public-1', 'resume-1']),
+    )
+  })
+
+  it('does not unlock resume or consume public retrieval when public arguments are invalid', async () => {
+    setModelResponses([
+      createToolCall('invalid-public', 'get_public_site_content', { reason: 42 }),
+      createToolCall('public-1', 'get_public_site_content'),
+      createToolCall('resume-1', 'get_resume'),
+      createAnswer('I studied computer science.'),
+    ])
+    const { createAmaAgent } = await import('@/lib/ama-agent')
+    const getPublicSiteContent = vi.fn(async () => publicContent())
+    const getResumeContext = vi.fn(async () => ({
+      available: true,
+      source: 'blob' as const,
+      content: 'My degree is in computer science.',
+    }))
+    const agent = createAmaAgent({
+      modelConfig: { model: 'openai/test-model' },
+      getPublicSiteContent,
+      getResumeContext,
+    })
+
+    const result = await agent.generate({ prompt: 'Where did you study?' })
+
+    expect(result.steps[0]?.toolCalls[0]).toMatchObject({
+      toolCallId: 'invalid-public',
+      invalid: true,
+      error: expect.any(InvalidToolInputError),
+    })
+    expect(stepReminderLines(1)).toEqual([])
+    expect(availableTools(1)).toContain('get_public_site_content')
+    expect(availableTools(1)).not.toContain('get_resume')
+    expect(availableTools(2)).not.toContain('get_public_site_content')
+    expect(availableTools(2)).toContain('get_resume')
+    expect(getPublicSiteContent).toHaveBeenCalledTimes(1)
+    expect(getResumeContext).toHaveBeenCalledTimes(1)
+    expect(result.steps.flatMap((step) => step.toolCalls.map((call) => call.toolCallId))).toEqual([
+      'invalid-public',
+      'public-1',
+      'resume-1',
+    ])
+  })
+
+  it('allows a corrected search after invalid arguments and executes that source only once', async () => {
+    setModelResponses([
+      createToolCall('invalid-personal', 'search_personal_context', { query: '' }),
+      createToolCall('personal-1', 'search_personal_context', { query: 'Quartz Ledger' }),
+      createToolCall('repeated-personal', 'search_personal_context', { query: 'local storage' }),
+      createAnswer('I built a local notebook.'),
+    ])
+    const { createAmaAgent } = await import('@/lib/ama-agent')
+    const searchPersonalContext = vi.fn(async (query: string) => ({
+      available: true,
+      source: 'blob' as const,
+      query,
+      matches: [],
+      content: 'I built a local notebook.',
+    }))
+    const agent = createAmaAgent({
+      modelConfig: { model: 'openai/test-model' },
+      searchPersonalContext,
+    })
+
+    const result = await agent.generate({ prompt: 'How did you build Quartz Ledger?' })
+
+    expect(result.steps[0]?.toolCalls[0]).toMatchObject({
+      invalid: true,
+      error: expect.any(InvalidToolInputError),
+    })
+    expect(stepReminderLines(1)).toEqual([])
+    expect(availableTools(1)).toContain('search_personal_context')
+    expect(searchPersonalContext).toHaveBeenCalledExactlyOnceWith('Quartz Ledger')
+    expect(availableTools(2)).not.toContain('search_personal_context')
+    expect(result.steps[2]?.toolCalls[0]).toMatchObject({
+      invalid: true,
+      error: expect.any(NoSuchToolError),
+    })
+    for (const callIndex of [2, 3]) {
+      expect(stepReminderLines(callIndex)).toEqual([
+        `${STEP_REMINDER_PREFIX}search_personal_context. Do not call them again.`,
+      ])
+    }
+    expect(toolResults(3)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          toolCallId: 'personal-1',
+          output: expect.objectContaining({
+            value: expect.objectContaining({ content: 'I built a local notebook.' }),
+          }),
+        }),
+      ]),
+    )
+  })
+
+  it('keeps the four-step ceiling when every attempted call is rejected', async () => {
+    setModelResponses([
+      ...Array.from({ length: 4 }, (_, index) =>
+        createToolCall(`invalid-public-${index}`, 'get_public_site_content', { reason: 42 }),
+      ),
+      createAnswer('Please check my Career page for my background.'),
+    ])
+    const { createAmaAgent } = await import('@/lib/ama-agent')
+    const getPublicSiteContent = vi.fn(async () => publicContent())
+    const agent = createAmaAgent({
+      modelConfig: { model: 'openai/test-model' },
+      getPublicSiteContent,
+    })
+
+    const result = await agent.generate({ prompt: 'Tell me about your background.' })
+
+    expect(getPublicSiteContent).not.toHaveBeenCalled()
+    expect(mockModel.doGenerateCalls).toHaveLength(5)
+    for (const callIndex of [0, 1, 2, 3]) {
+      expect(availableTools(callIndex)).toContain('get_public_site_content')
+      expect(availableTools(callIndex)).not.toContain('get_resume')
+      expect(stepReminderLines(callIndex)).toEqual([])
+    }
+    expect(availableTools(4)).toEqual([])
+    expect(mockModel.doGenerateCalls[4]?.toolChoice).toEqual({ type: 'none' })
+    expect(stepReminderLines(4)).toEqual([])
+    expect(result.steps.flatMap((step) => step.toolCalls)).toHaveLength(4)
   })
 
   it('allows the same agent to retrieve again on the next user turn', async () => {

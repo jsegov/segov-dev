@@ -84,3 +84,5 @@ The [unaltered selection decision](deployed-budget-selection-2026-09-06.json) re
 Matrix SHA-256: `440cbebafc1fe36c426603492cda15d3f67ae696cc8f19c5cede7b76ebb3d49c`. Selection-decision SHA-256: `9f53253a91c35785c2a59f55770c339307b916c6f86745591d1209ea884326b0`.
 
 Retain 1,536 while investigating training/serving alignment and the retrieval behavior. Dynamic prompt/tool traces are intentionally excluded from the existing fixed-prefix training builders; see [training requirements](../../../../training/README.md). The current Qwen renderer/serving token mismatch also remains a release blocker. A targeted fine-tuning experiment requires compatible construction and explicitly approved synthetic data that excludes the evaluation suites. No model was trained, promoted or deployed by this experiment.
+
+This experiment measured commit `c0eb066` with retrieval policy `single-use-context-v2`. Subsequent review fixes permit correction of rejected calls (`single-use-context-v3`); these results are historical evidence and do not attest to that changed runtime.
