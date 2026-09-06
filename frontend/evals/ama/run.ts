@@ -278,6 +278,7 @@ async function verifyFinalDecision(
     report.configuration.transportSha256 !== summaryConfig.metadata.transportSha256 ||
     report.configuration.fixtureSha256 !==
       (await hashFiles([new URL('./fixtures.ts', import.meta.url)])) ||
+    report.configuration.datasetSha256 !== summaryConfig.metadata.selectionDatasetSha256 ||
     report.configuration.finalDatasetSha256 !== FINAL_RELEASE_DATASET_SHA256 ||
     report.configuration.sdkVersion !== summaryConfig.metadata.sdkVersion ||
     sha256(report.configuration.callSettings) !== sha256(comparison.callSettings) ||

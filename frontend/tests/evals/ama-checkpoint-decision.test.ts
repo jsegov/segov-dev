@@ -17,6 +17,7 @@ afterEach(() => {
 })
 import { verifyCheckpointDecision } from '../../evals/ama/checkpoint-decision'
 import { sha256 } from '../../evals/ama/hashes'
+import { getComparisonConfiguration, validateSelectionReport } from '../../evals/ama/matrix'
 import type { AmaEvalSummary } from '../../evals/ama/types'
 
 function fixture() {
@@ -160,6 +161,83 @@ it('refuses hash-only final runs and checks sealed configuration before generati
     ).rejects.toThrow('does not match')
     expect(generatePublicEvalCase).not.toHaveBeenCalled()
   } finally {
+    await rm(dir, { recursive: true })
+  }
+})
+
+it('rejects a sealed budget decision from another selection dataset before final generation', async () => {
+  for (const variable of [
+    'AMA_EVAL_REQUIRE_BINDINGS',
+    'AMA_EVAL_CANDIDATE_ID',
+    'AMA_EVAL_CHECKPOINT_PATH',
+    'AMA_EVAL_MODEL_ARTIFACT_SHA256',
+    'AMA_EVAL_SERVING_CONFIG_SHA256',
+    'AMA_EVAL_SELECTION_REPORT',
+    'AMA_EVAL_CHECKPOINT_DECISION',
+    'AMA_EVAL_SELECTION_DECISION_SHA256',
+    'AMA_EVAL_FINAL_ATTEMPT_ID',
+    'AMA_EVAL_MODEL',
+    'AMA_EVAL_PROVIDERS',
+    'AMA_EVAL_MAX_OUTPUT_TOKENS',
+    'AMA_INFERENCE_BASE_URL',
+    'AMA_DEPLOYMENT_MODEL',
+    'AMA_CHAT_PROVIDERS',
+  ]) {
+    vi.stubEnv(variable, '')
+  }
+  vi.stubEnv('AMA_CHAT_MODEL', 'openai/test-model')
+  vi.stubEnv('AMA_MAX_OUTPUT_TOKENS', '1536')
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+  const dir = await mkdtemp(join(tmpdir(), 'ama-budget-final-guard-'))
+  vi.mocked(generatePublicEvalCase).mockResolvedValue({
+    output: 'Mocked answer for offline configuration checks.',
+    toolCalls: [],
+    diagnostics: {
+      stepCount: 1,
+      stepFinishReasons: ['stop'],
+      finishReason: 'stop',
+      protocolPassed: true,
+      wirePrivacyPassed: true,
+      serverFinishReceived: true,
+      toolSequence: [],
+    },
+  })
+  try {
+    // Obtain current hashes/settings through the actual runner, with generation
+    // mocked and judges disabled. The stale dataset is the sole configuration drift.
+    const current = await runAmaEvalSuite({
+      partition: 'selection',
+      profile: 'production',
+      useJudge: false,
+      writeArtifacts: false,
+    })
+    const configuration = getComparisonConfiguration(current)
+    const payload = {
+      schema_version: 1,
+      report_type: 'ama_budget_selection',
+      passed: true,
+      selected_budget: 1536,
+      configuration: { ...configuration, datasetSha256: sha256('previous selection dataset') },
+    }
+    const report = { ...payload, selection_decision_sha256: sha256(payload) }
+    expect(() => validateSelectionReport(report)).not.toThrow()
+    expect(report.configuration.datasetSha256).not.toBe(current.metadata!.selectionDatasetSha256)
+    const file = join(dir, 'selection.json')
+    await writeFile(file, JSON.stringify(report))
+    vi.stubEnv('AMA_EVAL_SELECTION_REPORT', file)
+    vi.mocked(generatePublicEvalCase).mockClear()
+
+    await expect(
+      runAmaEvalSuite({
+        partition: 'final',
+        profile: 'production',
+        useJudge: false,
+        writeArtifacts: false,
+      }),
+    ).rejects.toThrow('does not match the frozen selection decision')
+    expect(generatePublicEvalCase).not.toHaveBeenCalled()
+  } finally {
+    log.mockRestore()
     await rm(dir, { recursive: true })
   }
 })
