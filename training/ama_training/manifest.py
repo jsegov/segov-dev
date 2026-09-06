@@ -13,12 +13,15 @@ from pathlib import Path
 
 from tinker_cookbook.renderers import ToolSpec
 
+from ama_training.provenance import has_tool_availability_policy
+
 
 @dataclass(frozen=True)
 class PromptVersion:
     version: str
     system_prompt: str
     tools: list[ToolSpec]
+    tool_availability_policy_present: bool = False
 
 
 def load_manifest(path: str | Path) -> dict[str, PromptVersion]:
@@ -37,5 +40,6 @@ def load_manifest(path: str | Path) -> dict[str, PromptVersion]:
             version=version,
             system_prompt=entry["instructions"],
             tools=tools,
+            tool_availability_policy_present=has_tool_availability_policy(entry),
         )
     return versions

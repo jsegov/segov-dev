@@ -79,6 +79,24 @@ def verify_files(root, files):
             raise ValueError(f"artifact file changed: {name}")
 
 
+def has_tool_availability_policy(entry):
+    """Only legacy absence means a supported, fixed tool declaration set."""
+    return "toolAvailabilityPolicy" in entry or (
+        isinstance(entry.get("call_settings"), dict)
+        and "toolAvailabilityPolicy" in entry["call_settings"]
+    )
+
+
+def require_static_tool_policy(entry, version):
+    if not isinstance(entry, dict):
+        raise ValueError(f"missing prompt version: {version}")
+    if has_tool_availability_policy(entry):
+        raise ValueError(
+            f"unsupported tool availability policy for prompt {version}: "
+            "step-specific training support is required"
+        )
+
+
 def verify_dataset(manifest_path):
     manifest_path = Path(manifest_path)
     manifest = read(manifest_path, "ama_dataset")
@@ -117,11 +135,17 @@ def verify_dataset(manifest_path):
     ):
         raise ValueError("review/policy lineage mismatch")
     source = {row["id"]: row for row in jsonl(root / "source-traces.jsonl")}
+    source_prompts = json.loads((root / "source-prompts.json").read_text())
+    prompts = json.loads((root / "prompt-manifest.json").read_text())
     for file in ["ama-traces-qwen.jsonl", "ama-traces-inkling.jsonl"]:
         for row in jsonl(root / file):
+            version = row["system_prompt_version"]
+            require_static_tool_policy(prompts.get(version), version)
             trace_ids = row.get("trace_ids", [row.get("trace_id")])
             for trace_id in trace_ids:
                 raw, review = source[trace_id], reviews["rows"][trace_id]
+                source_version = raw["system_prompt_version"]
+                require_static_tool_policy(source_prompts.get(source_version), source_version)
                 if (
                     review["row_sha256"] != digest(raw)
                     or review["decision"] != "approved"

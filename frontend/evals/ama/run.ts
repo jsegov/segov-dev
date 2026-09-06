@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { dirname, resolve } from 'node:path'
 import { mkdir, writeFile, appendFile, readFile } from 'node:fs/promises'
 import type { createAmaAgent } from '@/lib/ama-agent'
-import { createAmaPromptManifest } from '@/lib/ama-agent'
+import { AMA_TOOL_DECLARATIONS, createAmaPromptManifest } from '@/lib/ama-agent'
 import {
   getAmaModelConfig,
   createAmaModelConfig,
@@ -194,6 +194,22 @@ export function getRedactedSummary(summary: AmaEvalSummary): AmaEvalSummary {
       typeof value === 'string' ? redactText(value, terms) : value,
     ),
   ) as AmaEvalSummary
+  // Declared tool names are public code identifiers, not retrieval payloads.
+  // Keep their order reviewable even when an answer-text case forbids naming tools.
+  const knownTools = new Set<string>(AMA_TOOL_DECLARATIONS.map((tool) => tool.name))
+  for (let index = 0; index < summary.results.length; index += 1) {
+    const source = summary.results[index]!
+    const target = redacted.results[index]!
+    target.toolCalls = source.toolCalls.map((name) =>
+      knownTools.has(name) ? name : redactText(name, terms),
+    )
+    if (source.diagnostics?.toolSequence && target.diagnostics) {
+      target.diagnostics.toolSequence = source.diagnostics.toolSequence.map(({ step, name }) => ({
+        step,
+        name: knownTools.has(name) ? name : redactText(name, terms),
+      }))
+    }
+  }
   if (redacted.modelConfig.inference) {
     const url = new URL(redacted.modelConfig.inference.baseURL)
     url.username = ''
@@ -322,6 +338,8 @@ export async function runAmaEvalSuite(options: RunAmaEvalOptions = {}): Promise<
     transportSha256: await hashFiles([
       new URL('./stream.ts', import.meta.url),
       new URL('../../lib/ama-public-stream.ts', import.meta.url),
+      new URL('../../lib/ama-request-budget.ts', import.meta.url),
+      new URL('../../lib/ama-wake.ts', import.meta.url),
       new URL('../../lib/ama-agent.ts', import.meta.url),
       new URL('./profiles.ts', import.meta.url),
       new URL('./release.ts', import.meta.url),

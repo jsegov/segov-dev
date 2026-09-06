@@ -190,6 +190,11 @@ class AmaTraceDatasetBuilder(ChatDatasetBuilder):
             if version not in versions:
                 raise ValueError(f"unknown prompt version {version}")
             prompt = versions[version]
+            if prompt.tool_availability_policy_present:
+                raise ValueError(
+                    f"unsupported tool availability policy for prompt {version}: "
+                    "step-specific training support is required"
+                )
             validate_tool_pairing(row["messages"], prompt.tools)
             if version not in prefixes:
                 prefixes[version] = self.renderer.create_conversation_prefix_with_tools(

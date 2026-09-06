@@ -49,6 +49,16 @@ function newDirectory(dir) {
 export const questionHash = (text) =>
   digest(text.normalize('NFKC').toLowerCase().replace(/\s+/gu, ' ').trim())
 
+// This is prompt-policy metadata, not an inference call setting. Preserve the raw
+// snapshot separately; only the derived manifest separates the persisted envelope.
+function normalizePromptPolicy(entry) {
+  if (!Object.hasOwn(entry.call_settings ?? {}, 'toolAvailabilityPolicy')) return entry
+  const { toolAvailabilityPolicy, ...callSettings } = entry.call_settings
+  return { ...entry, toolAvailabilityPolicy, call_settings: callSettings }
+}
+
+const hasToolAvailabilityPolicy = (entry) => Object.hasOwn(entry, 'toolAvailabilityPolicy')
+
 export function writeSnapshot(rows, prompts, outDir, filters = {}) {
   if (!rows.length || new Set(rows.map((r) => r.id)).size !== rows.length)
     throw new Error('snapshot needs nonempty unique trace IDs')
@@ -164,7 +174,12 @@ export function buildDataset({ snapshotDir, policyPath, reviewsPath, fingerprint
       throw new Error('snapshot file changed')
   }
   const rows = lines(path.join(snapshotDir, 'traces.jsonl'))
-  const prompts = json(path.join(snapshotDir, 'prompt-manifest.json'))
+  const prompts = Object.fromEntries(
+    Object.entries(json(path.join(snapshotDir, 'prompt-manifest.json'))).map(([version, entry]) => [
+      version,
+      normalizePromptPolicy(entry),
+    ]),
+  )
   const policy = json(policyPath),
     reviews = json(reviewsPath),
     fingerprints = json(fingerprintsPath)
@@ -224,6 +239,8 @@ export function buildDataset({ snapshotDir, policyPath, reviewsPath, fingerprint
       !prompts[row.system_prompt_version]
     )
       reason = 'prompt_version'
+    else if (hasToolAvailabilityPolicy(prompts[row.system_prompt_version]))
+      reason = 'unsupported_tool_availability_policy'
     else if (row.finish_reason !== 'stop') reason = 'non_stop'
     else if (
       fingerprints.family_ids.includes(review.family_id) ||
@@ -279,7 +296,28 @@ export function buildDataset({ snapshotDir, policyPath, reviewsPath, fingerprint
       messages: [...n.input, ...n.response],
     })
   }
-  if (!qwen.length) throw new Error('no eligible selected examples')
+  const exclusionCounts = excluded.reduce(
+    (counts, row) => {
+      counts[row.reason] = (counts[row.reason] ?? 0) + 1
+      return counts
+    },
+    {
+      pending: 0,
+      rejected: 0,
+      changed: 0,
+      non_synthetic: 0,
+      teacher_model: 0,
+      prompt_version: 0,
+      unsupported_tool_availability_policy: 0,
+      non_stop: 0,
+      evaluation_contamination: 0,
+      superseded_branch: 0,
+    },
+  )
+  if (!qwen.length)
+    throw new Error(
+      `no eligible selected examples; exclusion_counts=${JSON.stringify(exclusionCounts)}`,
+    )
   newDirectory(outDir)
   const documents = {
     'prompt-manifest.json': prompts,
@@ -289,23 +327,7 @@ export function buildDataset({ snapshotDir, policyPath, reviewsPath, fingerprint
     'snapshot-manifest.json': snapshot,
     'export-report.json': {
       excluded,
-      exclusion_counts: excluded.reduce(
-        (counts, row) => {
-          counts[row.reason] = (counts[row.reason] ?? 0) + 1
-          return counts
-        },
-        {
-          pending: 0,
-          rejected: 0,
-          changed: 0,
-          non_synthetic: 0,
-          teacher_model: 0,
-          prompt_version: 0,
-          non_stop: 0,
-          evaluation_contamination: 0,
-          superseded_branch: 0,
-        },
-      ),
+      exclusion_counts: exclusionCounts,
       snapshot_rows: rows.length,
       excluded_rows: excluded.length,
       collapsed_excluded: collapsedExcluded,

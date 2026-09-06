@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { buildDataset, digest, questionHash, resolveRows, writeSnapshot } from './export-traces.mjs'
@@ -26,10 +26,10 @@ const row = (id, extra = {}) => ({
 })
 const read = (file) => JSON.parse(readFileSync(file, 'utf8'))
 const write = (file, value) => writeFileSync(file, JSON.stringify(value))
-function setup(rows) {
+function setup(rows, prompts = { v1: prompt('v1'), v2: prompt('v2') }) {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'ama-export-')),
     snapshotDir = path.join(dir, 'snapshot')
-  writeSnapshot(rows, { v1: prompt('v1'), v2: prompt('v2') }, snapshotDir)
+  writeSnapshot(rows, prompts, snapshotDir)
   const reviewsPath = path.join(dir, 'reviews.json'),
     policyPath = path.join(dir, 'policy.json'),
     fingerprintsPath = path.join(dir, 'fingerprints.json')
@@ -119,10 +119,54 @@ test('pending, wrong teacher, visitor, non-stop, and evaluation-family rows are 
     non_synthetic: 1,
     teacher_model: 1,
     prompt_version: 0,
+    unsupported_tool_availability_policy: 0,
     non_stop: 1,
     evaluation_contamination: 1,
     superseded_branch: 0,
   })
+})
+test('legacy static prompt manifests remain unchanged', () => {
+  const config = setup([row('static')])
+  buildDataset(config)
+  assert.equal(
+    readFileSync(path.join(config.outDir, 'prompt-manifest.json'), 'utf8'),
+    readFileSync(path.join(config.snapshotDir, 'prompt-manifest.json'), 'utf8'),
+  )
+})
+for (const policy of ['single-use-context-v1', 'future-policy', 'static', null, '', false]) {
+  test(`approved tool availability policy ${JSON.stringify(policy)} is excluded and separated from call settings`, () => {
+    const config = setup([row('static'), row('dynamic', { system_prompt_version: 'v2' })], {
+      v1: prompt('v1'),
+      v2: {
+        ...prompt('v2'),
+        call_settings: { temperature: 0, maxOutputTokens: 1024, toolAvailabilityPolicy: policy },
+      },
+    })
+    buildDataset(config)
+    const report = read(path.join(config.outDir, 'export-report.json'))
+    assert.equal(report.exclusion_counts.unsupported_tool_availability_policy, 1)
+    assert.deepEqual(report.excluded, [
+      { trace_id: 'dynamic', reason: 'unsupported_tool_availability_policy' },
+    ])
+    assert.equal(report.qwen_examples, 1)
+    const prompts = read(path.join(config.outDir, 'prompt-manifest.json'))
+    assert.equal(prompts.v2.toolAvailabilityPolicy, policy)
+    assert.deepEqual(prompts.v2.call_settings, { temperature: 0, maxOutputTokens: 1024 })
+    assert.equal(
+      readFileSync(path.join(config.outDir, 'source-prompts.json'), 'utf8'),
+      readFileSync(path.join(config.snapshotDir, 'prompt-manifest.json'), 'utf8'),
+    )
+  })
+}
+test('already separated policy metadata is also unsupported, with counts on empty builds', () => {
+  const config = setup([row('dynamic')], {
+    v1: { ...prompt('v1'), toolAvailabilityPolicy: 'single-use-context-v1' },
+  })
+  assert.throws(
+    () => buildDataset(config),
+    /no eligible selected examples; exclusion_counts=.*"unsupported_tool_availability_policy":1/,
+  )
+  assert.equal(existsSync(config.outDir), false)
 })
 test('evaluation question fingerprint covers earlier context and normalized text', () => {
   const config = setup([

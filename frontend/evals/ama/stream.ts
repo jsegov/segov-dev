@@ -8,6 +8,8 @@ import {
   type UIMessage,
 } from 'ai'
 import { createAmaAgent, type CreateAmaAgentOptions } from '@/lib/ama-agent'
+import { getAmaModelConfig } from '@/lib/ama-model-config'
+import { prepareAmaGeneration } from '@/lib/ama-request-budget'
 import { createAmaPublicStreamResponse } from '@/lib/ama-public-stream'
 import { getAmaStreamErrorDetails } from '@/lib/ama-stream-diagnostics'
 import type { AmaEvalCase, AmaEvalGenerationDiagnostics } from './types'
@@ -90,8 +92,10 @@ export async function generatePublicEvalCase(
   let protocolPassed = true
   let publicFinished = false
   let errorKind: string | undefined
+  const modelConfig = options.modelConfig ?? getAmaModelConfig()
   const agent = createAmaAgent({
     ...options,
+    modelConfig,
     onFinish: async (event) => {
       serverResult = event
       await options.onFinish?.(event)
@@ -100,12 +104,17 @@ export async function generatePublicEvalCase(
   const transport = new DefaultChatTransport({
     fetch: async (_input, init) => {
       const body = JSON.parse(String(init?.body)) as { messages: UIMessage[] }
+      const agentTimeoutMs = await prepareAmaGeneration({
+        inference: Boolean(modelConfig.inference),
+        requestStartedAt: started,
+        signal: init?.signal ?? undefined,
+      })
       const response = createAmaPublicStreamResponse(
         await createAgentUIStreamResponse({
           agent,
           uiMessages: body.messages,
           abortSignal: init?.signal ?? undefined,
-          timeout: { totalMs: 285_000 },
+          timeout: { totalMs: agentTimeoutMs },
           sendReasoning: false,
           sendSources: false,
           onError: (error) =>

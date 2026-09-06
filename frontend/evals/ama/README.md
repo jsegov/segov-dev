@@ -54,6 +54,10 @@ Equivalent direct invocation is `pnpm exec vitest run --config vitest.eval.confi
 
 The GitHub workflow reads these values from its `Github Actions` environment. Store endpoint authentication in secrets; `AMA_INFERENCE_BASE_URL` can also be a secret, which takes precedence over a variable with the same name. CI uses the same default concurrency of four as local evaluations and the budget matrix. Provision the complete configuration before rerunning a failed live gate; a missing configuration is not passing evaluation evidence.
 
+For Modal deployments, the server URL comes from the deployed app (`modal.Server.from_name(...).get_url()`), with `/v1` appended. The proxy token pair may already be saved as `MODAL_PROXY_KEY` and `MODAL_PROXY_SECRET` in the gitignored `training/.env`; combine them as the `Modal-Key` and `Modal-Secret` JSON headers. See the [deployment configuration](../../../training/deploy/README.md) and [local environment example](../../../training/env.example). Never put token values in source, command arguments, or evaluation reports.
+
+Production and evaluation share readiness polling and one 285-second request budget, including up to 135 seconds for a cold inference endpoint. Startup time contributes to total latency and time to first text. A readiness timeout fails the case without starting model generation; authentication and other non-startup failures remain classified failures.
+
 ## Budget decision and gates
 
 The matrix tests **512, 1024, 1536, and 2400** tokens, three repetitions each. It interleaves budgets within repetitions. Every run uses the same configuration and selection cases; the comparison rejects incomplete matrices, duplicate repetitions, or differences beyond the output cap.
@@ -63,6 +67,8 @@ Each repetition must pass the existing quality thresholds: overall score at leas
 Of budgets passing **every repetition**, select the smallest whose average quality is within **0.01** of the highest average quality among passing budgets. The 2400 setting has no special baseline status. If none qualify, the report records no selection and the command fails after saving evidence; keep the existing runtime setting while investigating. The final suite remains a separate release gate after selection.
 
 Tool diagnostics preserve call order, step numbers, and repeats; they do not combine the SDK's last-step calls with all-step calls. Resume retrieval must follow public content retrieval. Operational checks are hard gates and are excluded from the quality average, so extra successful infrastructure checks cannot inflate answer quality.
+
+The runtime removes used retrieval tools from the SDK's available and executable tool set each step, and enables resume retrieval only after public retrieval. A per-step system reminder lists only known tool names, preserves earlier results as usable context, and points to the resume when a public background fact is missing. The prompt manifest records `single-use-context-v2`. The current training builders require fixed tool declarations throughout a turn, so traces carrying this dynamic policy are excluded and fail preflight even if approved. See [training provenance rules](../../../training/README.md). Existing static-policy snapshots remain reproducible.
 
 ## Evidence and metrics
 
