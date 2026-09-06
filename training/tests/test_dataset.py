@@ -85,14 +85,13 @@ MULTITURN_ROW = {
 def export_dir(tmp_path_factory):
     d = tmp_path_factory.mktemp("export")
     (d / "prompt-manifest.json").write_text(json.dumps(MANIFEST))
-    (d / "traces.jsonl").write_text(
-        json.dumps(TOOL_ROW) + "\n" + json.dumps(MULTITURN_ROW) + "\n"
-    )
+    (d / "traces.jsonl").write_text(json.dumps(TOOL_ROW) + "\n" + json.dumps(MULTITURN_ROW) + "\n")
     return d
 
 
 def make_builder(export_dir, model_name, renderer_name, train_on_what, **kwargs):
     return AmaTraceDatasetBuilder(
+        allow_unverified_fixture=True,
         file_path=str(export_dir / "traces.jsonl"),
         manifest_path=str(export_dir / "prompt-manifest.json"),
         common_config=ChatDatasetBuilderCommonConfig(
@@ -148,13 +147,13 @@ class TestQwenConstruction:
     RENDERER = "qwen3_5_disable_thinking"
 
     @pytest.fixture(scope="class")
-    def builder(self, export_dir):
-        return make_builder(
-            export_dir, self.MODEL, self.RENDERER, TrainOnWhat.LAST_ASSISTANT_TURN
-        )
+    @classmethod
+    def builder(cls, export_dir):
+        return make_builder(export_dir, cls.MODEL, cls.RENDERER, TrainOnWhat.LAST_ASSISTANT_TURN)
 
     @pytest.fixture(scope="class")
-    def conversations(self, builder):
+    @classmethod
+    def conversations(cls, builder):
         train, test = builder()
         assert test is None
         assert len(train.conversations) == 2
@@ -211,13 +210,13 @@ class TestTmlConstruction:
     RENDERER = "tml_v0"
 
     @pytest.fixture(scope="class")
-    def builder(self, export_dir):
-        return make_builder(
-            export_dir, self.MODEL, self.RENDERER, TrainOnWhat.ALL_ASSISTANT_MESSAGES
-        )
+    @classmethod
+    def builder(cls, export_dir):
+        return make_builder(export_dir, cls.MODEL, cls.RENDERER, TrainOnWhat.ALL_ASSISTANT_MESSAGES)
 
     @pytest.fixture(scope="class")
-    def conversations(self, builder):
+    @classmethod
+    def conversations(cls, builder):
         train, _ = builder()
         return {
             ("tool" if any("tool_calls" in m for m in c) else "plain"): c
@@ -250,9 +249,7 @@ class TestTmlConstruction:
 
 class TestDatasetMechanics:
     def test_partial_final_batch_is_included(self):
-        conversations = [
-            [{"role": "user", "content": f"prompt-{index}"}] for index in range(5)
-        ]
+        conversations = [[{"role": "user", "content": f"prompt-{index}"}] for index in range(5)]
         dataset = InMemorySupervisedDataset(
             conversations=conversations,
             batch_size=2,

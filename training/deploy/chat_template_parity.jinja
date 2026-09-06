@@ -119,7 +119,7 @@
                 {%- if tool_call.arguments is defined %}
                     {%- for args_name, args_value in tool_call.arguments|items %}
                         {{- '<parameter=' + args_name + '>\n' }}
-                        {%- set args_value = args_value | tojson | safe if args_value is mapping or (args_value is sequence and args_value is not string) else args_value | string %}
+                        {%- set args_value = args_value | tojson(ensure_ascii=True) | safe if args_value is mapping or (args_value is sequence and args_value is not string) else args_value | string %}
                         {{- args_value }}
                         {{- '\n</parameter>\n' }}
                     {%- endfor %}
@@ -129,17 +129,11 @@
         {%- endif %}
         {{- '<|im_end|>\n' }}
     {%- elif message.role == "tool" %}
-        {%- if loop.previtem and loop.previtem.role != "tool" %}
-            {{- '<|im_start|>user' }}
-        {%- endif %}
+        {{- '<|im_start|>user' }}
         {{- '\n<tool_response>\n' }}
         {{- content }}
         {{- '\n</tool_response>' }}
-        {%- if not loop.last and loop.nextitem.role != "tool" %}
-            {{- '<|im_end|>\n' }}
-        {%- elif loop.last %}
-            {{- '<|im_end|>\n' }}
-        {%- endif %}
+        {{- '<|im_end|>\n' }}
     {%- else %}
         {{- raise_exception('Unexpected message role.') }}
     {%- endif %}

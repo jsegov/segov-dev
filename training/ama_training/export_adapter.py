@@ -1,35 +1,13 @@
-"""Export a trained Tinker checkpoint to a servable artifact (Stage 2).
+"""Explicit candidate/checkpoint export; Qwen serving defaults to a merged artifact.
 
-Produces the artifact that Modal + vLLM serves: the base model stays frozen and
-our fine-tuned LoRA rides on top via ``--lora-modules`` — so what gets served is
-*our* checkpoint, never base Qwen.
-
-    TINKER_API_KEY=... uv run python -m ama_training.export_adapter \
-        preset=qwen3.5-4b [checkpoint=tinker://.../sampler_weights/final] \
-        [output=data/adapters/qwen3.5-4b] [merged=false]
-
-Default (``merged=false``): a ~150 MB PEFT LoRA adapter (``adapter_config.json``
-+ ``adapter_model.safetensors``) for ``vllm serve <base> --lora-modules``.
-``merged=true``: the fallback — merge into base and emit a standalone ~9.3 GB HF
-model, for when the LoRA-target-module coverage gate below can't be satisfied.
-
-CHECKPOINT PATH GOTCHA: export requires a ``sampler_weights/`` path
-(``save_weights_for_sampler`` output — weights only). The checkpoint registry
-stores the ``weights/`` STATE path (weights + optimizer, for warm-start resume),
-which is NOT exportable. With no explicit ``checkpoint=``, this script derives
-the ``sampler_weights`` sibling from the registry and tells you what it resolved.
-If that sibling was never written for the run, ``download`` fails — mint one by
-creating a training client from the state and calling ``save_weights_for_sampler``.
-
-Post-export, verify the LoRA-target-module coverage gate before trusting a
-serve: vLLM WARNS-AND-IGNORES adapter module names it doesn't recognize (silent
-quality loss — the model drifts toward base), so diff the printed target_modules
-against the vLLM startup log and set ``--max-lora-rank`` to the printed rank.
+No latest-training pointer is implicitly exported. The local manifest binds every
+model file to the exact candidate and sampler checkpoint for serving verification.
 """
 
 import json
 import os
 import sys
+import shutil
 import time
 from pathlib import Path
 
@@ -41,7 +19,9 @@ os.environ.setdefault("TINKER_TELEMETRY", "0")
 
 from tinker_cookbook import weights  # noqa: E402 — must follow the env default above
 
-from ama_training.train import PRESETS, TRAINING_DIR, load_registry
+from ama_training.train import PRESETS, TRAINING_DIR
+from ama_training.registry import candidate as get_candidate
+from ama_training.provenance import file_hash, seal, write
 
 DEFAULT_OUTPUT_DIR = TRAINING_DIR / "data" / "adapters"
 
@@ -53,37 +33,46 @@ DOWNLOAD_ATTEMPTS = 5
 DOWNLOAD_BACKOFF_S = 20
 
 
-def resolve_checkpoint(preset_name: str, explicit: str | None) -> str:
-    """Return a sampler_weights checkpoint path to export from.
+def resolve_checkpoint(
+    preset_name: str, explicit: str | None, candidate_id: str | None = None
+) -> str:
+    if candidate_id:
+        selected = get_candidate(candidate_id)
+        if selected["preset"] != preset_name or (
+            explicit and explicit != selected["checkpoint_path"]
+        ):
+            raise ValueError("candidate preset/checkpoint mismatch")
+        explicit = selected["checkpoint_path"]
+    if not explicit or "/sampler_weights/" not in explicit:
+        raise ValueError(
+            "explicit candidate= or checkpoint=tinker://.../sampler_weights/... required"
+        )
+    return explicit
 
-    An explicit path wins. Otherwise derive the sampler sibling of the
-    registry's state path (``.../weights/final`` -> ``.../sampler_weights/final``).
-    """
-    if explicit:
-        return explicit
-    entry = load_registry().get(preset_name)
-    if not entry or not entry.get("state_path"):
-        raise SystemExit(
-            f"no registry entry for {preset_name!r} and no checkpoint= given; "
-            "pass checkpoint=tinker://.../sampler_weights/final explicitly."
-        )
-    state_path = entry["state_path"]
-    if "/sampler_weights/" in state_path:
-        return state_path
-    if "/weights/" not in state_path:
-        raise SystemExit(
-            f"registry state_path {state_path!r} has no '/weights/' segment to "
-            "rewrite; pass checkpoint=tinker://.../sampler_weights/... explicitly."
-        )
-    sampler = state_path.replace("/weights/", "/sampler_weights/")
-    print(
-        f"[resolve] registry state path: {state_path}\n"
-        f"[resolve] exporting from sampler sibling: {sampler}\n"
-        "[resolve] (state paths are not exportable; if this sampler checkpoint "
-        "was never written, download will fail — mint one with "
-        "save_weights_for_sampler.)"
+
+def artifact_manifest(output_dir, preset_name, checkpoint, candidate_id, merged):
+    output_dir = Path(output_dir)
+    files = {
+        str(file.relative_to(output_dir)): file_hash(file)
+        for file in sorted(output_dir.rglob("*"))
+        if file.is_file() and file.name != "artifact-manifest.json"
+    }
+    if not files or not any(name.endswith(".safetensors") for name in files):
+        raise ValueError("export contains no model weights")
+    manifest = seal(
+        {
+            "schema_version": 1,
+            "kind": "ama_model_artifact",
+            "candidate_id": candidate_id,
+            "checkpoint_path": checkpoint,
+            "preset": preset_name,
+            "base_model": PRESETS[preset_name]["model_name"],
+            "format": "merged" if merged else "lora",
+            "files": files,
+        }
     )
-    return sampler
+    write(output_dir / "artifact-manifest.json", manifest)
+    return manifest
 
 
 def summarize_adapter(peft_dir: Path) -> None:
@@ -112,11 +101,14 @@ def main(argv: list[str]) -> None:
     preset_name = "qwen3.5-4b"
     checkpoint: str | None = None
     output: str | None = None
-    merged = False
+    merged = True
+    candidate_id = None
     for arg in argv:
         key, _, value = arg.partition("=")
         if key == "preset":
             preset_name = value
+        elif key == "candidate":
+            candidate_id = value
         elif key == "checkpoint":
             checkpoint = value
         elif key == "output":
@@ -129,8 +121,10 @@ def main(argv: list[str]) -> None:
         raise SystemExit(f"unknown preset {preset_name!r}; choose from {sorted(PRESETS)}")
 
     base_model = PRESETS[preset_name]["model_name"]
-    sampler_path = resolve_checkpoint(preset_name, checkpoint)
+    sampler_path = resolve_checkpoint(preset_name, checkpoint, candidate_id)
     output_dir = Path(output) if output else DEFAULT_OUTPUT_DIR / preset_name
+    if output_dir.exists():
+        raise ValueError("output already exists; use a new immutable artifact directory")
     raw_dir = output_dir.parent / f"{output_dir.name}-raw"
     output_dir.parent.mkdir(parents=True, exist_ok=True)
 
@@ -174,10 +168,12 @@ def main(argv: list[str]) -> None:
         )
         summarize_adapter(output_dir)
         print(f"[done] PEFT adapter at {output_dir}")
-        print(
-            f"[serve] vllm serve {base_model} --enable-lora "
-            f"--lora-modules ama={output_dir}"
-        )
+        print(f"[serve] vllm serve {base_model} --enable-lora " f"--lora-modules ama={output_dir}")
+
+    # HF download metadata is not model input and may mutate during later loads.
+    shutil.rmtree(output_dir / ".cache", ignore_errors=True)
+    manifest = artifact_manifest(output_dir, preset_name, sampler_path, candidate_id, merged)
+    print(f"[artifact] {manifest['artifact_sha256']}")
 
 
 if __name__ == "__main__":

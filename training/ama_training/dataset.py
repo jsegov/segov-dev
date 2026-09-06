@@ -14,6 +14,10 @@ Replaces the cookbook's FromConversationFileBuilder for two reasons:
 
 import json
 import random
+from pathlib import Path
+
+from ama_training.provenance import jsonl, verify_dataset
+from ama_training.split import verify_split
 from collections.abc import Callable, Sequence
 
 import chz
@@ -46,6 +50,58 @@ def convert_message(raw: dict) -> Message:
     # reconstructed from the manifest so it renders through the renderer's
     # own prefix construction.
     raise ValueError(f"unsupported role in trace export: {role!r}")
+
+
+def validate_tool_pairing(messages, declared_tools):
+    """Validate complete historical turns before a renderer can discard tool IDs."""
+    names = [tool["name"] for tool in declared_tools]
+    if any(not name for name in names) or len(names) != len(set(names)):
+        raise ValueError("historical tool declarations need unique nonempty names")
+    if not isinstance(messages, list) or not messages:
+        raise ValueError("nonempty conversation messages required")
+    pending, seen = [], set()
+    for message in messages:
+        if not isinstance(message, dict):
+            raise ValueError("invalid conversation message")
+        role = message.get("role")
+        content = message.get("content")
+        if role == "tool":
+            if not pending or message.get("tool_call_id") != pending[0][0]:
+                raise ValueError("tool results must pair once in declared call order")
+            _, name = pending.pop(0)
+            if message.get("name") != name or not isinstance(content, str):
+                raise ValueError("tool result name/content differs from its call")
+            continue
+        if pending:
+            raise ValueError("missing tool results before the next conversation message")
+        if role not in {"user", "assistant"}:
+            raise ValueError("system context must come from the historical prompt manifest")
+        calls = message.get("tool_calls", [])
+        if role == "user" and calls:
+            raise ValueError("only assistant messages can call tools")
+        if not isinstance(calls, list) or not (
+            isinstance(content, str) or (role == "assistant" and content is None and calls)
+        ):
+            raise ValueError("invalid conversation content or tool calls")
+        for raw_call in calls:
+            call = ToolCall.model_validate(raw_call)
+            if call.type != "function" or not call.id or call.id in seen:
+                raise ValueError("tool calls need unique nonempty function IDs")
+            if call.function.name not in names:
+                raise ValueError("tool call is absent from its historical prompt")
+            if not isinstance(json.loads(call.function.arguments), dict):
+                raise ValueError("tool arguments must be a JSON object")
+            seen.add(call.id)
+            pending.append((call.id, call.function.name))
+    if pending:
+        raise ValueError("conversation ends with missing tool results")
+    last = messages[-1]
+    if (
+        last.get("role") != "assistant"
+        or not isinstance(last.get("content"), str)
+        or not last["content"].strip()
+    ):
+        raise ValueError("conversation must end with a completed assistant answer")
 
 
 class InMemorySupervisedDataset(SupervisedDataset):
@@ -92,58 +148,90 @@ class AmaTraceDatasetBuilder(ChatDatasetBuilder):
 
     file_path: str
     manifest_path: str
+    dataset_manifest_path: str | None = None
+    split_manifest_path: str | None = None
+    # Only synthetic unit fixtures bypass provenance. The training/preflight entrypoints reject it.
+    allow_unverified_fixture: bool = False
     test_size: int = 0
     shuffle_seed: int = 0
     effort: float | None = None
 
-    def __call__(self) -> tuple[SupervisedDataset, SupervisedDataset | None]:
-        versions = load_manifest(self.manifest_path)
-        renderer = self.renderer
-        prefixes: dict[str, list[Message]] = {}
-        conversations: list[list[Message]] = []
-        with open(self.file_path) as f:
-            for line in f:
-                row = json.loads(line)
-                version = row["system_prompt_version"]
-                if version not in prefixes:
-                    if version not in versions:
-                        raise ValueError(
-                            f"trace row references system_prompt_version {version} "
-                            f"missing from {self.manifest_path}"
-                        )
-                    prompt = versions[version]
-                    prefixes[version] = renderer.create_conversation_prefix_with_tools(
-                        prompt.tools, prompt.system_prompt
-                    )
-                conversations.append(
-                    [*prefixes[version], *(convert_message(m) for m in row["messages"])]
-                )
-
-        random.Random(self.shuffle_seed).shuffle(conversations)
-        if 0 < self.test_size < len(conversations):
-            test, train = conversations[: self.test_size], conversations[self.test_size :]
-        else:
-            test, train = [], conversations
-
-        train_on_what = (
-            TrainOnWhat(self.common_config.train_on_what)
-            if self.common_config.train_on_what
-            else TrainOnWhat.ALL_ASSISTANT_MESSAGES
-        )
-
-        def to_datum(conversation: list[Message]) -> tinker.Datum:
-            kwargs: dict = {"train_on_what": train_on_what}
-            if self.effort is not None:
-                kwargs["effort"] = self.effort
-            model_input, weights = renderer.build_supervised_example(conversation, **kwargs)
-            return datum_from_model_input_weights(
-                model_input, weights, self.common_config.max_length, reduction="mean"
+    def records(self):
+        rows = jsonl(self.file_path)
+        if not rows:
+            raise ValueError("empty training construction")
+        if self.allow_unverified_fixture:
+            return [
+                (row, "selection" if index < self.test_size else "train")
+                for index, row in enumerate(rows)
+            ]
+        if not self.dataset_manifest_path or not self.split_manifest_path or self.test_size:
+            raise ValueError(
+                "verified dataset and persisted group split required; example test_size is forbidden"
             )
+        manifest = verify_dataset(self.dataset_manifest_path)
+        root = Path(self.dataset_manifest_path).parent.resolve()
+        if (
+            Path(self.file_path).resolve().parent != root
+            or Path(self.file_path).name
+            not in {"ama-traces-qwen.jsonl", "ama-traces-inkling.jsonl"}
+            or Path(self.manifest_path).resolve() != root / "prompt-manifest.json"
+        ):
+            raise ValueError("dataset paths must belong to the verified manifest")
+        split = verify_split(self.split_manifest_path, manifest["artifact_sha256"], rows)
+        return [(row, split["assignments"][row["conversation_id"]]) for row in rows]
 
-        train_dataset = InMemorySupervisedDataset(
-            train, self.common_config.batch_size, to_datum
+    def conversations_with_metadata(self):
+        versions = load_manifest(self.manifest_path)
+        prefixes = {}
+        result = []
+        for row, partition in self.records():
+            version = row["system_prompt_version"]
+            if version not in versions:
+                raise ValueError(f"unknown prompt version {version}")
+            prompt = versions[version]
+            validate_tool_pairing(row["messages"], prompt.tools)
+            if version not in prefixes:
+                prefixes[version] = self.renderer.create_conversation_prefix_with_tools(
+                    prompt.tools, prompt.system_prompt
+                )
+            result.append(
+                (
+                    row,
+                    partition,
+                    [*prefixes[version], *(convert_message(m) for m in row["messages"])],
+                )
+            )
+        return result
+
+    def render(self, conversation):
+        kwargs = {
+            "train_on_what": TrainOnWhat(
+                self.common_config.train_on_what or TrainOnWhat.ALL_ASSISTANT_MESSAGES
+            )
+        }
+        if self.effort is not None:
+            kwargs["effort"] = self.effort
+        return self.renderer.build_supervised_example(conversation, **kwargs)
+
+    def to_datum(self, conversation):
+        model_input, weights = self.render(conversation)
+        return datum_from_model_input_weights(
+            model_input, weights, self.common_config.max_length, reduction="mean"
         )
-        test_dataset = (
-            InMemorySupervisedDataset(test, len(test), to_datum) if test else None
+
+    def __call__(self) -> tuple[SupervisedDataset, SupervisedDataset | None]:
+        records = self.conversations_with_metadata()
+        train = [conversation for _, partition, conversation in records if partition == "train"]
+        selection = [
+            conversation for _, partition, conversation in records if partition == "selection"
+        ]
+        random.Random(self.shuffle_seed).shuffle(train)
+        if not train:
+            raise ValueError("empty training partition")
+        return (
+            InMemorySupervisedDataset(train, self.common_config.batch_size, self.to_datum),
+            InMemorySupervisedDataset(selection, len(selection), self.to_datum)
+            if selection
+            else None,
         )
-        return train_dataset, test_dataset

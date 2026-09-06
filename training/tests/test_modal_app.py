@@ -1,13 +1,12 @@
 """Modal deployment readiness tests.
 
-The repository's uv environment intentionally excludes Modal because the CLI
-is installed separately. These tests run in deployment-capable environments
-and skip cleanly in the training-only environment.
+The deployment SDK is installed in the dev dependency group so these tests
+run in the same environment as dataset and pipeline tests.
 """
 
 import pytest
 
-pytest.importorskip("modal")
+import modal  # noqa: F401 — Deployment SDK is an intentional CI dependency.
 
 from deploy import modal_app
 
@@ -58,9 +57,7 @@ class HealthyResponse:
 
 def test_readiness_advances_from_awake_state_to_health_and_generation(monkeypatch):
     completion_calls = []
-    monkeypatch.setattr(
-        modal_app, "_get_json", lambda path, timeout: {"is_sleeping": False}
-    )
+    monkeypatch.setattr(modal_app, "_get_json", lambda path, timeout: {"is_sleeping": False})
     monkeypatch.setattr(
         modal_app.urllib.request,
         "urlopen",
