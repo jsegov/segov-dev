@@ -474,6 +474,7 @@ def evaluate_final(
             "AMA_EVAL_MODEL_ARTIFACT_SHA256": winner["model_artifact_sha256"],
             "AMA_EVAL_SERVING_CONFIG_SHA256": winner["serving_config_sha256"],
             "AMA_EVAL_SELECTION_DECISION_SHA256": decision["artifact_sha256"],
+            "AMA_EVAL_CHECKPOINT_DECISION": str(decision_path),
             "AMA_EVAL_FINAL_ATTEMPT_ID": attempt_id,
             "AMA_EVAL_OUTPUT_PATH": str(behavior_path),
             "AMA_INFERENCE_BASE_URL": winner["serving"]["endpoint"],

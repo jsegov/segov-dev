@@ -24,14 +24,18 @@ export function readEvidenceBindings(partition: 'selection' | 'final') {
       }
       return [key, value]
     }),
-  )
+  ) as Record<keyof typeof BINDING_VARIABLES, string | null>
   const decision = process.env.AMA_EVAL_SELECTION_DECISION_SHA256?.trim() || null
   if (decision && !/^[a-f0-9]{64}$/.test(decision)) {
     throw new Error('AMA_EVAL_SELECTION_DECISION_SHA256 must be a SHA-256 hash.')
   }
-  if (partition === 'final' && !decision && !process.env.AMA_EVAL_SELECTION_REPORT) {
+  if (
+    partition === 'final' &&
+    !process.env.AMA_EVAL_CHECKPOINT_DECISION?.trim() &&
+    !process.env.AMA_EVAL_SELECTION_REPORT?.trim()
+  ) {
     throw new Error(
-      'Final evaluation requires a frozen selection decision (AMA_EVAL_SELECTION_REPORT or AMA_EVAL_SELECTION_DECISION_SHA256).',
+      'Final evaluation requires a frozen selection decision (AMA_EVAL_SELECTION_REPORT or AMA_EVAL_CHECKPOINT_DECISION).',
     )
   }
   const attempt =

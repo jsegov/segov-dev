@@ -398,6 +398,7 @@ def test_final_orchestrator_automatically_promotes_bound_reports(release_files):
 
     def complete(command, **kwargs):
         calls.append(command)
+        assert kwargs["env"]["AMA_EVAL_CHECKPOINT_DECISION"] == str(root / "decision.json")
         attempt = kwargs["env"]["AMA_EVAL_FINAL_ATTEMPT_ID"]
         if len(calls) == 1:
             report = behavior(selected, artifact, serving, "final", decision["artifact_sha256"])

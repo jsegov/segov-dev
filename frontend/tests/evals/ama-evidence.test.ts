@@ -176,6 +176,10 @@ describe('release suite and promotion evidence', () => {
     summary.results[0]!.judgeStatus = 'error'
     summary.results[1]!.judgeStatus = 'skipped'
     const evidence = buildBehavioralEvidence(summary, {
+      candidate_id: null,
+      checkpoint_path: null,
+      model_artifact_sha256: null,
+      serving_config_sha256: null,
       selection_decision_sha256: null,
       final_attempt_id: null,
     })
@@ -213,6 +217,7 @@ describe('release suite and promotion evidence', () => {
     vi.stubEnv('AMA_EVAL_MODEL_ARTIFACT_SHA256', 'a'.repeat(64))
     vi.stubEnv('AMA_EVAL_SERVING_CONFIG_SHA256', 'b'.repeat(64))
     vi.stubEnv('AMA_EVAL_SELECTION_DECISION_SHA256', 'c'.repeat(64))
+    vi.stubEnv('AMA_EVAL_CHECKPOINT_DECISION', '/frozen/decision.json')
     vi.stubEnv('AMA_EVAL_FINAL_ATTEMPT_ID', '')
     expect(() => readEvidenceBindings('final')).toThrow('FINAL_ATTEMPT_ID')
     const attempt = '12345678-1234-1234-1234-123456789abc'

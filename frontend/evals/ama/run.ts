@@ -52,6 +52,7 @@ import {
 import { hashFiles, sha256 } from './hashes'
 import { readEvidenceBindings, buildBehavioralEvidence, buildEvalMetrics } from './evidence'
 import frozen from './final-release.json'
+import { verifyCheckpointDecision } from './checkpoint-decision'
 import type {
   AmaEvalCase,
   AmaEvalFixtureProfile,
@@ -248,8 +249,21 @@ async function verifyFinalDecision(
   bindings: ReturnType<typeof readEvidenceBindings>,
 ): Promise<void> {
   const file = process.env.AMA_EVAL_SELECTION_REPORT?.trim()
-  if (!file) {
+  const checkpointFile = process.env.AMA_EVAL_CHECKPOINT_DECISION?.trim()
+  if (checkpointFile) {
+    if (file) {
+      throw new Error('Specify only one frozen selection decision file.')
+    }
+    verifyCheckpointDecision(
+      JSON.parse(await readFile(checkpointFile, 'utf8')),
+      summaryConfig.modelConfig,
+      summaryConfig.metadata,
+      bindings,
+    )
     return
+  }
+  if (!file || bindings.candidate_id) {
+    throw new Error('Candidate final evaluation requires AMA_EVAL_CHECKPOINT_DECISION.')
   }
   const { validateSelectionReport, getComparisonConfiguration } = await import('./matrix')
   const report = validateSelectionReport(JSON.parse(await readFile(file, 'utf8')))
