@@ -2,13 +2,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { get as getBlob, list } from '@vercel/blob'
 import { get as getEdgeConfig } from '@vercel/edge-config'
 import { createAgentUIStreamResponse } from 'ai'
+import type * as AiModule from 'ai'
 import type * as AmaTracesModule from '@/lib/ama-traces'
 
-const { afterCallbacks, persistAmaTraceMock, waitForAmaInferenceEndpointMock } = vi.hoisted(() => ({
-  afterCallbacks: [] as Array<() => Promise<void>>,
-  persistAmaTraceMock: vi.fn(),
-  waitForAmaInferenceEndpointMock: vi.fn(),
-}))
+const { afterCallbacks, persistAmaTraceMock, waitForAmaInferenceEndpointMock, toolOutputs } =
+  vi.hoisted(() => ({
+    afterCallbacks: [] as Array<() => Promise<void>>,
+    toolOutputs: [] as unknown[],
+    persistAmaTraceMock: vi.fn(),
+    waitForAmaInferenceEndpointMock: vi.fn(),
+  }))
 
 vi.mock('@vercel/blob', () => ({
   get: vi.fn(),
@@ -38,7 +41,21 @@ vi.mock('@/lib/ama-wake', () => ({
 }))
 
 vi.mock('ai', async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>()
+  const actual = await importOriginal<typeof AiModule>()
+
+  function publicResponse() {
+    return actual.createUIMessageStreamResponse({
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: 'text-start', id: 'answer' })
+          controller.enqueue({ type: 'text-delta', id: 'answer', delta: 'stream-ok' })
+          controller.enqueue({ type: 'text-end', id: 'answer' })
+          controller.enqueue({ type: 'finish', finishReason: 'stop' })
+          controller.close()
+        },
+      }),
+    })
+  }
 
   class ToolLoopAgent {
     settings: Record<string, unknown>
@@ -187,29 +204,33 @@ vi.mock('ai', async (importOriginal) => {
 
         if (firstText === 'RUN_GET_PUBLIC_SITE_CONTENT_TOOL') {
           const toolOutput = await agent.tools.get_public_site_content.execute?.({})
-          return new Response(JSON.stringify(toolOutput), { status: 200 })
+          toolOutputs.push(toolOutput)
+          return publicResponse()
         }
 
         if (firstText === 'RUN_GET_RESUME_TOOL') {
           const toolOutput = await agent.tools.get_resume.execute?.({})
-          return new Response(JSON.stringify(toolOutput), { status: 200 })
+          toolOutputs.push(toolOutput)
+          return publicResponse()
         }
 
         if (firstText === 'RUN_SEARCH_WORK_CONTEXT_TOOL') {
           const toolOutput = await agent.tools.search_work_context.execute?.({
             query: 'realtime architecture',
           })
-          return new Response(JSON.stringify(toolOutput), { status: 200 })
+          toolOutputs.push(toolOutput)
+          return publicResponse()
         }
 
         if (firstText === 'RUN_SEARCH_PERSONAL_CONTEXT_TOOL') {
           const toolOutput = await agent.tools.search_personal_context.execute?.({
             query: 'side project build',
           })
-          return new Response(JSON.stringify(toolOutput), { status: 200 })
+          toolOutputs.push(toolOutput)
+          return publicResponse()
         }
 
-        return new Response('stream-ok', { status: 200 })
+        return publicResponse()
       },
     ),
   }
@@ -235,6 +256,7 @@ describe('/api/chat route', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     afterCallbacks.length = 0
+    toolOutputs.length = 0
     persistAmaTraceMock.mockResolvedValue(undefined)
     waitForAmaInferenceEndpointMock.mockResolvedValue('skipped')
     delete process.env.BLOB_RESUME_PATH
@@ -289,7 +311,7 @@ describe('/api/chat route', () => {
     expect(response.headers.get('X-Ama-Trace-Id')).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     )
-    expect(await response.text()).toBe('stream-ok')
+    expect(await response.text()).toContain('"delta":"stream-ok"')
     expect(createAgentUIStreamResponseMock).toHaveBeenCalledWith(
       expect.objectContaining({
         uiMessages: [
@@ -319,7 +341,7 @@ describe('/api/chat route', () => {
       new Request('http://localhost/api/chat', {
         method: 'POST',
         body: JSON.stringify({
-          messages: [{ id: 'invalid', role: 'user', parts: [] }],
+          messages: [{ id: 'invalid', role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
         }),
       }),
     )
@@ -512,7 +534,7 @@ describe('/api/chat route', () => {
     )
 
     expect(response.status).toBe(200)
-    expect(await response.text()).toBe('stream-ok')
+    expect(await response.text()).toContain('"delta":"stream-ok"')
     expect(afterCallbacks).toHaveLength(1)
     expect(persistAmaTraceMock).not.toHaveBeenCalled()
 
@@ -570,7 +592,7 @@ describe('/api/chat route', () => {
       }),
     )
 
-    expect(await response.text()).toBe('stream-ok')
+    expect(await response.text()).toContain('"delta":"stream-ok"')
     await afterCallbacks[0]()
     expect(persistAmaTraceMock).not.toHaveBeenCalled()
     expect(errorSpy).toHaveBeenCalledWith(
@@ -642,7 +664,7 @@ describe('/api/chat route', () => {
     )
 
     expect(response.status).toBe(200)
-    const result = await response.json()
+    const result = toolOutputs.at(-1)
     expect(result).toMatchObject({
       available: true,
       source: 'edge_config',
@@ -669,7 +691,7 @@ describe('/api/chat route', () => {
     )
 
     expect(response.status).toBe(200)
-    const result = await response.json()
+    const result = toolOutputs.at(-1)
     expect(result).toMatchObject({
       available: false,
       source: 'missing_path',
@@ -698,7 +720,7 @@ describe('/api/chat route', () => {
     )
 
     expect(response.status).toBe(200)
-    const result = await response.json()
+    const result = toolOutputs.at(-1)
     expect(result).toMatchObject({
       available: false,
       source: 'blob_fetch_failed',
@@ -734,7 +756,7 @@ describe('/api/chat route', () => {
 
     expect(response.status).toBe(200)
     expect(listBlobMock).toHaveBeenCalledWith({ prefix: 'work/', cursor: undefined })
-    const result = await response.json()
+    const result = toolOutputs.at(-1)
     expect(result).toMatchObject({
       available: true,
       source: 'blob',
@@ -775,7 +797,7 @@ describe('/api/chat route', () => {
 
     expect(response.status).toBe(200)
     expect(listBlobMock).toHaveBeenCalledWith({ prefix: 'personal/', cursor: undefined })
-    const result = await response.json()
+    const result = toolOutputs.at(-1)
     expect(result).toMatchObject({
       available: true,
       source: 'blob',

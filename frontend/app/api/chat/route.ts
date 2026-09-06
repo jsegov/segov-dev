@@ -1,4 +1,4 @@
-import { consumeStream, createAgentUIStreamResponse } from 'ai'
+import { consumeStream, createAgentUIStreamResponse, type UIMessage } from 'ai'
 import { randomUUID } from 'node:crypto'
 import { after } from 'next/server'
 import { createAmaAgent, getAmaCallSettings } from '@/lib/ama-agent'
@@ -14,6 +14,7 @@ import {
 } from '@/lib/ama-stream-diagnostics'
 import { createAmaTraceCollector, persistAmaTrace, type AmaRequestTrigger } from '@/lib/ama-traces'
 import { waitForAmaInferenceEndpoint } from '@/lib/ama-wake'
+import { createAmaPublicStreamResponse } from '@/lib/ama-public-stream'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
@@ -85,6 +86,50 @@ function getFirstUserMessageId(messages: unknown[]): string | null {
   return null
 }
 
+/** The public AMA accepts conversation text, never client-supplied tools or files. */
+function parsePublicMessages(value: unknown): UIMessage[] | null {
+  if (!Array.isArray(value) || value.length === 0) {
+    return null
+  }
+  const messages: UIMessage[] = []
+  for (const raw of value) {
+    if (
+      raw === null ||
+      typeof raw !== 'object' ||
+      Array.isArray(raw) ||
+      typeof raw.id !== 'string' ||
+      !raw.id.trim() ||
+      (raw.role !== 'user' && raw.role !== 'assistant') ||
+      !Array.isArray(raw.parts)
+    ) {
+      return null
+    }
+    const parts: UIMessage['parts'] = []
+    for (const part of raw.parts) {
+      if (part === null || typeof part !== 'object' || Array.isArray(part)) {
+        return null
+      }
+      // The SDK retains these public lifecycle markers on previous assistant turns.
+      if (raw.role === 'assistant' && part.type === 'step-start') {
+        continue
+      }
+      if (part.type !== 'text' || typeof part.text !== 'string') {
+        return null
+      }
+      parts.push({ type: 'text', text: part.text })
+    }
+    if (!parts.some((part) => part.type === 'text' && part.text.trim())) {
+      if (raw.role === 'user') {
+        return null
+      }
+      // An aborted response can leave an empty assistant message in live UI state.
+      continue
+    }
+    messages.push({ id: raw.id, role: raw.role, parts })
+  }
+  return messages.at(-1)?.role === 'user' ? messages : null
+}
+
 export async function POST(req: Request) {
   const requestStartedAt = Date.now()
   let body: unknown
@@ -94,9 +139,12 @@ export async function POST(req: Request) {
     return createErrorResponse('invalid_request', 400)
   }
 
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return createErrorResponse('invalid_request', 400)
+  }
   const requestBody = body as { id?: unknown; messages?: unknown; trigger?: unknown }
-  const messages = requestBody.messages
-  if (!Array.isArray(messages)) {
+  const messages = parsePublicMessages(requestBody.messages)
+  if (!messages) {
     return createErrorResponse('invalid_request', 400)
   }
 
@@ -156,6 +204,8 @@ export async function POST(req: Request) {
       uiMessages: messages,
       abortSignal: req.signal,
       timeout: { totalMs: agentTimeoutMs },
+      sendReasoning: false,
+      sendSources: false,
       onFinish: ({
         responseMessage,
         finishReason,
@@ -217,6 +267,7 @@ export async function POST(req: Request) {
           console.info(
             JSON.stringify({
               event: 'ama_sse_wire_finish',
+              streamBoundary: 'internal',
               traceId,
               outcome,
               summary: collector.finish(),
@@ -236,7 +287,7 @@ export async function POST(req: Request) {
       }
     })
 
-    return response
+    return createAmaPublicStreamResponse(response)
   } catch (error) {
     traceCollector?.settleWithoutTrace()
     const errorDetails = getAmaStreamErrorDetails(error, 'request')
