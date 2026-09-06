@@ -14,7 +14,7 @@
     "test:browser": "playwright test",
     "test:browser:install": "playwright install chromium",
     "eval:ama": "vitest run --config vitest.eval.config.ts --pool=forks --testTimeout=1500000",
-    "eval:ama:ci": "AMA_EVAL_CI=1 AMA_EVAL_CONCURRENCY=8 vitest run --config vitest.eval.config.ts --pool=forks --testTimeout=1500000",
+    "eval:ama:ci": "AMA_EVAL_CI=1 vitest run --config vitest.eval.config.ts --pool=forks --testTimeout=1500000",
     "eval:ama:production": "AMA_EVAL_PROFILE=production vitest run --config vitest.eval.config.ts",
     "eval:ama:benchmark": "AMA_EVAL_PROFILE=benchmark vitest run --config vitest.eval.config.ts",
     "eval:ama:matrix": "AMA_EVAL_COMMAND=matrix vitest run --config vitest.eval.config.ts",

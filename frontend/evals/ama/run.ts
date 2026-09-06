@@ -14,6 +14,7 @@ import {
   type AmaModelConfig,
 } from '@/lib/ama-model-config'
 import { getAmaStreamErrorDetails } from '@/lib/ama-stream-diagnostics'
+import { assertExplicitCiModelConfig } from './ci-config'
 import { amaEvalDataset } from './dataset'
 import {
   getPublicSiteFixture,
@@ -91,6 +92,7 @@ export async function mapWithConcurrency<T, R>(
 }
 
 export function getEvalModelConfig(profile: AmaEvalProfile): AmaModelConfig {
+  assertExplicitCiModelConfig()
   if (profile !== 'benchmark') {
     if (process.env.AMA_EVAL_MODEL?.trim() || process.env.AMA_EVAL_PROVIDERS?.trim()) {
       throw new Error(

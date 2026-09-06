@@ -50,6 +50,10 @@ The final example uses an illustrative budget: use the report's actual `selected
 
 Equivalent direct invocation is `pnpm exec vitest run --config vitest.eval.config.ts` with `AMA_EVAL_PROFILE=production|benchmark`, `AMA_EVAL_COMMAND=matrix|select|export-manifest`, or `AMA_EVAL_SUITE=final`. The standard suite may skip locally without credentials; matrix, final, and `AMA_EVAL_CI=1` fail when credentials are missing. `AMA_EVAL_CONCURRENCY` defaults to 4 and must be a positive integer.
 
+`pnpm eval:ama:ci` also requires an explicit runtime model: set `AMA_CHAT_MODEL`, or set both `AMA_INFERENCE_BASE_URL` and `AMA_DEPLOYMENT_MODEL` for custom inference. Blank values and partial inference pairs fail before any subject or judge requests, even if a Gateway model is also set. This prevents missing CI variables from silently evaluating the default model. Ordinary local production evaluations retain runtime defaults; credentials alone do not select a CI model.
+
+The GitHub workflow reads these values from its `Github Actions` environment. Store endpoint authentication in secrets; `AMA_INFERENCE_BASE_URL` can also be a secret, which takes precedence over a variable with the same name. CI uses the same default concurrency of four as local evaluations and the budget matrix. Provision the complete configuration before rerunning a failed live gate; a missing configuration is not passing evaluation evidence.
+
 ## Budget decision and gates
 
 The matrix tests **512, 1024, 1536, and 2400** tokens, three repetitions each. It interleaves budgets within repetitions. Every run uses the same configuration and selection cases; the comparison rejects incomplete matrices, duplicate repetitions, or differences beyond the output cap.
