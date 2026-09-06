@@ -4,7 +4,7 @@ A frontend-only Next.js portfolio with an AMA chat page powered by Vercel AI SDK
 
 ## Stack
 
-- Next.js 15 + React 19 + TypeScript
+- Next.js 15.5.25 + React 19.1.9 + TypeScript (the [patched 15.5 release line](https://nextjs.org/blog/august-2026-security-release))
 - Tailwind CSS
 - AI SDK v6 (`ToolLoopAgent` + `createAgentUIStreamResponse`)
 - Vercel AI Gateway model/provider routing is configurable for AMA via env vars
@@ -18,6 +18,9 @@ A frontend-only Next.js portfolio with an AMA chat page powered by Vercel AI SDK
 - Blog content is loaded from private Vercel Blob storage under the `BLOB_BLOG_PREFIX` prefix
 - AMA chat UI uses `useChat` and streams from `POST /api/chat`
 - Server route `frontend/app/api/chat/route.ts` runs the agent
+- The route accepts user/assistant text only. Its public SSE projection removes tool payloads,
+  reasoning, sources, and metadata after agent execution; complete tool results stay in server
+  model context and traces. Client-supplied system messages and file/tool parts are rejected.
 - Agent tool `get_resume` reads resume context from private Blob using `BLOB_RESUME_PATH`
 - Agent tools `search_work_context` and `search_personal_context` search `.md`, `.mdx`, and `.txt` files from private Blob under the hard-coded `work/` and `personal/` prefixes respectively
 
@@ -27,6 +30,7 @@ Set these in `frontend/.env.local` for local development and in Vercel project s
 
 - `AI_GATEWAY_API_KEY`
 - `AMA_CHAT_MODEL` (default: `openai/gpt-5-mini`)
+- `AMA_MAX_OUTPUT_TOKENS` (positive integer; defaults to the committed value in `frontend/lib/ama-defaults.json`, initially 512)
 - `AMA_CHAT_PROVIDERS` (optional: `openai` or `vertex,anthropic`)
 - `AMA_INFERENCE_BASE_URL` (optional: OpenAI-compatible endpoint for a fine-tuned deployment, e.g. Tinker's `.../oai/api/v1`; when set, it replaces AI Gateway routing)
 - `AMA_INFERENCE_API_KEY` (optional: bearer token for the inference endpoint)
@@ -58,8 +62,14 @@ Open `http://localhost:3000`.
 
 ```bash
 pnpm lint
+pnpm --filter frontend format:check
+pnpm --filter frontend typecheck
 pnpm test
 pnpm build
+pnpm --filter frontend test:browser:install
+pnpm --filter frontend test:browser
+pnpm --filter ama-training test
+uv run --project training --group dev python -m pytest training/tests
 ```
 
 ## AMA Evals
@@ -72,10 +82,22 @@ pnpm --filter frontend eval:ama
 pnpm --filter frontend eval:ama:ci
 ```
 
-Set `AI_GATEWAY_API_KEY` or `VERCEL_OIDC_TOKEN` before running live evals. Optional eval
-overrides are `AMA_EVAL_MODEL`, `AMA_EVAL_PROVIDERS`, `AMA_EVAL_MAX_OUTPUT_TOKENS` (default:
-2,400),
-`AMA_EVAL_CONCURRENCY`, `AMA_EVAL_USE_JUDGE`, and `AMA_EVAL_JUDGE_MODEL`.
+Production is the default profile and uses the runtime model, call settings, streaming protocol,
+and browser transport with synthetic context. Production and tuning require an independent
+gateway judge for cases with judge rubrics. Missing judge evidence cannot pass a release gate.
+Use `eval:ama:benchmark` for the historical 2,400-token deterministic profile; `AMA_EVAL_MODEL`,
+`AMA_EVAL_PROVIDERS`, and `AMA_EVAL_MAX_OUTPUT_TOKENS` are benchmark-only overrides.
+
+`pnpm --filter frontend eval:ama:matrix` explicitly makes live model calls for four budgets and
+three repetitions each. It chooses the smallest budget within one percentage point of the best
+passing aggregate quality, only when every repetition passes. If no budget qualifies, retain the
+committed default. Reports record settings, provenance hashes, usage, latency, judge coverage,
+and per-case outcomes. See [evaluation operations](frontend/evals/ama/README.md) for final-suite
+locks, evidence bindings, offline selection, and exporting training exclusion fingerprints.
+
+Configure the frontend CI `AMA_CHAT_*`, `AMA_MAX_OUTPUT_TOKENS`, and optional inference settings
+to match Vercel production. Live evaluations skipped for unavailable credentials are unevaluated;
+they are never evidence for checkpoint promotion. Browser tests use synthetic network fixtures.
 
 To eval a fine-tuned deployment instead of a gateway model, set `AMA_INFERENCE_BASE_URL`,
 `AMA_DEPLOYMENT_MODEL`, and the endpoint's auth — `AMA_INFERENCE_API_KEY` (Bearer) and/or
@@ -83,10 +105,24 @@ To eval a fine-tuned deployment instead of a gateway model, set `AMA_INFERENCE_B
 The LLM judge still requires `AI_GATEWAY_API_KEY` and defaults to `openai/gpt-5-mini`
 when the subject model is served from an inference endpoint.
 
+## Training and releases
+
+Training consumes explicitly reviewed synthetic snapshots. Visitor conversations are excluded.
+Content hashes bind approvals to the complete trace, and persisted conversation/family splits
+keep training, selection, and final examples separate. Every training run performs a full
+train/selection preflight before contacting Tinker.
+
+The checkpoint registry separates latest training state, candidates, and the deployable pointer.
+The final-evaluation command claims a single attempt for the locked winner and automatically
+promotes only when all bound checks pass; failure preserves the previous deployable checkpoint.
+Deployment is a separate command. Legacy checkpoints require verifiable training provenance to
+be eligible. See [training operations](training/README.md) and [serving verification](training/deploy/README.md).
+
 ## Repo Layout
 
 ```text
 segov-dev/
 ├── frontend/   # Next.js application
-└── .github/    # frontend workflows
+├── training/   # reviewed datasets, training, serving and release verification
+└── .github/    # frontend and training workflows
 ```

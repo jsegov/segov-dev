@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useCallback, useState, useRef, useEffect } from 'react'
 import { Navbar } from '@/components/navbar'
 import { useToast } from '@/hooks/use-toast'
 import { DefaultChatTransport } from 'ai'
@@ -67,6 +67,7 @@ const AMA_CHAT_TRANSPORT = new DefaultChatTransport({
           console.error(
             JSON.stringify({
               event: 'ama_client_sse_wire_error',
+              streamBoundary: 'public',
               traceId,
               outcome: terminal.outcome,
               ...getAmaStreamErrorDetails(terminal.error, 'client_stream'),
@@ -79,6 +80,7 @@ const AMA_CHAT_TRANSPORT = new DefaultChatTransport({
         console.info(
           JSON.stringify({
             event: 'ama_client_sse_wire_finish',
+            streamBoundary: 'public',
             traceId,
             outcome: terminal.outcome,
             summary,
@@ -156,13 +158,20 @@ function sanitizeMessages(messages: UIMessage[]): UIMessage[] {
   return sanitizedMessages.length > 0 ? sanitizedMessages : INITIAL_MESSAGES
 }
 
-function loadStoredMessages(): UIMessage[] | null {
+function loadStoredMessages(onStorageError: () => void): UIMessage[] | null {
+  let serializedMessages: string | null
   try {
-    const serializedMessages = window.localStorage.getItem(AMA_STORAGE_KEY)
-    if (!serializedMessages) {
-      return null
-    }
+    serializedMessages = window.localStorage.getItem(AMA_STORAGE_KEY)
+  } catch {
+    onStorageError()
+    return null
+  }
 
+  if (!serializedMessages) {
+    return null
+  }
+
+  try {
     const parsedMessages = JSON.parse(serializedMessages)
     if (!Array.isArray(parsedMessages)) {
       return INITIAL_MESSAGES
@@ -174,12 +183,20 @@ function loadStoredMessages(): UIMessage[] | null {
   }
 }
 
-function persistSanitizedMessages(sanitizedMessages: UIMessage[]) {
-  window.localStorage.setItem(AMA_STORAGE_KEY, JSON.stringify(sanitizedMessages))
+function persistSanitizedMessages(sanitizedMessages: UIMessage[], onStorageError: () => void) {
+  try {
+    window.localStorage.setItem(AMA_STORAGE_KEY, JSON.stringify(sanitizedMessages))
+  } catch {
+    onStorageError()
+  }
 }
 
-function clearStoredMessages() {
-  window.localStorage.removeItem(AMA_STORAGE_KEY)
+function clearStoredMessages(onStorageError: () => void) {
+  try {
+    window.localStorage.removeItem(AMA_STORAGE_KEY)
+  } catch {
+    onStorageError()
+  }
 }
 
 function hasUserMessage(messages: UIMessage[]): boolean {
@@ -241,8 +258,22 @@ function getFollowUpSuggestions(messages: UIMessage[]): string[] {
 export default function AMAPage() {
   const [input, setInput] = useState('')
   const [hasHydratedMessages, setHasHydratedMessages] = useState(false)
+  const [completedAnnouncement, setCompletedAnnouncement] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const hasReportedStorageError = useRef(false)
   const { toast } = useToast()
+  const reportStorageError = useCallback(() => {
+    if (hasReportedStorageError.current) {
+      return
+    }
+    hasReportedStorageError.current = true
+    toast({
+      title: 'Local history unavailable',
+      duration: Infinity,
+      description:
+        'You can keep chatting for this visit, but this conversation may not be saved on this device.',
+    })
+  }, [toast])
   const { messages, sendMessage, status, error, stop, regenerate, setMessages, clearError } =
     useChat({
       messages: INITIAL_MESSAGES,
@@ -267,6 +298,10 @@ export default function AMAPage() {
 
         if (isAbort || isDisconnect || isError) {
           return
+        }
+
+        if (finishReason && finishReason !== 'error' && messageSummary.trimmedTextLength > 0) {
+          setCompletedAnnouncement(getMessageText(message.parts).trim())
         }
 
         if (finishReason === 'length') {
@@ -321,12 +356,12 @@ export default function AMAPage() {
   }
 
   useEffect(() => {
-    const storedMessages = loadStoredMessages()
+    const storedMessages = loadStoredMessages(reportStorageError)
     if (storedMessages) {
       setMessages(storedMessages)
     }
     setHasHydratedMessages(true)
-  }, [setMessages])
+  }, [setMessages, reportStorageError])
 
   // Fire-and-forget: pre-warm a scale-to-zero inference backend so its cold
   // start overlaps with the visitor typing their first message. Server route
@@ -346,11 +381,11 @@ export default function AMAPage() {
 
     const sanitizedMessages = sanitizeMessages(messages)
     if (isInitialMessageSet(sanitizedMessages)) {
-      clearStoredMessages()
+      clearStoredMessages(reportStorageError)
     } else {
-      persistSanitizedMessages(sanitizedMessages)
+      persistSanitizedMessages(sanitizedMessages, reportStorageError)
     }
-  }, [hasHydratedMessages, isLoading, messages])
+  }, [hasHydratedMessages, isLoading, messages, reportStorageError])
 
   useEffect(() => {
     if (!error) {
@@ -374,16 +409,19 @@ export default function AMAPage() {
       : [...baseMessages, createTextMessage('assistant', text)]
 
     setMessages(nextMessages)
+    setCompletedAnnouncement(text)
   }
 
   function resetSession() {
     clearError()
-    clearStoredMessages()
+    clearStoredMessages(reportStorageError)
     setMessages(INITIAL_MESSAGES)
+    setCompletedAnnouncement('')
   }
 
   async function retryLastResponse() {
     clearError()
+    setCompletedAnnouncement('')
     await regenerate()
   }
 
@@ -429,6 +467,7 @@ export default function AMAPage() {
     }
 
     try {
+      setCompletedAnnouncement('')
       await sendMessage({ text: trimmedText })
     } catch {
       toast({
@@ -455,7 +494,11 @@ export default function AMAPage() {
 
       <div className="flex-1 container mx-auto px-4 py-8 flex flex-col">
         <div className="terminal-window flex-1 flex flex-col">
-          <div className="terminal-window-content flex-1 overflow-y-auto font-mono">
+          <div
+            role="region"
+            aria-label="Conversation"
+            className="terminal-window-content flex-1 overflow-y-auto font-mono"
+          >
             {messages.map((message, messageIndex) => {
               const text = getMessageText(message.parts)
               const isStreamingAssistantMessage =
@@ -519,12 +562,16 @@ export default function AMAPage() {
             )}
             <div ref={messagesEndRef} />
           </div>
+          <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+            {completedAnnouncement}
+          </div>
 
           <form onSubmit={handleSubmit} className="border-t border-border/30 p-4">
             <div className="flex flex-col gap-3 md:flex-row md:items-center">
               <div className="flex min-w-0 flex-1 items-center">
                 <span className="text-foreground mr-2">$</span>
                 <input
+                  aria-label="Ask a question"
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}

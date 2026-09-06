@@ -60,6 +60,23 @@ jobs:
       - name: Build
         run: pnpm --filter frontend build
 
+      - name: Install browser
+        run: pnpm --filter frontend exec playwright install --with-deps chromium
+
+      - name: Browser smoke tests (synthetic network fixtures)
+        id: browser-smoke
+        env:
+          PLAYWRIGHT_OUTPUT_DIR: ${{ runner.temp }}/segov-dev-playwright
+        run: pnpm --filter frontend test:browser
+
+      - name: Upload browser failure traces
+        if: ${{ always() && steps.browser-smoke.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-smoke-results
+          path: ${{ runner.temp }}/segov-dev-playwright
+          if-no-files-found: ignore
+
       - name: AMA live evals
         id: ama-evals
         if: ${{ env.AI_GATEWAY_API_KEY != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
