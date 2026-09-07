@@ -1,5 +1,6 @@
 import {
   ToolLoopAgent,
+  stepCountIs,
   pruneMessages,
   tool,
   type ModelMessage,
@@ -21,6 +22,7 @@ import {
 } from '@/lib/ama-model-config'
 import amaDefaults from '@/lib/ama-defaults.json'
 import { withAmaInferenceReliability } from '@/lib/ama-model-reliability'
+import { withAmaStructuredAnswer } from '@/lib/ama-structured-answer'
 import { getPublicSiteContent, type SiteContent } from '@/lib/content'
 import {
   AMA_CONTEXT_TOOL_NAMES,
@@ -96,9 +98,9 @@ const WORK_CONTEXT_DESCRIPTION =
 const PERSONAL_CONTEXT_DESCRIPTION =
   'Searches my side-project and personal-project notes from private Blob storage. Does not cover work or employer-related material — use search_work_context for those.'
 
-const reasonInputSchema = z.object({
-  reason: z.string().optional(),
-})
+// These loaders accept no arguments. An optional free-form reason adds no
+// retrieval information and can turn a forced call into a long generation.
+const lookupInputSchema = z.object({})
 const contextSearchInputSchema = z.object({
   query: z.string().min(1),
   reason: z.string().optional(),
@@ -108,12 +110,12 @@ export const AMA_TOOL_DECLARATIONS = [
   {
     name: 'get_public_site_content',
     description: PUBLIC_SITE_CONTENT_DESCRIPTION,
-    inputSchema: z.toJSONSchema(reasonInputSchema),
+    inputSchema: z.toJSONSchema(lookupInputSchema),
   },
   {
     name: 'get_resume',
     description: RESUME_DESCRIPTION,
-    inputSchema: z.toJSONSchema(reasonInputSchema),
+    inputSchema: z.toJSONSchema(lookupInputSchema),
   },
   {
     name: 'search_work_context',
@@ -191,7 +193,7 @@ export function createAmaPromptManifest(
     instructions: AMA_INSTRUCTIONS,
     tools: AMA_TOOL_DECLARATIONS,
     callSettings: { ...callSettings },
-    toolAvailabilityPolicy: 'source-plan-v1',
+    toolAvailabilityPolicy: 'source-plan-v2',
   } as const
 }
 
@@ -418,8 +420,9 @@ function singleUseContextTools(tools: AmaTools): AmaTools {
 
 export function createAmaAgent(options: CreateAmaAgentOptions = {}) {
   const modelConfig = options.modelConfig ?? getAmaModelConfig()
-  const resolvedModel = resolveAmaLanguageModel(modelConfig)
+  const resolvedModel = resolveAmaLanguageModel(modelConfig, AMA_TOOL_DECLARATIONS)
   const model = modelConfig.inference ? withAmaInferenceReliability(resolvedModel) : resolvedModel
+  const answerModel = modelConfig.inference ? withAmaStructuredAnswer(model) : undefined
   const callSettings = getAmaCallSettings(modelConfig, options.callSettings)
   const publicSiteContentLoader = options.getPublicSiteContent ?? getPublicSiteContent
   const resumeContextLoader = options.getResumeContext ?? getResumeContextFromBlob
@@ -433,6 +436,14 @@ export function createAmaAgent(options: CreateAmaAgentOptions = {}) {
 
     return {
       ...pruneAmaCallMessages(preparedCallOptions),
+      stopWhen: [
+        ...(Array.isArray(preparedCallOptions.stopWhen)
+          ? preparedCallOptions.stopWhen
+          : preparedCallOptions.stopWhen
+            ? [preparedCallOptions.stopWhen]
+            : []),
+        stepCountIs(MAX_AMA_CONTEXT_TOOL_STEPS + 1),
+      ],
       ...(preparedCallOptions.tools
         ? { tools: singleUseContextTools(preparedCallOptions.tools) }
         : {}),
@@ -494,11 +505,14 @@ export function createAmaAgent(options: CreateAmaAgentOptions = {}) {
 
     return {
       ...preparedStep,
+      ...(activeTools.length === 0 && answerModel && preparedStep?.model === undefined
+        ? { model: answerModel }
+        : {}),
       activeTools,
       ...(activeTools.length === 0
         ? { toolChoice: 'none' as const }
         : decision.forcedTool
-          ? { toolChoice: { type: 'tool' as const, toolName: decision.forcedTool } }
+          ? { toolChoice: 'required' as const }
           : {}),
       ...(reminder || decision.reminder
         ? {
@@ -517,13 +531,14 @@ export function createAmaAgent(options: CreateAmaAgentOptions = {}) {
     providerOptions: modelConfig.providerOptions,
     ...callSettings,
     instructions: AMA_INSTRUCTIONS,
+    stopWhen: stepCountIs(MAX_AMA_CONTEXT_TOOL_STEPS + 1),
     prepareCall,
     prepareStep,
     onFinish: options.onFinish,
     tools: {
       get_public_site_content: tool({
         description: PUBLIC_SITE_CONTENT_DESCRIPTION,
-        inputSchema: reasonInputSchema,
+        inputSchema: lookupInputSchema,
         execute: async () => {
           try {
             const siteContent = await publicSiteContentLoader()
@@ -543,7 +558,7 @@ export function createAmaAgent(options: CreateAmaAgentOptions = {}) {
       }),
       get_resume: tool({
         description: RESUME_DESCRIPTION,
-        inputSchema: reasonInputSchema,
+        inputSchema: lookupInputSchema,
         execute: async () => {
           const result = await resumeContextLoader()
           if (!result.available) {

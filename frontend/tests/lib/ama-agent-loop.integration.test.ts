@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { InvalidToolInputError, NoSuchToolError } from 'ai'
+import { InvalidToolInputError, NoSuchToolError, stepCountIs } from 'ai'
 import { MockLanguageModelV3 } from 'ai/test'
 import type { AmaAgentSettings, CreateAmaAgentOptions } from '@/lib/ama-agent'
 import type { AmaModelConfig } from '@/lib/ama-model-config'
@@ -25,7 +25,7 @@ const usage: GenerateResult['usage'] = {
 function createToolCall(
   toolCallId: string,
   toolName: string,
-  input: Record<string, unknown> = {},
+  input: Record<string, unknown> | string = {},
 ): GenerateResult {
   return {
     content: [
@@ -304,14 +304,10 @@ describe('AMA agent retrieval loop', () => {
       }),
     })
     await agent.generate({ prompt: 'How did you build your side project?' })
-    expect(mockModel.doGenerateCalls[0]?.toolChoice).toEqual({
-      type: 'tool',
-      toolName: 'get_public_site_content',
-    })
-    expect(mockModel.doGenerateCalls[1]?.toolChoice).toEqual({
-      type: 'tool',
-      toolName: 'get_resume',
-    })
+    expect(mockModel.doGenerateCalls[0]?.toolChoice).toEqual({ type: 'required' })
+    expect(availableTools(0)).toEqual(['get_public_site_content'])
+    expect(mockModel.doGenerateCalls[1]?.toolChoice).toEqual({ type: 'required' })
+    expect(availableTools(1)).toEqual(['get_resume'])
   })
 
   it('keeps resume pending after coalescing duplicate public calls in the same step', async () => {
@@ -338,10 +334,8 @@ describe('AMA agent retrieval loop', () => {
     expect(getPublicSiteContent).toHaveBeenCalledTimes(1)
     expect(getResumeContext).toHaveBeenCalledTimes(1)
     expect(result.steps[0]!.toolCalls).toHaveLength(2)
-    expect(mockModel.doGenerateCalls[1]?.toolChoice).toEqual({
-      type: 'tool',
-      toolName: 'get_resume',
-    })
+    expect(mockModel.doGenerateCalls[1]?.toolChoice).toEqual({ type: 'required' })
+    expect(availableTools(1)).toEqual(['get_resume'])
   })
 
   it('does not repeat a failed loader when the same step requests it twice', async () => {
@@ -543,7 +537,7 @@ describe('AMA agent retrieval loop', () => {
 
   it('does not unlock resume or consume public retrieval when public arguments are invalid', async () => {
     setModelResponses([
-      createToolCall('invalid-public', 'get_public_site_content', { reason: 42 }),
+      createToolCall('invalid-public', 'get_public_site_content', 'not-an-object'),
       createToolCall('public-1', 'get_public_site_content'),
       createToolCall('resume-1', 'get_resume'),
       createAnswer('I studied computer science.'),
@@ -636,7 +630,7 @@ describe('AMA agent retrieval loop', () => {
   it('keeps the four-step ceiling when every attempted call is rejected', async () => {
     setModelResponses([
       ...Array.from({ length: 4 }, (_, index) =>
-        createToolCall(`invalid-public-${index}`, 'get_public_site_content', { reason: 42 }),
+        createToolCall(`invalid-public-${index}`, 'get_public_site_content', 'not-an-object'),
       ),
       createAnswer('Please check my Career page for my background.'),
     ])
@@ -660,6 +654,118 @@ describe('AMA agent retrieval loop', () => {
     expect(mockModel.doGenerateCalls[4]?.toolChoice).toEqual({ type: 'none' })
     expect(stepReminderLines(4)).toEqual([])
     expect(result.steps.flatMap((step) => step.toolCalls)).toHaveLength(4)
+  })
+
+  it.each(['invalid arguments', 'repeated retrieval'] as const)(
+    'stops after five SDK steps when the model keeps emitting %s despite no tools',
+    async (behavior) => {
+      let generatedCalls = 0
+      mockModel = new MockLanguageModelV3({
+        // Intentionally never produce a text answer: the application ceiling
+        // must stop the SDK even when the provider ignores toolChoice:none.
+        doGenerate: async () => {
+          const callId = `attempt-${generatedCalls++}`
+          return behavior === 'invalid arguments'
+            ? createToolCall(callId, 'get_public_site_content', 'not-an-object')
+            : createToolCall(callId, 'search_personal_context', { query: 'Quartz Ledger' })
+        },
+      })
+      const { createAmaAgent } = await import('@/lib/ama-agent')
+      const getPublicSiteContent = vi.fn(async () => publicContent())
+      const searchPersonalContext = vi.fn(async (query: string) => ({
+        available: true,
+        source: 'blob' as const,
+        query,
+        matches: [],
+        content: 'PRIVATE_RETAINED_QUEUE_FACT',
+      }))
+      const onFinish = vi.fn<NonNullable<CreateAmaAgentOptions['onFinish']>>()
+      const agent = createAmaAgent({
+        modelConfig: { model: 'openai/test-model' },
+        getPublicSiteContent,
+        searchPersonalContext,
+        onFinish,
+      })
+
+      const result = await agent.generate({ prompt: 'Tell me about Quartz Ledger.' })
+
+      expect(generatedCalls).toBe(5)
+      expect(mockModel.doGenerateCalls).toHaveLength(5)
+      expect(result.steps).toHaveLength(5)
+      expect(result.text).toBe('')
+      expect(result.finishReason).toBe('tool-calls')
+      expect(getPublicSiteContent).not.toHaveBeenCalled()
+      expect(searchPersonalContext).toHaveBeenCalledTimes(behavior === 'repeated retrieval' ? 1 : 0)
+      const expectedAttempts = Array.from({ length: 5 }, (_, index) => `attempt-${index}`)
+      expect(result.steps.flatMap((step) => step.toolCalls.map((call) => call.toolCallId))).toEqual(
+        expectedAttempts,
+      )
+      expect(onFinish).toHaveBeenCalledTimes(1)
+      expect(
+        onFinish.mock.calls[0]?.[0].steps.flatMap((step) =>
+          step.toolCalls.map((call) => call.toolCallId),
+        ),
+      ).toEqual(expectedAttempts)
+      expect(JSON.stringify(onFinish.mock.calls[0]?.[0].response.messages)).toContain('attempt-4')
+      for (const index of behavior === 'repeated retrieval' ? [1, 2, 3, 4] : [4]) {
+        expect(availableTools(index)).toEqual([])
+        expect(mockModel.doGenerateCalls[index]?.toolChoice).toEqual({ type: 'none' })
+        expect(result.steps[index]?.toolCalls[0]).toMatchObject({
+          invalid: true,
+          error: expect.any(NoSuchToolError),
+        })
+      }
+      if (behavior === 'invalid arguments') {
+        expect(result.steps.slice(0, 4).every((step) => step.toolCalls[0]?.invalid)).toBe(true)
+      } else {
+        expect(toolResults(4)).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              toolCallId: 'attempt-0',
+              output: expect.objectContaining({
+                value: expect.objectContaining({ content: 'PRIVATE_RETAINED_QUEUE_FACT' }),
+              }),
+            }),
+          ]),
+        )
+      }
+    },
+  )
+
+  it.each([
+    { label: 'a custom twenty-step limit', stopWhen: stepCountIs(20), expectedSteps: 5 },
+    { label: 'an earlier custom limit', stopWhen: stepCountIs(2), expectedSteps: 2 },
+    {
+      label: 'an earlier condition in a custom array',
+      stopWhen: [stepCountIs(20), stepCountIs(2)],
+      expectedSteps: 2,
+    },
+  ])('preserves the application ceiling and $label', async ({ stopWhen, expectedSteps }) => {
+    let generatedCalls = 0
+    mockModel = new MockLanguageModelV3({
+      doGenerate: async () =>
+        createToolCall(`invalid-${generatedCalls++}`, 'get_public_site_content', 'not-an-object'),
+    })
+    const { createAmaAgent } = await import('@/lib/ama-agent')
+    const getPublicSiteContent = vi.fn(async () => publicContent())
+    const prepareCall = vi.fn<NonNullable<CreateAmaAgentOptions['prepareCall']>>(
+      async (callOptions) => ({ ...callOptions, stopWhen }),
+    )
+    const agent = createAmaAgent({
+      modelConfig: { model: 'openai/test-model' },
+      getPublicSiteContent,
+      prepareCall,
+    })
+
+    const result = await agent.generate({ prompt: 'Tell me about your background.' })
+
+    expect(prepareCall).toHaveBeenCalledTimes(1)
+    expect(generatedCalls).toBe(expectedSteps)
+    expect(result.steps).toHaveLength(expectedSteps)
+    expect(result.steps.flatMap((step) => step.toolCalls)).toHaveLength(expectedSteps)
+    expect(getPublicSiteContent).not.toHaveBeenCalled()
+    expect(result.text).toBe('')
+    expect(result.finishReason).toBe('tool-calls')
   })
 
   it('allows the same agent to retrieve again on the next user turn', async () => {

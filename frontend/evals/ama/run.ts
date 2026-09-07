@@ -210,6 +210,13 @@ export function getRedactedSummary(summary: AmaEvalSummary): AmaEvalSummary {
         name: knownTools.has(name) ? name : redactText(name, terms),
       }))
     }
+    source.diagnostics?.toolOutcomes?.forEach(({ name }, outcomeIndex) => {
+      const outcome = target.diagnostics?.toolOutcomes?.[outcomeIndex]
+      if (outcome && knownTools.has(name)) {
+        // Restore only the canonical identifier on the already-redacted record.
+        outcome.name = name
+      }
+    })
   }
   if (redacted.modelConfig.inference) {
     const url = new URL(redacted.modelConfig.inference.baseURL)
@@ -357,6 +364,8 @@ export async function runAmaEvalSuite(options: RunAmaEvalOptions = {}): Promise<
       new URL('../../lib/ama-wake.ts', import.meta.url),
       new URL('../../lib/ama-agent.ts', import.meta.url),
       new URL('../../lib/ama-source-policy.ts', import.meta.url),
+      new URL('../../lib/ama-model-config.ts', import.meta.url),
+      new URL('../../lib/ama-structured-answer.ts', import.meta.url),
       new URL('./profiles.ts', import.meta.url),
       new URL('./release.ts', import.meta.url),
     ]),

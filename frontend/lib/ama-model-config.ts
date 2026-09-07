@@ -241,7 +241,14 @@ export function createAmaInferenceModelConfig(options: {
  *   auth is not Bearer-shaped — e.g. Modal proxy auth, which requires
  *   `{"Modal-Key":"wk-...","Modal-Secret":"ws-..."}` and rejects Bearer.
  */
-export function resolveAmaLanguageModel(config: AmaModelConfig): LanguageModel {
+export function resolveAmaLanguageModel(
+  config: AmaModelConfig,
+  answerTools?: readonly {
+    name: string
+    description: string
+    inputSchema: Record<string, unknown>
+  }[],
+): LanguageModel {
   if (!config.inference) {
     return config.model
   }
@@ -250,7 +257,26 @@ export function resolveAmaLanguageModel(config: AmaModelConfig): LanguageModel {
     name: AMA_INFERENCE_PROVIDER_NAME,
     baseURL: config.inference.baseURL,
     apiKey: process.env.AMA_INFERENCE_API_KEY,
+    supportsStructuredOutputs: true,
     headers: parseAmaInferenceHeaders(process.env.AMA_INFERENCE_HEADERS, 'AMA_INFERENCE_HEADERS'),
+    // SDK execution eligibility remains empty. Retain the inference model's
+    // declaration context while explicitly disabling calls; removing that
+    // context changes the serving template after a successful retrieval.
+    transformRequestBody: (body) =>
+      !Array.isArray(body.tools) || body.tools.length === 0
+        ? {
+            ...body,
+            tool_choice: 'none',
+            ...(answerTools
+              ? {
+                  tools: answerTools.map(({ name, description, inputSchema }) => ({
+                    type: 'function',
+                    function: { name, description, parameters: inputSchema },
+                  })),
+                }
+              : {}),
+          }
+        : body,
   })
 
   return provider(config.model)

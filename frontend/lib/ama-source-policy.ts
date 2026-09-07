@@ -79,22 +79,37 @@ export function getAmaSourcePlan(messages: ModelMessage[]): AmaSourcePlan {
     /\b(?:your|jonathan(?: segovia)?'s|segov's) (?:education|academic background|educational background|degrees?|undergraduate|undergrad|master'?s|phd)\b/.test(
       text,
     ) ||
-    /\bwhere (?:did|do) (?:you|jonathan(?: segovia)?|segov) (?:go to (?:school|college|university)|study|attend|graduate)\b/.test(
+    /\bwhere (?:did|do) (?:you|jonathan(?: segovia)?|segov) (?:go to (?:(?:grad(?:uate)?|undergrad(?:uate)?) )?(?:school|college|university)|study|attend|graduate)\b/.test(
       text,
     ) ||
     /\b(?:what|which) (?:schools?|colleges?|universities|university|degrees?) (?:did|do|have) (?:you|jonathan(?: segovia)?|segov) (?:attend|graduate|study|earn|earned|receive|received|hold|have|go to)\b/.test(
       text,
     ) ||
-    /\bwhen did (?:you|jonathan(?: segovia)?|segov) graduate\b/.test(text)
+    /\bwhen did (?:you|jonathan(?: segovia)?|segov) graduate\b/.test(text) ||
+    /\b(?:what|which) years? did (?:you|jonathan(?: segovia)?|segov) attend (?:(?:each|all) of )?(?:your )?(?:(?:grad(?:uate)?|undergrad(?:uate)?) )?(?:schools?|colleges?|universit(?:y|ies))\b(?! (?:projects?|demos?|meetings?|events?)\b)/.test(
+      text,
+    )
+  // Inventory questions use public project summaries. Their "built" wording
+  // does not itself request implementation details; retain any other clauses.
+  const detailText = text
+    .replace(
+      /\b(?:what|which) (?:side|personal|hobby)[- ]projects? (?:have|did) (?:you|jonathan(?: segovia)?|segov) (?:built|build|created|create|made|make|worked on)\b/g,
+      ' ',
+    )
+    .replace(
+      /\b(?:list|name|show) (?:your|jonathan(?: segovia)?'s|segov's) (?:side|personal|hobby)[- ]projects?\b/g,
+      ' ',
+    )
+  const personalInventory = detailText !== text
   const detail =
     /\b(?:how|architecture|implementation|design|storage|sync|recovery|offline|tradeoffs?|technical|internals?|built|build)\b/.test(
-      text,
+      detailText,
     )
   const personal =
     subject &&
     detail &&
-    /\b(?:(?:side|personal|hobby)[- ]projects?|your work and personal)\b/.test(text) &&
-    !/\b(?:my|their|her|his) (?:side|personal|hobby)[- ]projects?\b/.test(text)
+    /\b(?:(?:side|personal|hobby)[- ]projects?|your work and personal)\b/.test(detailText) &&
+    !/\b(?:my|their|her|his) (?:side|personal|hobby)[- ]projects?\b/.test(detailText)
   const work =
     subject &&
     detail &&
@@ -104,7 +119,7 @@ export function getAmaSourcePlan(messages: ModelMessage[]): AmaSourcePlan {
   const links =
     /\b(?:links?|urls?|github|repositories|repository|career page|projects page)\b/.test(text)
   const requiredTools: AmaContextToolName[] = []
-  if (education || (links && (personal || work))) {
+  if (education || personalInventory || (links && (personal || work))) {
     requiredTools.push('get_public_site_content')
   }
   if (education) {
@@ -120,8 +135,12 @@ export function getAmaSourcePlan(messages: ModelMessage[]): AmaSourcePlan {
     requiredTools,
     needsPublicLinks: links,
     allowAdditionalSources:
+      (personalInventory && detail && !personal) ||
       (!(work && personal) && /\b(?:compare|comparison|versus|vs|both)\b/.test(text)) ||
-      (!(work && personal) && (education || work || personal) && detail && clauses.length > 1) ||
+      (!(work && personal) &&
+        (education || work || personal || personalInventory) &&
+        detail &&
+        clauses.length > 1) ||
       (!(work && personal) &&
         detail &&
         /\b(?:and|also|plus)\s+(?:the\s+|your\s+|its\s+)?(?:how|what|why|implementation|architecture|design|storage|sync|recovery)\b/.test(
@@ -236,7 +255,19 @@ export function getAmaSourceDecision(
         : []),
       ...(ledger.size
         ? [
-            'Source status describes returned evidence, not permission to call again. FOUND evidence remains usable even after a later rejected call. Use its supported facts; acknowledge unspecified details without claiming the notes are inaccessible. Attribute facts to the source that returned them; personal notes are not public website content. Keep work disclosure restrictions in force.',
+            'Source status describes returned evidence, not permission to call again or permission to disclose it. A later rejected call does not invalidate earlier FOUND evidence. Attribute facts to the source that returned them; personal notes are not public website content.',
+            ...([...ledger.entries()].some(
+              ([name, status]) => name !== 'search_work_context' && status === 'found',
+            )
+              ? [
+                  'Use supported facts from found public website, resume, and personal-project context. If a requested detail is unspecified, say so without claiming the found notes are inaccessible.',
+                ]
+              : []),
+            ...(ledger.get('search_work_context') === 'found'
+              ? [
+                  'FOUND work context remains restricted to anonymous, high-level summaries of the problem, purpose, and approach. Never repeat customers or other customer identifiers, internal codenames, internal dates, numbers, or implementation details from work context, even when found. Do not describe what was omitted. Keep the full work disclosure policy in force; finding work evidence does not make it disclosable.',
+                ]
+              : []),
           ]
         : []),
     ].join('\n'),

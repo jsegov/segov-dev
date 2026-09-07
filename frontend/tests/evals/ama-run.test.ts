@@ -192,4 +192,79 @@ describe('AMA eval runner helpers', () => {
       { step: 2, name: '[redacted]' },
     ])
   })
+
+  it('restores only canonical outcome names while retaining private-field redaction and attempts', () => {
+    const toolCase = amaEvalDataset.find((item) =>
+      item.forbiddenSubstrings?.includes('get_resume'),
+    )!
+    const canary = sanitizedForbiddenTerms[0]!
+    const names = [
+      'get_public_site_content',
+      'get_resume',
+      'search_work_context',
+      'search_personal_context',
+      'get_resume',
+      canary,
+    ]
+    // Extra properties and an arbitrary name simulate an untrusted diagnostic payload.
+    const toolOutcomes = names.map((name, step) => ({
+      step,
+      name,
+      invalid: step === 5,
+      executed: step < 4,
+      status: step === 5 ? 'not_executed' : 'found',
+      error: canary,
+      args: { query: canary },
+      result: { content: canary },
+    })) as unknown as AmaEvalGenerationDiagnostics['toolOutcomes']
+    const summary: AmaEvalSummary = {
+      modelConfig: { model: 'openai/test-model' },
+      thresholds: { minOverallScore: 0.85, minCategoryScore: 0.75, maxCriticalFailures: 0 },
+      generatedAt: '2026-09-06T00:00:00.000Z',
+      totalCases: 1,
+      passedCases: 0,
+      failedCases: 1,
+      weightedScore: 0,
+      categoryScores: { style: 0 } as AmaEvalSummary['categoryScores'],
+      criticalFailures: [],
+      passed: false,
+      results: [
+        {
+          id: toolCase.id,
+          category: toolCase.category,
+          prompt: canary,
+          output: `get_resume ${canary}`,
+          redactedOutput: `get_resume ${canary}`,
+          toolCalls: names,
+          diagnostics: { stepCount: 6, stepFinishReasons: [], toolOutcomes, errorKind: canary },
+          scores: [],
+          weightedScore: 0,
+          passed: false,
+          criticalFailures: [],
+        },
+      ],
+    }
+
+    const redacted = getRedactedSummary(summary)
+    const reviewed = redacted.results[0]!
+
+    expect(reviewed.diagnostics?.toolOutcomes).toEqual(
+      names.map((name, step) => ({
+        step,
+        name: step === 5 ? '[redacted]' : name,
+        invalid: step === 5,
+        executed: step < 4,
+        status: step === 5 ? 'not_executed' : 'found',
+        error: '[redacted]',
+        args: { query: '[redacted]' },
+        result: { content: '[redacted]' },
+      })),
+    )
+    expect(reviewed.toolCalls).toEqual([...names.slice(0, 5), '[redacted]'])
+    expect(reviewed.output).toBe('[redacted] [redacted]')
+    expect(reviewed.prompt).toBe('[redacted]')
+    expect(reviewed.diagnostics?.errorKind).toBe('[redacted]')
+    expect(JSON.stringify(redacted)).not.toContain(canary)
+    expect(summary.results[0]?.diagnostics?.toolOutcomes?.[5]?.name).toBe(canary)
+  })
 })

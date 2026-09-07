@@ -27,6 +27,9 @@ vi.mock('@/lib/ama-traces', async (original) => ({
   ...(await original<typeof Traces>()),
   persistAmaTrace: state.persist,
 }))
+vi.mock('@/lib/ama-wake', () => ({
+  waitForAmaInferenceEndpoint: vi.fn(async () => 'warmed' as const),
+}))
 vi.mock('@vercel/edge-config', () => ({
   get: async () => ({ about: { description: 'I build software.' }, career: [], projects: [] }),
 }))
@@ -227,12 +230,10 @@ describe('production AMA route → SDK transport', () => {
     expect(chat.status).toBe('ready')
     expect(getText(chat.messages.at(-1)!)).toBe('My education details come from my resume.')
     expect(calls).toHaveLength(3)
-    expect(calls[0]?.toolChoice).toEqual({ type: 'tool', toolName: 'get_public_site_content' })
-    expect(offeredTools(calls[0])).toContain('get_public_site_content')
-    expect(offeredTools(calls[0])).not.toContain('get_resume')
-    expect(calls[1]?.toolChoice).toEqual({ type: 'tool', toolName: 'get_resume' })
-    expect(offeredTools(calls[1])).toContain('get_resume')
-    expect(offeredTools(calls[1])).not.toContain('get_public_site_content')
+    expect(calls[0]?.toolChoice).toEqual({ type: 'required' })
+    expect(offeredTools(calls[0])).toEqual(['get_public_site_content'])
+    expect(calls[1]?.toolChoice).toEqual({ type: 'required' })
+    expect(offeredTools(calls[1])).toEqual(['get_resume'])
     expect(returnedSource(calls[2], 'get_resume')).toMatchObject({
       type: 'json',
       value: {
@@ -245,6 +246,155 @@ describe('production AMA route → SDK transport', () => {
     expect(JSON.stringify(state.persist.mock.calls)).toContain('PRIVATE_resume/private.md')
     for (const browserData of [(await Promise.all(wire)).join(''), JSON.stringify(chat.messages)]) {
       expect(browserData).not.toMatch(/PRIVATE_|tool-|sourceKind|retrievalStatus/)
+    }
+  })
+
+  it('decodes fragmented inference JSON into public text while retaining private source and provider traces', async () => {
+    vi.stubEnv('AMA_INFERENCE_BASE_URL', 'https://inference.example/v1')
+    vi.stubEnv('AMA_DEPLOYMENT_MODEL', 'test-deployment')
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockRejectedValue(new Error('Unexpected network'))
+    const calls: GenerateParameters[] = []
+    const rawJson = String.raw`{"answer":"\u0049 keep \ud83d\udcc2 drafts in a \"local queue\".\nRecovery stays explicit."}`
+    const decodedAnswer = 'I keep 📂 drafts in a "local queue".\nRecovery stays explicit.'
+    state.model = new MockLanguageModelV3({
+      doStream: async (parameters) => {
+        const index = calls.push(parameters) - 1
+        return {
+          stream: new ReadableStream({
+            start(controller) {
+              controller.enqueue({ type: 'stream-start', warnings: [] })
+              if (index === 0) {
+                controller.enqueue({
+                  type: 'tool-call',
+                  toolCallId: 'personal-structured',
+                  toolName: 'search_personal_context',
+                  input: JSON.stringify({ query: 'architecture build' }),
+                })
+              } else {
+                controller.enqueue({ type: 'text-start', id: `answer-${index}` })
+                const text = index === 1 ? rawJson : 'You are welcome.'
+                // Split keys, JSON escapes, and Unicode surrogate pairs across
+                // actual provider chunks rather than simulating complete text.
+                for (let offset = 0; offset < text.length; offset += 3) {
+                  controller.enqueue({
+                    type: 'text-delta',
+                    id: `answer-${index}`,
+                    delta: text.slice(offset, offset + 3),
+                  })
+                }
+                controller.enqueue({
+                  type: 'text-end',
+                  id: `answer-${index}`,
+                  providerMetadata: {
+                    inference: { diagnostic: 'PRIVATE_TERMINAL_PROVIDER_METADATA' },
+                  },
+                })
+              }
+              controller.enqueue({
+                type: 'finish',
+                finishReason:
+                  index === 0
+                    ? { unified: 'tool-calls', raw: 'tool_calls' }
+                    : { unified: 'stop', raw: 'stop' },
+                usage,
+              })
+              controller.close()
+            },
+          }),
+        }
+      },
+    })
+    const { POST } = await import('@/app/api/chat/route')
+    const { waitForAmaInferenceEndpoint } = await import('@/lib/ama-wake')
+    const wire: Array<Promise<string>> = []
+    const requests: string[] = []
+    const transport = new DefaultChatTransport({
+      fetch: async (_url, init) => {
+        requests.push(String(init?.body))
+        const response = await POST(new Request('http://localhost/api/chat', init))
+        wire.push(response.clone().text())
+        return response
+      },
+    })
+    const chat = new Chat({ transport })
+
+    await chat.sendMessage({ text: 'How did you build your side project?' })
+
+    expect(chat.error).toBeUndefined()
+    expect(chat.status).toBe('ready')
+    expect(getText(chat.messages.at(-1)!)).toBe(decodedAnswer)
+    expect(calls).toHaveLength(2)
+    expect(calls[0]?.responseFormat?.type).not.toBe('json')
+    expect(offeredTools(calls[0])).toContain('search_personal_context')
+    expect(calls[1]?.responseFormat).toMatchObject({
+      type: 'json',
+      name: 'ama_answer',
+      schema: {
+        type: 'object',
+        properties: { answer: { type: 'string' } },
+        required: ['answer'],
+        additionalProperties: false,
+      },
+    })
+    expect(offeredTools(calls[1])).toEqual([])
+    expect(calls[1]?.toolChoice).toEqual({ type: 'none' })
+    expect(returnedSource(calls[1], 'search_personal_context')).toMatchObject({
+      type: 'json',
+      value: {
+        sourceKind: 'personal',
+        retrievalStatus: 'found',
+        content: expect.stringContaining('PRIVATE_personal/private.md'),
+      },
+    })
+
+    // Round-trip the complete client history through JSON persistence, then
+    // prove the restored conversation sends only decoded public text back.
+    const storedHistory = JSON.stringify(chat.messages)
+    const restoredChat = new Chat({ transport, messages: JSON.parse(storedHistory) })
+    await restoredChat.sendMessage({ text: 'Thank you.' })
+    await Promise.all(state.after.map((callback) => callback()))
+
+    expect(restoredChat.error).toBeUndefined()
+    expect(restoredChat.status).toBe('ready')
+    expect(
+      restoredChat.messages.filter((message) => message.role === 'assistant').map(getText),
+    ).toEqual([decodedAnswer, 'You are welcome.'])
+    expect(calls).toHaveLength(3)
+    expect(calls[2]?.prompt).toContainEqual({
+      role: 'assistant',
+      content: [{ type: 'text', text: decodedAnswer }],
+    })
+    expect(JSON.stringify(calls[2]?.prompt)).not.toMatch(/PRIVATE_|amaStructuredAnswer|rawJson/)
+    expect(waitForAmaInferenceEndpoint).toHaveBeenCalled()
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(state.persist).toHaveBeenCalledTimes(2)
+    const trace: Traces.AmaTracePayload = state.persist.mock.calls[0]?.[0]
+    expect(JSON.stringify(trace.responseMessages)).toContain('PRIVATE_personal/private.md')
+    const tracedAnswer = trace.responseMessages
+      .flatMap((message) =>
+        message.role === 'assistant' && Array.isArray(message.content) ? message.content : [],
+      )
+      .find((part) => part.type === 'text')
+    expect(tracedAnswer).toMatchObject({
+      type: 'text',
+      text: decodedAnswer,
+      providerOptions: {
+        amaStructuredAnswer: { rawJson },
+        inference: { diagnostic: 'PRIVATE_TERMINAL_PROVIDER_METADATA' },
+      },
+    })
+    for (const browserData of [
+      ...(await Promise.all(wire)),
+      storedHistory,
+      JSON.stringify(restoredChat.messages),
+      ...requests,
+    ]) {
+      expect(browserData).not.toMatch(
+        /PRIVATE_|tool-|search_personal_context|sourceKind|retrievalStatus|amaStructuredAnswer|rawJson|\\u0049/,
+      )
+      expect(browserData).not.toContain(rawJson)
     }
   })
 

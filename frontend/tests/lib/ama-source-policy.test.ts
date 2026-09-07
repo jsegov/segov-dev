@@ -25,6 +25,11 @@ const educationTools = ['get_public_site_content', 'get_resume']
 describe('conservative AMA source plans', () => {
   it.each([
     'Where did you go to school?',
+    'Where did you go to grad school?',
+    'Where did you go to graduate school?',
+    'Where did you go to undergrad college?',
+    'What years did you attend each of your schools?',
+    'Which years did you attend your universities?',
     'Which university did Jonathan Segovia attend?',
     'What degrees do you have?',
     'Tell me about your academic background.',
@@ -43,6 +48,16 @@ describe('conservative AMA source plans', () => {
     'Translate "Where did you go to school?" into French.',
     'Do not discuss your education.',
     'Where did I go to college?',
+    'Where did I go to grad school?',
+    'What years did your friend attend each of your schools?',
+    'What years did you attend school project demos?',
+    'What years did you attend conferences?',
+    'Translate "What years did you attend each of your schools?" into French.',
+    'Do not discuss where you went to grad school.',
+    'Do not answer: what years did you attend each of your schools?',
+    'What side projects have I built?',
+    'Translate "What side projects have you built?" into French.',
+    'Do not list your side projects.',
     'Where was that?',
   ])('leaves ambiguous, quoted, visitor and third-party intents adaptive: %s', (question) => {
     expect(getAmaSourcePlan(messages(question)).requiredTools).toEqual([])
@@ -71,6 +86,87 @@ describe('conservative AMA source plans', () => {
   ])('plans %s', (question, tools) => {
     expect(getAmaSourcePlan(messages(question as string)).requiredTools).toEqual(tools)
   })
+
+  it.each([
+    'What side projects have you built?',
+    'Which personal projects did you create?',
+    'What hobby projects have you worked on?',
+    'List your side projects.',
+  ])('obtains a public inventory without forcing technical retrieval: %s', (question) => {
+    const prompt = messages(question)
+    expect(getAmaSourcePlan(prompt).requiredTools).toEqual(['get_public_site_content'])
+    expect(getAmaSourceDecision(prompt, [], [...AMA_CONTEXT_TOOL_NAMES])).toMatchObject({
+      activeTools: ['get_public_site_content'],
+      forcedTool: 'get_public_site_content',
+    })
+    expect(
+      getAmaSourceDecision(
+        prompt,
+        [completed('get_public_site_content')],
+        ['get_resume', 'search_work_context', 'search_personal_context'],
+      ).activeTools,
+    ).toEqual([])
+    expect(
+      getAmaSourceDecision(
+        prompt,
+        [completed('search_personal_context')],
+        ['get_public_site_content'],
+      ).forcedTool,
+    ).toBe('get_public_site_content')
+  })
+
+  it.each([
+    'What side projects have you built? How do they handle recovery?',
+    'What side projects have you built, and explain their architecture?',
+  ])('keeps additional inventory details adaptive after public content: %s', (question) => {
+    const prompt = messages(question)
+    expect(getAmaSourcePlan(prompt)).toMatchObject({
+      requiredTools: ['get_public_site_content'],
+      allowAdditionalSources: true,
+    })
+    expect(
+      getAmaSourceDecision(
+        prompt,
+        [completed('get_public_site_content')],
+        ['search_personal_context'],
+      ).activeTools,
+    ).toEqual(['search_personal_context'])
+  })
+
+  it.each([
+    [
+      'List your side projects. Explain how your side project handles recovery.',
+      ['get_public_site_content', 'search_personal_context'],
+    ],
+    [
+      'What side projects have you built? Describe your professional work architecture.',
+      ['get_public_site_content', 'search_work_context'],
+    ],
+    ['What side projects have you built, and where did you go to grad school?', educationTools],
+  ])('preserves distinct requested sources alongside an inventory: %s', (question, tools) => {
+    expect(getAmaSourcePlan(messages(question as string)).requiredTools).toEqual(tools)
+  })
+
+  it.each(['Where did you go to grad school?', 'What years did you attend each of your schools?'])(
+    'requires the actual resume result before completing education: %s',
+    (question) => {
+      const prompt = messages(question)
+      expect(getAmaSourceDecision(prompt, [], [...AMA_CONTEXT_TOOL_NAMES]).forcedTool).toBe(
+        'get_public_site_content',
+      )
+      expect(
+        getAmaSourceDecision(prompt, [completed('get_public_site_content')], ['get_resume'])
+          .forcedTool,
+      ).toBe('get_resume')
+      expect(
+        getAmaSourceDecision(
+          prompt,
+          [completed('get_public_site_content'), completed('get_resume')],
+          ['search_work_context', 'search_personal_context'],
+        ).activeTools,
+      ).toEqual([])
+    },
+  )
 
   it('uses the latest user text parts without inheriting earlier education instructions', () => {
     expect(
@@ -178,6 +274,38 @@ describe('AMA source evidence and execution permission', () => {
     })
     expect(output.available).toBe(false)
     expect(getAmaSourceLedger([completed('get_resume', output)]).get('get_resume')).toBe('empty')
+  })
+
+  it('keeps found work evidence restricted even alongside found personal notes', () => {
+    const decision = getAmaSourceDecision(
+      messages('Compare recovery in your work and side project.'),
+      [completed('search_work_context'), completed('search_personal_context')],
+      [],
+    )
+    expect(decision.reminder).toContain('Source work: found')
+    expect(decision.reminder).toContain('not permission to call again or permission to disclose it')
+    expect(decision.reminder).toContain('FOUND work context remains restricted')
+    expect(decision.reminder).toContain('anonymous, high-level summaries')
+    expect(decision.reminder).toContain(
+      'customers or other customer identifiers, internal codenames, internal dates, numbers, or implementation details',
+    )
+    expect(decision.reminder).toContain('finding work evidence does not make it disclosable')
+    expect(decision.reminder).toContain(
+      'Use supported facts from found public website, resume, and personal-project context',
+    )
+    expect(decision.reminder).toContain('without claiming the found notes are inaccessible')
+    expect(decision.reminder).not.toContain('Use its supported facts')
+    expect(decision.reminder).not.toContain('PRIVATE_EVIDENCE')
+  })
+
+  it('does not apply the unrestricted-found instruction to work-only evidence', () => {
+    const decision = getAmaSourceDecision(
+      messages('Describe your work architecture.'),
+      [completed('search_work_context')],
+      [],
+    )
+    expect(decision.reminder).toContain('FOUND work context remains restricted')
+    expect(decision.reminder).not.toContain('Use supported facts from found')
   })
 
   it('consumes an actual execution error but ignores a rejected error', () => {
