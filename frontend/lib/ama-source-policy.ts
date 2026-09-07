@@ -89,6 +89,18 @@ export function getAmaSourcePlan(messages: ModelMessage[]): AmaSourcePlan {
     /\b(?:what|which) years? did (?:you|jonathan(?: segovia)?|segov) attend (?:(?:each|all) of )?(?:your )?(?:(?:grad(?:uate)?|undergrad(?:uate)?) )?(?:schools?|colleges?|universit(?:y|ies))\b(?! (?:projects?|demos?|meetings?|events?)\b)/.test(
       text,
     )
+  const resumeDetails =
+    education ||
+    (subject &&
+      (/\b(?:you|jonathan(?: segovia)?|segov) (?:ever )?(?:won|earned|received|hold|have)\b.{0,40}\b(?:awards?|honou?rs?|certifications?|qualifications?)\b/.test(
+        text,
+      ) ||
+        /\b(?:what|which) (?:awards?|honou?rs?|certifications?|qualifications?) (?:do|have|did) (?:you|jonathan(?: segovia)?|segov) (?:have|hold|earn|earned|win|won|receive|received)\b/.test(
+          text,
+        ) ||
+        /\b(?:your|jonathan(?: segovia)?'s|segov's) (?:full |complete |broader )?(?:toolbox|skill set|qualifications|certifications|resume|cv)\b/.test(
+          text,
+        )))
   // Inventory questions use public project summaries. Their "built" wording
   // does not itself request implementation details; retain any other clauses.
   const detailText = text
@@ -119,10 +131,10 @@ export function getAmaSourcePlan(messages: ModelMessage[]): AmaSourcePlan {
   const links =
     /\b(?:links?|urls?|github|repositories|repository|career page|projects page)\b/.test(text)
   const requiredTools: AmaContextToolName[] = []
-  if (education || personalInventory || (links && (personal || work))) {
+  if (resumeDetails || personalInventory || (links && (personal || work))) {
     requiredTools.push('get_public_site_content')
   }
-  if (education) {
+  if (resumeDetails) {
     requiredTools.push('get_resume')
   }
   if (work) {
@@ -131,6 +143,19 @@ export function getAmaSourcePlan(messages: ModelMessage[]): AmaSourcePlan {
   if (personal) {
     requiredTools.push('search_personal_context')
   }
+  // A continuation that only asks for the same source's design and public
+  // links adds no new source. Named or otherwise unresolved subjects remain
+  // adaptive; do not close a mixed request merely because one part is known.
+  const unresolvedContinuation =
+    (!(work || personal) && clauses.length > 1) ||
+    clauses
+      .slice(1)
+      .some(
+        (clause) =>
+          !/^(?:please )?(?:explain|describe|outline) (?:its |their |the )?(?:architecture|implementation|design|storage|sync|recovery)(?: and (?:give|include|provide) (?:a |the )?public links?(?: if (?:one is |they are )?available)?)?$/.test(
+            clause,
+          ),
+      )
   return {
     requiredTools,
     needsPublicLinks: links,
@@ -138,9 +163,9 @@ export function getAmaSourcePlan(messages: ModelMessage[]): AmaSourcePlan {
       (personalInventory && detail && !personal) ||
       (!(work && personal) && /\b(?:compare|comparison|versus|vs|both)\b/.test(text)) ||
       (!(work && personal) &&
-        (education || work || personal || personalInventory) &&
+        (resumeDetails || work || personal || personalInventory) &&
         detail &&
-        clauses.length > 1) ||
+        unresolvedContinuation) ||
       (!(work && personal) &&
         detail &&
         /\b(?:and|also|plus)\s+(?:the\s+|your\s+|its\s+)?(?:how|what|why|implementation|architecture|design|storage|sync|recovery)\b/.test(
@@ -230,6 +255,20 @@ export function getAmaSourceDecision(
   ) {
     plan.requiredTools.push('get_public_site_content')
   }
+  // No-match private retrieval cannot establish that public background is
+  // absent. Consult the public source once before falling back; never repeat
+  // the failed search or broaden it into a different private collection.
+  if (
+    !ledger.has('get_public_site_content') &&
+    [...ledger.entries()].some(
+      ([name, status]) =>
+        (name === 'search_work_context' || name === 'search_personal_context') &&
+        status === 'no_match',
+    ) &&
+    !plan.requiredTools.includes('get_public_site_content')
+  ) {
+    plan.requiredTools.push('get_public_site_content')
+  }
   const pending = plan.requiredTools.filter((name) => !ledger.has(name))
   const requiredTool = pending[0]
   const privateCompleted = [...ledger.keys()].some((name) => name !== 'get_public_site_content')
@@ -255,6 +294,7 @@ export function getAmaSourceDecision(
         : []),
       ...(ledger.size
         ? [
+            'Use first person (I, me, my) when describing my background or experience, even when the question refers to me by name.',
             'Source status describes returned evidence, not permission to call again or permission to disclose it. A later rejected call does not invalidate earlier FOUND evidence. Attribute facts to the source that returned them; personal notes are not public website content.',
             ...([...ledger.entries()].some(
               ([name, status]) => name !== 'search_work_context' && status === 'found',

@@ -23,6 +23,7 @@ import {
 import amaDefaults from '@/lib/ama-defaults.json'
 import { withAmaInferenceReliability } from '@/lib/ama-model-reliability'
 import { withAmaStructuredAnswer } from '@/lib/ama-structured-answer'
+import { withAmaStructuredToolCall } from '@/lib/ama-structured-tool-call'
 import { getPublicSiteContent, type SiteContent } from '@/lib/content'
 import {
   AMA_CONTEXT_TOOL_NAMES,
@@ -193,7 +194,7 @@ export function createAmaPromptManifest(
     instructions: AMA_INSTRUCTIONS,
     tools: AMA_TOOL_DECLARATIONS,
     callSettings: { ...callSettings },
-    toolAvailabilityPolicy: 'source-plan-v2',
+    toolAvailabilityPolicy: 'source-plan-v3',
   } as const
 }
 
@@ -423,6 +424,14 @@ export function createAmaAgent(options: CreateAmaAgentOptions = {}) {
   const resolvedModel = resolveAmaLanguageModel(modelConfig, AMA_TOOL_DECLARATIONS)
   const model = modelConfig.inference ? withAmaInferenceReliability(resolvedModel) : resolvedModel
   const answerModel = modelConfig.inference ? withAmaStructuredAnswer(model) : undefined
+  const retrievalModels = modelConfig.inference
+    ? new Map(
+        AMA_TOOL_DECLARATIONS.map((declaration) => [
+          declaration.name,
+          withAmaStructuredToolCall(model, declaration),
+        ]),
+      )
+    : undefined
   const callSettings = getAmaCallSettings(modelConfig, options.callSettings)
   const publicSiteContentLoader = options.getPublicSiteContent ?? getPublicSiteContent
   const resumeContextLoader = options.getResumeContext ?? getResumeContextFromBlob
@@ -486,6 +495,12 @@ export function createAmaAgent(options: CreateAmaAgentOptions = {}) {
     const effectiveMessages = pruneAmaMessages(preparedStep?.messages ?? messages)
     const decision = getAmaSourceDecision(effectiveMessages, stepOptions.steps ?? [], eligibleTools)
     const activeTools = forceFinalAnswer ? [] : decision.activeTools
+    const stepModel =
+      activeTools.length === 0
+        ? answerModel
+        : decision.forcedTool
+          ? retrievalModels?.get(decision.forcedTool)
+          : undefined
     const executedContextTools = AMA_CONTEXT_TOOL_NAMES.filter((name) => executedTools.has(name))
     const reminder =
       executedContextTools.length > 0
@@ -505,9 +520,7 @@ export function createAmaAgent(options: CreateAmaAgentOptions = {}) {
 
     return {
       ...preparedStep,
-      ...(activeTools.length === 0 && answerModel && preparedStep?.model === undefined
-        ? { model: answerModel }
-        : {}),
+      ...(stepModel && preparedStep?.model === undefined ? { model: stepModel } : {}),
       activeTools,
       ...(activeTools.length === 0
         ? { toolChoice: 'none' as const }

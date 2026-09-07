@@ -326,7 +326,8 @@ describe('production AMA route → SDK transport', () => {
     expect(chat.status).toBe('ready')
     expect(getText(chat.messages.at(-1)!)).toBe(decodedAnswer)
     expect(calls).toHaveLength(2)
-    expect(calls[0]?.responseFormat?.type).not.toBe('json')
+    expect(calls[0]?.responseFormat?.type).toBe('json')
+    expect(calls[0]?.toolChoice).toEqual({ type: 'none' })
     expect(offeredTools(calls[0])).toContain('search_personal_context')
     expect(calls[1]?.responseFormat).toMatchObject({
       type: 'json',
@@ -372,6 +373,18 @@ describe('production AMA route → SDK transport', () => {
     expect(state.persist).toHaveBeenCalledTimes(2)
     const trace: Traces.AmaTracePayload = state.persist.mock.calls[0]?.[0]
     expect(JSON.stringify(trace.responseMessages)).toContain('PRIVATE_personal/private.md')
+    expect(
+      trace.responseMessages.flatMap((message) =>
+        message.role === 'assistant' && Array.isArray(message.content) ? message.content : [],
+      ),
+    ).toContainEqual(
+      expect.objectContaining({
+        type: 'tool-call',
+        toolCallId: 'personal-structured',
+        toolName: 'search_personal_context',
+        input: { query: 'architecture build' },
+      }),
+    )
     const tracedAnswer = trace.responseMessages
       .flatMap((message) =>
         message.role === 'assistant' && Array.isArray(message.content) ? message.content : [],
@@ -396,6 +409,161 @@ describe('production AMA route → SDK transport', () => {
       )
       expect(browserData).not.toContain(rawJson)
     }
+  })
+
+  it('executes structured public and resume arguments privately before streaming a decoded final answer', async () => {
+    vi.stubEnv('AMA_INFERENCE_BASE_URL', 'https://inference.example/v1')
+    vi.stubEnv('AMA_DEPLOYMENT_MODEL', 'test-deployment')
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockRejectedValue(new Error('Unexpected network'))
+    const calls: GenerateParameters[] = []
+    const rawArguments = ['{\n}', '{ }']
+    const decodedAnswer = 'I studied software systems. I keep learning through projects.'
+    const rawAnswer = JSON.stringify({ answer: decodedAnswer })
+    const responses = [...rawArguments, rawAnswer, 'You are welcome.']
+    state.model = new MockLanguageModelV3({
+      doStream: async (parameters) => {
+        const index = calls.push(parameters) - 1
+        const text = responses[index]
+        if (text === undefined) {
+          throw new Error('Unexpected model call')
+        }
+        return {
+          stream: new ReadableStream({
+            start(controller) {
+              controller.enqueue({ type: 'stream-start', warnings: [] })
+              controller.enqueue({ type: 'text-start', id: `structured-${index}` })
+              for (const delta of text.split('')) {
+                controller.enqueue({ type: 'text-delta', id: `structured-${index}`, delta })
+              }
+              controller.enqueue({
+                type: 'text-end',
+                id: `structured-${index}`,
+                providerMetadata: {
+                  inference: { diagnostic: `PRIVATE_STRUCTURED_PROVIDER_${index}` },
+                },
+              })
+              controller.enqueue({
+                type: 'finish',
+                finishReason: { unified: 'stop', raw: 'stop' },
+                usage,
+              })
+              controller.close()
+            },
+          }),
+        }
+      },
+    })
+    const { POST } = await import('@/app/api/chat/route')
+    const wire: Array<Promise<string>> = []
+    const requests: string[] = []
+    const transport = new DefaultChatTransport({
+      fetch: async (_url, init) => {
+        requests.push(String(init?.body))
+        const response = await POST(new Request('http://localhost/api/chat', init))
+        wire.push(response.clone().text())
+        return response
+      },
+    })
+    const chat = new Chat({ transport })
+    await chat.sendMessage({ text: 'Where did you go to school?' })
+
+    expect(chat.error).toBeUndefined()
+    expect(chat.status).toBe('ready')
+    expect(getText(chat.messages.at(-1)!)).toBe(decodedAnswer)
+    expect(calls).toHaveLength(3)
+    for (const [index, name] of ['get_public_site_content', 'get_resume'].entries()) {
+      expect(offeredTools(calls[index])).toEqual([name])
+      expect(calls[index]?.toolChoice).toEqual({ type: 'none' })
+      expect(calls[index]?.responseFormat).toMatchObject({
+        type: 'json',
+        schema: { type: 'object', properties: {}, additionalProperties: false },
+      })
+      expect(returnedSource(calls[2], name)).toMatchObject({
+        type: 'json',
+        value: {
+          available: true,
+          sourceKind: index === 0 ? 'public_site' : 'resume',
+          retrievalStatus: 'found',
+          executionStatus: 'executed',
+        },
+      })
+    }
+    expect(calls[2]?.responseFormat).toMatchObject({ type: 'json', name: 'ama_answer' })
+    expect(calls[2]?.toolChoice).toEqual({ type: 'none' })
+    expect(offeredTools(calls[2])).toEqual([])
+
+    const storedHistory = JSON.stringify(chat.messages)
+    const restoredChat = new Chat({ transport, messages: JSON.parse(storedHistory) })
+    await restoredChat.sendMessage({ text: 'Thank you.' })
+    await Promise.all(state.after.map((callback) => callback()))
+
+    expect(restoredChat.error).toBeUndefined()
+    expect(restoredChat.status).toBe('ready')
+    expect(calls).toHaveLength(4)
+    expect(calls[3]?.prompt).toContainEqual({
+      role: 'assistant',
+      content: [{ type: 'text', text: decodedAnswer }],
+    })
+    expect(JSON.stringify(calls[3]?.prompt)).not.toMatch(/PRIVATE_|amaStructured|rawJson/)
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(state.persist).toHaveBeenCalledTimes(2)
+    const trace: Traces.AmaTracePayload = state.persist.mock.calls[0]?.[0]
+    const assistantParts = trace.responseMessages.flatMap((message) =>
+      message.role === 'assistant' && Array.isArray(message.content) ? message.content : [],
+    )
+    const tracedCalls = assistantParts.filter((part) => part.type === 'tool-call')
+    expect(tracedCalls.map((part) => part.toolName)).toEqual([
+      'get_public_site_content',
+      'get_resume',
+    ])
+    expect(new Set(tracedCalls.map((part) => part.toolCallId)).size).toBe(2)
+    for (const [index, part] of tracedCalls.entries()) {
+      expect(part.input).toEqual({})
+      expect(part.providerOptions).toMatchObject({
+        inference: { diagnostic: `PRIVATE_STRUCTURED_PROVIDER_${index}` },
+        amaStructuredToolCall: {
+          rawJson: rawArguments[index],
+          finishReason: { unified: 'stop', raw: 'stop' },
+        },
+      })
+    }
+    const tracedResults = trace.responseMessages.flatMap((message) =>
+      message.role === 'tool' ? message.content : [],
+    )
+    expect(tracedResults).toHaveLength(2)
+    for (const result of tracedResults) {
+      if (result.type !== 'tool-result') {
+        throw new Error('Expected original tool result in trace')
+      }
+      expect(result.output).toEqual(returnedSource(calls[2], result.toolName))
+    }
+    expect(JSON.stringify(tracedResults)).toContain('PRIVATE_resume/private.md')
+    expect(assistantParts.filter((part) => part.type === 'text')).toEqual([
+      expect.objectContaining({
+        type: 'text',
+        text: decodedAnswer,
+        providerOptions: {
+          amaStructuredAnswer: { rawJson: rawAnswer },
+          inference: { diagnostic: 'PRIVATE_STRUCTURED_PROVIDER_2' },
+        },
+      }),
+    ])
+    for (const browserData of [
+      ...(await Promise.all(wire)),
+      storedHistory,
+      JSON.stringify(restoredChat.messages),
+      ...requests,
+    ]) {
+      expect(browserData).not.toMatch(
+        /PRIVATE_|tool-|get_public_site_content|get_resume|sourceKind|retrievalStatus|executionStatus|amaStructured|rawJson/,
+      )
+      expect(browserData).not.toContain(rawAnswer)
+    }
+    expect(
+      restoredChat.messages.filter((message) => message.role === 'assistant').map(getText),
+    ).toEqual([decodedAnswer, 'You are welcome.'])
   })
 
   it('ends a single personal retrieval with retained source facts and regenerates without leaking them', async () => {

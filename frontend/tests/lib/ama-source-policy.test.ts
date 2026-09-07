@@ -34,6 +34,10 @@ describe('conservative AMA source plans', () => {
     'What degrees do you have?',
     'Tell me about your academic background.',
     'When did you graduate?',
+    'Have you won any awards in your career?',
+    'Which certifications do you have?',
+    'Beyond those, what else is in your toolbox?',
+    'Tell me about your qualifications.',
   ])('requires public then resume for %s', (question) => {
     expect(getAmaSourcePlan(messages(question)).requiredTools).toEqual(educationTools)
   })
@@ -59,6 +63,9 @@ describe('conservative AMA source plans', () => {
     'Translate "What side projects have you built?" into French.',
     'Do not list your side projects.',
     'Where was that?',
+    'Have I won any awards?',
+    'Does your colleague have certifications?',
+    'Translate "What else is in your toolbox?" into French.',
   ])('leaves ambiguous, quoted, visitor and third-party intents adaptive: %s', (question) => {
     expect(getAmaSourcePlan(messages(question)).requiredTools).toEqual([])
   })
@@ -226,9 +233,72 @@ describe('conservative AMA source plans', () => {
     expect(decision.reminder).toContain('Required source still pending: public_site')
     expect(decision.reminder).not.toContain('public_site: unavailable')
   })
+
+  it('completes a project architecture and public-link request after both sources', () => {
+    const prompt = messages(
+      'How did you build one of your personal projects? Explain the architecture and give a public link if one is available.',
+    )
+    expect(
+      getAmaSourceDecision(
+        prompt,
+        [completed('get_public_site_content')],
+        ['search_personal_context'],
+      ).forcedTool,
+    ).toBe('search_personal_context')
+    expect(
+      getAmaSourceDecision(
+        prompt,
+        [completed('get_public_site_content'), completed('search_personal_context')],
+        ['get_resume', 'search_work_context'],
+      ).activeTools,
+    ).toEqual([])
+  })
+
+  it.each(['search_work_context', 'search_personal_context'] as const)(
+    'checks public context after an adaptive %s no-match before falling back',
+    (name) => {
+      const prompt = messages('What did you work on at Example Company?')
+      const steps = [
+        completed(name, {
+          available: false,
+          source: 'no_matches',
+          content: 'No matching evidence.',
+        }),
+      ]
+      expect(getAmaSourceDecision(prompt, steps, ['get_public_site_content']).forcedTool).toBe(
+        'get_public_site_content',
+      )
+      expect(
+        getAmaSourceDecision(
+          prompt,
+          [...steps, completed('get_public_site_content')],
+          ['get_resume'],
+        ).activeTools,
+      ).toEqual([])
+    },
+  )
 })
 
 describe('AMA source evidence and execution permission', () => {
+  it.each(AMA_CONTEXT_TOOL_NAMES)(
+    'reinforces first-person writing after %s, including adaptive public-only answers',
+    (name) => {
+      const question = messages('Give me a short summary.')
+      const steps = [completed(name)]
+      const originalSteps = structuredClone(steps)
+      const eligibleTools = AMA_CONTEXT_TOOL_NAMES.filter((toolName) => toolName !== name)
+      const decision = getAmaSourceDecision(question, steps, eligibleTools)
+
+      expect(decision.reminder).toContain(
+        'Use first person (I, me, my) when describing my background or experience, even when the question refers to me by name.',
+      )
+      expect(decision.activeTools).toEqual(name === 'get_public_site_content' ? eligibleTools : [])
+      expect(decision.forcedTool).toBeUndefined()
+      expect(steps).toEqual(originalSteps)
+      expect(question).toEqual(messages('Give me a short summary.'))
+    },
+  )
+
   it.each([
     [{ available: true, source: 'blob', content: 'A brief supported fact.' }, 'found'],
     [{ available: false, source: 'no_matches', content: 'No matching context.' }, 'no_match'],
