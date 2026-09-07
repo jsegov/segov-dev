@@ -31,15 +31,14 @@ Consequences baked in below:
   use A10/H100 — L4 support is UNVERIFIED. If snapshot creation fails on L4,
   switch gpu="L4" -> "A10" (same 24GB class, snapshot-proven).
 
-Modal deployment script, run with the `modal` CLI (installed separately from
-this repo's uv project) — NOT under `uv run`:
+Modal deployment script, run with the SDK pinned by this repo's uv lockfile:
 
     # stage the ~9.3GB merged model (from export_adapter merged=true) into a Volume
-    modal volume create ama-merged
-    modal volume put ama-merged ./data/adapters/qwen3.5-4b-merged /qwen
+    uv run modal volume create ama-merged
+    uv run modal volume put ama-merged ./data/adapters/qwen3.5-4b-merged /qwen
 
     # deploy (`deploy`, not `run` — snapshots/stable URL need deploy)
-    modal deploy deploy/modal_app.py
+    uv run modal deploy deploy/modal_app.py
 
 The correctness flags fix the render gap that made the Tinker OAI-endpoint eval
 meaningless (thinking ON, no reasoning parser, CoT leaking into content). Here we
@@ -59,19 +58,21 @@ import urllib.error
 import urllib.request
 
 import modal
+from ama_training.serving_identity import (
+    VLLM_VERSION,
+    MAX_CONCURRENT_INPUTS,
+    build_server_command,
+)
 
 # --- Serving identity ---------------------------------------------------------
 # The merged standalone model, staged into the ama-merged Volume (mount below).
 MERGED_MODEL_DIR = "/models/qwen"  # = <volume mount>/qwen from `modal volume put`
 SERVED_NAME = "ama"  # the model id the AI SDK requests
-MAX_MODEL_LEN = 32768  # Matches training; the observed corpus reaches ~26K tokens.
-MAX_CONCURRENT_INPUTS = 8
 VLLM_PORT = 8000
 VLLM_BASE = f"http://127.0.0.1:{VLLM_PORT}"
 
 # vLLM moves fast and parser names change between releases — pin explicitly and
 # re-verify the flags against this version (see deploy/README.md version notes).
-VLLM_VERSION = "0.21.0"
 # Treat this cache as immutable while this deployment is live. Bump the suffix
 # when changing vLLM, the model, or compilation flags instead of clearing files
 # in place; Modal snapshots do not track Volume mutations.
@@ -100,12 +101,11 @@ VLLM_ENV = {
 CUSTOM_CHAT_TEMPLATE: str | None = "/models/chat_template_parity.jinja"
 
 vllm_image = (
-    modal.Image.from_registry(
-        "nvidia/cuda:12.9.0-devel-ubuntu22.04", add_python="3.12"
-    )
+    modal.Image.from_registry("nvidia/cuda:12.9.0-devel-ubuntu22.04", add_python="3.12")
     .entrypoint([])
-    .uv_pip_install(f"vllm=={VLLM_VERSION}")
+    .uv_pip_install(f"vllm=={VLLM_VERSION}", "rfc8785==0.1.4")
     .env(VLLM_ENV)
+    .add_local_python_source("ama_training")
 )
 
 app = modal.App("ama-vllm")
@@ -115,9 +115,7 @@ app = modal.App("ama-vllm")
 # torch.compile artifacts across the 2-3 snapshot-building boots without
 # allowing an unrelated deployment to mutate paths captured by this snapshot.
 merged_volume = modal.Volume.from_name("ama-merged", create_if_missing=True)
-vllm_cache = modal.Volume.from_name(
-    VLLM_CACHE_VOLUME_NAME, create_if_missing=True
-)
+vllm_cache = modal.Volume.from_name(VLLM_CACHE_VOLUME_NAME, create_if_missing=True)
 
 VOLUMES = {
     "/models": merged_volume,
@@ -171,9 +169,7 @@ def _is_vllm_sleeping(payload: object) -> bool:
     raise ValueError("vLLM /is_sleeping returned an invalid response")
 
 
-def _wait_for_serving_ready(
-    process: subprocess.Popen, timeout_s: float
-) -> None:
+def _wait_for_serving_ready(process: subprocess.Popen, timeout_s: float) -> None:
     """Gate external traffic on a restored engine that can generate tokens."""
     deadline = time.monotonic() + timeout_s
     last_error: Exception | None = None
@@ -210,9 +206,7 @@ def _wait_for_serving_ready(
             last_error = error
             time.sleep(2)
 
-    raise RuntimeError(
-        f"vLLM did not become serving-ready within {timeout_s}s"
-    ) from last_error
+    raise RuntimeError(f"vLLM did not become serving-ready within {timeout_s}s") from last_error
 
 
 # app.server exposes the process directly and returns 503 while a scale-to-zero
@@ -242,34 +236,11 @@ class AmaVllm:
     @modal.enter(snap=True)
     def start_vllm(self) -> None:
         """Boot + warm vLLM, then sleep it — this state gets snapshotted."""
-        cmd = [
-            "vllm", "serve", MERGED_MODEL_DIR,
-            "--served-model-name", SERVED_NAME,
-            "--max-model-len", str(MAX_MODEL_LEN),
-            "--max-num-seqs", str(MAX_CONCURRENT_INPUTS),
-            # --- tool calling: qwen3_xml matches our trained XML wire format and
-            #     is the streaming-robust parser (qwen3_coder is the fallback) ---
-            "--enable-auto-tool-choice",
-            "--tool-call-parser", "qwen3_xml",
-            # --- non-thinking, two layers: reasoning-parser routes any stray
-            #     <think> out of content; the server-default kwarg injects the
-            #     empty <think></think> so the model emits none (client can't
-            #     re-enable it) ---
-            "--reasoning-parser", "qwen3",
-            "--default-chat-template-kwargs", '{"enable_thinking": false}',
-            # --- text-only: skip the vision tower, free memory for KV cache ---
-            "--language-model-only",
-            "--enable-force-include-usage",  # streaming usage metadata for the AI SDK
-            # --- snapshot-era boot config: full compilation (paid once, at
-            #     snapshot creation), CUDA graphs only at our real batch sizes
-            #     (max_inputs=8), and headroom for snapshot restore ---
-            "--compilation-config", '{"cudagraph_capture_sizes": [1, 2, 4, 8]}',
-            "--gpu-memory-utilization", "0.85",
-            "--enable-sleep-mode",
-            "--port", str(VLLM_PORT),
-        ]
-        if CUSTOM_CHAT_TEMPLATE:
-            cmd += ["--chat-template", CUSTOM_CHAT_TEMPLATE]
+        if not CUSTOM_CHAT_TEMPLATE:
+            raise ValueError("A verified chat template is required")
+        # Shared command construction binds advertised identities to actual flags.
+        # Verify every model file before starting the snapshotted process.
+        cmd = build_server_command(MERGED_MODEL_DIR, CUSTOM_CHAT_TEMPLATE, VLLM_PORT, SERVED_NAME)
         print("launching:", " ".join(cmd))
         self.process = subprocess.Popen(cmd)
         _wait_for_vllm(self.process, timeout_s=10 * 60)

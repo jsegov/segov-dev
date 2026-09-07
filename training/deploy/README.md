@@ -5,6 +5,7 @@ runtime LoRA adapter — see the box below. vLLM loads the merged standalone mod
 normally; every delta (including the linear-attention projections) is baked in.
 
 > ### Why merged, not LoRA-on-base (load-bearing)
+>
 > Qwen3.5-4B is a **3:1 hybrid**: 8 of 32 layers are full attention
 > (`q/k/v/o_proj`); the other **24 (75%) are linear attention** using a **fused**
 > `in_proj_qkv`. Tinker trains **split** `in_proj_q/k/v` adapters. vLLM's LoRA
@@ -16,22 +17,33 @@ normally; every delta (including the linear-attention projections) is baked in.
 > so nothing is dropped. Runtime LoRA remains valid for models without this
 > fused-projection mismatch; it is simply wrong here.
 
-## 0. Prerequisite — a `sampler_weights/` checkpoint
+## 0. Select an explicit candidate
 
-Export needs a `sampler_weights/` path. The registry stores the `weights/` STATE
-path (resume-only, not exportable); `export_adapter.py` derives the
-`sampler_weights` sibling automatically. If it was never written for the run,
-`download` fails after retries — create a training client from the state and call
-`save_weights_for_sampler`, then pass that `checkpoint=` explicitly.
+Use a candidate ID from the versioned `data/checkpoints.json` registry. Its
+`checkpoint_path` must be an actual `sampler_weights/` checkpoint recorded by
+training. `latest_training_state` is for resumption; it never implies release
+readiness. Legacy state-only entries require a new run with verified ancestry
+(or a fresh-base run) before they can become promotion candidates.
 
-## 1. Export the MERGED model (local, needs `TINKER_API_KEY`)
+Install the pinned local CLI and tests with `uv sync --frozen --group dev` from
+`training/`. The commands below stage or deploy only when explicitly run;
+automatic checkpoint promotion does not run them.
+
+## 1. Export an immutable merged candidate (needs `TINKER_API_KEY`)
 
 ```bash
 cd training
-TINKER_API_KEY=… uv run python -m ama_training.export_adapter \
-    preset=qwen3.5-4b merged=true output=data/adapters/qwen3.5-4b-merged
-# → a standalone ~9.3 GB HF model directory (weights + tokenizer + config)
+uv run --no-sync python -m ama_training.export_adapter \
+    preset=qwen3.5-4b candidate=CANDIDATE_ID merged=true \
+    output=data/models/CANDIDATE_ID
+# A standalone model plus artifact-manifest.json binding every file to the candidate.
 ```
+
+An explicit `checkpoint=tinker://.../sampler_weights/...` can be used for an
+exploratory export, but an unbound export cannot pass promotion. Existing output
+directories are rejected. Keep reports outside the model directory and preserve
+`artifact-manifest.json` when uploading. Do not edit, re-shard, or add files to a
+sealed artifact: boot and verification reject file-set or content changes.
 
 Two operational gotchas (both handled/expected, noted so they don't alarm):
 
@@ -52,28 +64,24 @@ Two operational gotchas (both handled/expected, noted so they don't alarm):
   export at 0% CPU. `export_adapter` defaults `TINKER_TELEMETRY=0` to avoid it;
   if you invoke the SDK directly, set that env var yourself.
 
-The ~292 MB PEFT adapter (`merged=false`, the default) is kept documented for
-reuse on other models, but is NOT what we serve for Qwen3.5 (see the box).
+The ~292 MB PEFT adapter (`merged=false`) remains available for exploratory
+exports and reuse on other models. Qwen3.5 defaults to the merged export.
 
 ## 2. Stage the merged model into a Modal Volume
 
 ```bash
-modal volume create ama-merged
-modal volume put ama-merged ./data/adapters/qwen3.5-4b-merged-1gb /qwen  # → /models/qwen at serve
-modal volume put ama-merged deploy/chat_template_parity.jinja /chat_template_parity.jinja
+uv run --no-sync modal volume create ama-merged
+uv run --no-sync modal volume put ama-merged ./data/models/CANDIDATE_ID /qwen
+uv run --no-sync modal volume put ama-merged deploy/chat_template_parity.jinja /chat_template_parity.jinja
 ```
 
 **Slow-uplink gotchas (all hit for real on a ~900KB/s residential uplink):**
 
-- **Re-shard to ~1GB files first.** Modal presigns the S3/R2 part-upload URLs
-  once per batch with limited validity (observed ~1h per file / 4h per batch);
-  a 5GB shard that takes >1h to send fails deterministically with
-  `ExpiredToken`/`ExpiredRequest`. The `-1gb` directory is the same model
-  re-sharded into 10 ~1GB safetensors (index rebuilt, every tensor verified
-  bit-identical) so each file clears the window. vLLM doesn't care about
-  shard count.
-- The modal client also hardcodes `VOLUME_PUT_FILE_CLIENT_TIMEOUT = 1h`
-  per file — another reason big shards can't work on slow links.
+- **Large shards can exceed upload deadlines.** Presigned upload URLs and the
+  client's per-file timeout may expire on a slow connection. Use a sufficiently
+  fast connection for the exported shards. Re-sharding an already sealed artifact
+  invalidates its identity and all evidence; do not regenerate a hash manually to
+  bypass this check.
 - **Retries are cheap:** blobs are content-addressed server-side, so shards
   that completed in a failed attempt are skipped on the next one. Wrap the
   upload in a retry loop and let it converge; nothing commits to the volume
@@ -83,7 +91,7 @@ modal volume put ama-merged deploy/chat_template_parity.jinja /chat_template_par
 ## 3. Deploy
 
 ```bash
-modal deploy deploy/modal_app.py     # `deploy`, not `run` (snapshots/URL need deploy)
+uv run --no-sync modal deploy deploy/modal_app.py     # `deploy`, not `run` (snapshots/URL need deploy)
 ```
 
 Prime the deployed endpoint immediately after every deploy, before sending
@@ -96,7 +104,7 @@ fails immediately for auth, configuration, and other network/HTTP errors:
 export AMA_INFERENCE_BASE_URL=https://<deployed-app-server>.modal.direct/v1
 export AMA_DEPLOYMENT_MODEL=ama
 export AMA_INFERENCE_HEADERS='{"Modal-Key":"wk-…","Modal-Secret":"ws-…"}'
-python deploy/prime_modal.py
+uv run --no-sync python deploy/prime_modal.py
 ```
 
 The first successful run proves that the snapshot-building cold boot finished
@@ -181,17 +189,12 @@ Bearer-style endpoints like Tinker's OAI service or vLLM `--api-key`.)
    renderer vs vLLM's `/tokenize` (with `enable_thinking=false`) over a battery
    (system+tools, user, assistant tool_call, `role:tool` result, multi-turn).
    Nonzero → set `CUSTOM_CHAT_TEMPLATE` to a training-matched Jinja and re-diff.
-   **Resolved 2026-08-02** with `deploy/chat_template_parity.jinja` (staged on
-   the Volume, wired via `CUSTOM_CHAT_TEMPLATE`). The stock template diverged
-   from training three ways: tools dumped OpenAI-wrapped
-   (`{"type":"function","function":…}`) instead of bare; unicode left
-   unescaped where training ascii-escaped (`json.dumps` defaults); and the
-   blank-content separator before `<tool_call>` dropped in history turns.
-   With the parity template, rendered strings are byte-identical to training.
-   Sole irreducible residue: in assistant tool-call history turns the tinker
-   renderer tokenizes chunk-wise (`\n\n`+`\n\n` = two tokens) while serving
-   tokenizes the final string one-shot (one `\n\n\n\n` token) — behavioral
-   effect measured at one synonym swap in one smoke answer (gate 4).
+   The checked template now matches all six synthetic fixture strings, including
+   Unicode tool arguments and parallel tool results. **Token-ID parity remains a
+   known release blocker:** Tinker tokenizes some whitespace in chunks while the
+   HF serving template tokenizes the complete string. The automated gate rejects
+   this difference. Byte equality and earlier smoke-answer similarity do not
+   waive the token check; resolve renderer/tokenizer fidelity before promotion.
 4. **Behavioral parity.** Same prompts through `ama_training.sample` (our
    checkpoint, train-identical render) vs the Modal endpoint → outputs match.
    This is the decisive "is this our fine-tune?" test — it directly catches any
@@ -199,9 +202,57 @@ Bearer-style endpoints like Tinker's OAI service or vLLM `--api-key`.)
 5. **Serving contract.** Stable `tool_call.id`, incremental deltas, valid JSON
    args (qwen3_xml type-casting is the risky one), `finish_reason:"tool_calls"`,
    `role:"tool"` round-trip, streaming usage, no XML in content.
-6. **Full eval.** Point `AMA_INFERENCE_BASE_URL` at this endpoint and run
-   `pnpm --filter frontend eval:ama` — the fair 150-case qwen number the Tinker
-   OAI endpoint couldn't give. Gate vs. inkling 143/150 and the Sol baseline.
+6. **Production selection and final release.** Run the production-profile
+   selection suite against the artifact alias, using the tuned runtime settings.
+   The frozen final suite runs once, only after the training release command has
+   locked a winner. Overall quality must be >=85%, every category >=75%, with
+   zero critical failures and complete required judges. See [training release
+   commands](../README.md#5-lock-the-winner-evaluate-final-once-and-promote-automatically).
+
+## Produce serving evidence for promotion
+
+The server verifies all merged model files before boot, then advertises
+`ama-artifact-<artifact hash>` and `ama-serving-<server configuration hash>` through
+`/v1/models`. The launch command and advertised configuration share one resolver. The artifact alias is first in `--served-model-name`, because [vLLM uses that first name in completion responses](https://docs.vllm.ai/en/v0.21.0/cli/serve/#--served-model-name).
+Use the artifact alias as `AMA_DEPLOYMENT_MODEL` for bound evaluations; `ama` is
+only a convenience alias and cannot establish candidate identity.
+
+Create a runtime JSON file using the exact settings from production evaluation:
+
+```json
+{
+  "call_settings": {
+    "maxOutputTokens": 1536,
+    "temperature": 0,
+    "seed": 1,
+    "maxRetries": 0
+  }
+}
+```
+
+The displayed cap is illustrative: use the selected budget. If configured,
+include `reasoning_effort` with its exact value. The current non-thinking template
+only supports omitted, `"none"`, or numeric zero effort.
+
+```bash
+uv run --no-sync python -m ama_training.verify_serving \
+  model_dir=data/models/CANDIDATE_ID template=deploy/chat_template_parity.jinja \
+  runtime_settings=data/evidence/runtime.json out=data/evidence/serving.json
+```
+
+The probe first checks artifact integrity and local token parity. Only after
+those pass does it prime the staging endpoint, verify advertised identities, and
+make two streamed requests exercising tool arguments, tool-result grounding,
+finish framing, usage, and absence of raw reasoning/XML. It writes hashed checks
+and observations, excluding credentials and response bodies. A failed or missing
+check cannot produce passing evidence. This is a credentialed staging check,
+separate from the synthetic offline tests; skipping it never counts as a pass.
+
+Include this report and the exact artifact in the candidate evidence bundle.
+Changing model files, template, server flags, endpoint, or runtime settings
+requires fresh matching evidence. On success the local release pipeline updates
+`deployable` and retains rollback history; production deployment and rollback
+deployment remain explicit operator operations.
 
 ## Version-sensitive — re-verify before trusting
 

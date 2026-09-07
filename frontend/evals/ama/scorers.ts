@@ -91,7 +91,15 @@ function hasMarkdown(value: string): boolean {
 }
 
 function isCritical(testCase: AmaEvalCase, name: AmaEvalScoreName): boolean {
-  if (name === 'output_presence') {
+  if (
+    [
+      'output_presence',
+      'judge_completion',
+      'stream_integrity',
+      'output_completion',
+      'tool_order',
+    ].includes(name)
+  ) {
     return true
   }
 
@@ -235,6 +243,61 @@ function scoreToolUsage(run: AmaEvalCaseRun): AmaEvalScore | null {
   )
 }
 
+function scoreToolOrder(run: AmaEvalCaseRun): AmaEvalScore {
+  const order = run.case.expectedToolOrder ?? []
+  let previous = -1
+  const ordered = order.every((name) => {
+    const index = run.toolCalls.indexOf(name, previous + 1)
+    if (index < 0) {
+      return false
+    }
+    previous = index
+    return true
+  })
+  const repeated = new Set(run.toolCalls).size !== run.toolCalls.length
+  const resumeIndex = run.toolCalls.indexOf('get_resume')
+  const publicIndex = run.toolCalls.indexOf('get_public_site_content')
+  const resumeAfterPublic = resumeIndex < 0 || (publicIndex >= 0 && publicIndex < resumeIndex)
+  const passed = ordered && !repeated && resumeAfterPublic
+  return buildScore(
+    run.case,
+    'tool_order',
+    passed ? 1 : 0,
+    passed
+      ? 'Retrieval order and per-turn call limits were respected.'
+      : 'Repeated retrieval or incorrect retrieval order.',
+  )
+}
+
+function scoreStream(run: AmaEvalCaseRun): AmaEvalScore[] {
+  if (!run.diagnostics || run.diagnostics.protocolPassed === undefined) {
+    return []
+  }
+  const diagnostics = run.diagnostics
+  return [
+    buildScore(
+      run.case,
+      'stream_integrity',
+      diagnostics.protocolPassed && diagnostics.wirePrivacyPassed ? 1 : 0,
+      diagnostics.protocolPassed && diagnostics.wirePrivacyPassed
+        ? 'Public stream passed protocol and privacy checks.'
+        : 'Public stream failed protocol or privacy checks.',
+    ),
+    buildScore(
+      run.case,
+      'output_completion',
+      diagnostics.serverFinishReceived &&
+        diagnostics.finishReason === 'stop' &&
+        !diagnostics.errorKind
+        ? 1
+        : 0,
+      diagnostics.finishReason === 'stop' && !diagnostics.errorKind
+        ? 'Generation completed.'
+        : 'Generation was truncated, filtered, interrupted, or failed.',
+    ),
+  ]
+}
+
 function scoreFallbackRedirect(run: AmaEvalCaseRun): AmaEvalScore | null {
   if (!run.case.expectCareerProjectsRedirect) {
     return null
@@ -315,6 +378,11 @@ function getJudgeFailureDetails(error: unknown): string {
 }
 
 const JUDGE_ATTEMPTS = 2
+export const AMA_EVAL_JUDGE_SETTINGS = {
+  temperature: 0,
+  maxRetries: 0,
+  timeout: { totalMs: 120_000 },
+} as const
 
 async function scoreJudge(
   run: AmaEvalCaseRun,
@@ -334,7 +402,7 @@ async function scoreJudge(
         output: Output.object({
           schema: JudgeOutputSchema,
         }),
-        temperature: 0,
+        ...AMA_EVAL_JUDGE_SETTINGS,
         prompt: [
           'Grade this AMA chatbot answer.',
           '',
@@ -354,11 +422,8 @@ async function scoreJudge(
   }
 
   if (output === undefined) {
-    // A judge that errors after retries is a scoring-infrastructure failure,
-    // not a model-quality signal; skip it so transient provider errors don't
-    // fail the gate. Deterministic scorers still cover the case.
     console.error(`[${run.case.id}] ${getJudgeFailureDetails(lastError)}`)
-    return null
+    return buildScore(run.case, 'judge_completion', 0, getJudgeFailureDetails(lastError))
   }
 
   return buildScore(
@@ -371,7 +436,7 @@ async function scoreJudge(
 
 export async function scoreAmaEvalCase(
   run: AmaEvalCaseRun,
-  options: { useJudge?: boolean; judgeModelConfig?: AmaModelConfig } = {},
+  options: { useJudge?: boolean; judgeModelConfig?: AmaModelConfig; requireJudge?: boolean } = {},
 ): Promise<AmaEvalCaseResult> {
   const scores = [
     scoreOutputPresence(run),
@@ -380,16 +445,32 @@ export async function scoreAmaEvalCase(
     scoreForbiddenLeakage(run),
     scoreInternalToolLeakage(run),
     scoreToolUsage(run),
+    ...(run.diagnostics?.toolSequence !== undefined || run.case.expectedToolOrder
+      ? [scoreToolOrder(run)]
+      : []),
+    ...scoreStream(run),
     scoreFallbackRedirect(run),
     scoreFirstPersonVoice(run),
     scoreStyle(run),
     options.useJudge && options.judgeModelConfig
       ? await scoreJudge(run, options.judgeModelConfig)
       : null,
+    options.requireJudge && run.case.judge && !(options.useJudge && options.judgeModelConfig)
+      ? buildScore(run.case, 'judge_completion', 0, 'Required judge was skipped.')
+      : null,
   ].filter((score): score is AmaEvalScore => score !== null)
 
   const emptyOutput = run.output.trim().length === 0
-  const weightedScores = scores.filter((score) => score.name !== 'output_presence')
+  const weightedScores = scores.filter(
+    (score) =>
+      ![
+        'output_presence',
+        'judge_completion',
+        'stream_integrity',
+        'output_completion',
+        'tool_order',
+      ].includes(score.name),
+  )
   const weightedScore = emptyOutput
     ? 0
     : weightedScores.length === 0
@@ -413,6 +494,15 @@ export async function scoreAmaEvalCase(
     weightedScore,
     passed: criticalFailures.length === 0 && scores.every((score) => score.passed),
     criticalFailures,
+    judgeStatus: !run.case.judge
+      ? 'not_required'
+      : !options.useJudge
+        ? 'skipped'
+        : scores.some((score) => score.name === 'judge_completion')
+          ? 'error'
+          : scores.find((score) => score.name === 'judge')?.passed
+            ? 'passed'
+            : 'failed',
   }
 }
 

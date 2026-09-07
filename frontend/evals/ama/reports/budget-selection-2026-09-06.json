@@ -1,0 +1,342 @@
+{
+  "schema_version": 1,
+  "report_type": "ama_budget_selection",
+  "created_at": "2026-09-06T02:48:14.297Z",
+  "configuration": {
+    "modelConfigSha256": "3683ab391552132deeb2595b90514fb81ddb6f8f08493f608cb4fce80ed06631",
+    "promptSha256": "75f745a95c5a99e46ff4f831dcec68db75ac178008142eb5bfd1012060d1a848",
+    "scorerSha256": "49bd903baedb1f702ff93c59fe98be24d7cdc48dd4d362ef0a672d321ddc0aad",
+    "transportSha256": "63b44eee45cac13f467366dba593e9751305273ff5b3cf46e58c5dcb78bed53a",
+    "fixtureSha256": "b45ed96f34751aee6b81cde4c9520538a1000db00c67ec501562eaae6806cb0a",
+    "sdkVersion": "6.0.238",
+    "datasetSha256": "c82869157889681fb6bc71805dd962abc0cec886b36dfb105115a9864fa1b5e4",
+    "finalDatasetSha256": "562666316ce39a665b07332e4aa11eb77892bdefde563afd453f3032e2a5717b",
+    "judgeModel": "openai/gpt-5-mini",
+    "judgeModelConfig": {
+      "model": "openai/gpt-5-mini"
+    },
+    "judgeCallSettings": {
+      "temperature": 0,
+      "maxRetries": 0,
+      "timeout": {
+        "totalMs": 120000
+      },
+      "attempts": 2
+    },
+    "judgeRequired": true,
+    "callSettings": {}
+  },
+  "budgets": [
+    {
+      "budget": 512,
+      "passing_every_repetition": false,
+      "aggregate_quality": 0.5838888888888888,
+      "repetitions": [
+        {
+          "repetition": 1,
+          "report_id": "selection-tuning-1788659188323-45668b17-ff61-4790-af01-d8b23fe4a189",
+          "report_sha256": "e5fb78c5aae378b0e299497f698b1af0e82faaa1240e5095ecf8f2be21b4cd70",
+          "passed": false,
+          "quality": 0.5874444444444443,
+          "metrics": {
+            "emptyResponses": 60,
+            "truncatedResponses": 78,
+            "protocolFailures": 2,
+            "wirePrivacyFailures": 0,
+            "generationFailures": 2,
+            "judgeErrors": 0,
+            "judgeSkipped": 0,
+            "inputTokens": 420174,
+            "outputTokens": 97465,
+            "reasoningTokens": 75008,
+            "meanLatencyMs": 7414.12,
+            "p95LatencyMs": 11908,
+            "meanFirstTextTokenMs": 5667.711111111111,
+            "estimatedCostUsd": null
+          }
+        },
+        {
+          "repetition": 2,
+          "report_id": "selection-tuning-1788660460260-36d5216c-3e6a-47a9-a6cb-f35ab76668b5",
+          "report_sha256": "9d043e4a59d20463cf13f67b1aa301892b87c96d437f1f4556f117afc737deaa",
+          "passed": false,
+          "quality": 0.576111111111111,
+          "metrics": {
+            "emptyResponses": 62,
+            "truncatedResponses": 80,
+            "protocolFailures": 1,
+            "wirePrivacyFailures": 0,
+            "generationFailures": 1,
+            "judgeErrors": 0,
+            "judgeSkipped": 0,
+            "inputTokens": 405113,
+            "outputTokens": 95872,
+            "reasoningTokens": 75008,
+            "meanLatencyMs": 7129.426666666666,
+            "p95LatencyMs": 12723,
+            "meanFirstTextTokenMs": 5252.056818181818,
+            "estimatedCostUsd": null
+          }
+        },
+        {
+          "repetition": 3,
+          "report_id": "selection-tuning-1788661675888-4d0f72e6-59e6-4227-9e34-26b6c1870058",
+          "report_sha256": "4904ff7ea0e063a9cf63e2d7b0ed999edeaba9e795ea55c677e1cc540e3c6e9e",
+          "passed": false,
+          "quality": 0.5881111111111109,
+          "metrics": {
+            "emptyResponses": 59,
+            "truncatedResponses": 77,
+            "protocolFailures": 4,
+            "wirePrivacyFailures": 0,
+            "generationFailures": 4,
+            "judgeErrors": 0,
+            "judgeSkipped": 0,
+            "inputTokens": 402741,
+            "outputTokens": 96076,
+            "reasoningTokens": 74560,
+            "meanLatencyMs": 6301.033333333334,
+            "p95LatencyMs": 10846,
+            "meanFirstTextTokenMs": 4704.538461538462,
+            "estimatedCostUsd": null
+          }
+        }
+      ]
+    },
+    {
+      "budget": 1024,
+      "passing_every_repetition": false,
+      "aggregate_quality": 0.9416587301587299,
+      "repetitions": [
+        {
+          "repetition": 1,
+          "report_id": "selection-tuning-1788659484918-80181bfa-630b-4a2a-9fe8-8f2c23d75f4b",
+          "report_sha256": "f28e6e7450cdd99acf6e61be5e1489f94781f172fa6756ad0624668b0c6dae66",
+          "passed": false,
+          "quality": 0.9443809523809521,
+          "metrics": {
+            "emptyResponses": 3,
+            "truncatedResponses": 8,
+            "protocolFailures": 0,
+            "wirePrivacyFailures": 0,
+            "generationFailures": 0,
+            "judgeErrors": 0,
+            "judgeSkipped": 0,
+            "inputTokens": 430403,
+            "outputTokens": 122394,
+            "reasoningTokens": 88960,
+            "meanLatencyMs": 8449.293333333333,
+            "p95LatencyMs": 16205,
+            "meanFirstTextTokenMs": 7449.081632653061,
+            "estimatedCostUsd": null
+          }
+        },
+        {
+          "repetition": 2,
+          "report_id": "selection-tuning-1788660747998-be702542-2564-4347-b7a7-3aaf2227aeab",
+          "report_sha256": "e2c635d4732a6875bdca315c39ce5f53f515533abf54d10c68a5c8f729fa9887",
+          "passed": false,
+          "quality": 0.9453253968253971,
+          "metrics": {
+            "emptyResponses": 2,
+            "truncatedResponses": 11,
+            "protocolFailures": 0,
+            "wirePrivacyFailures": 0,
+            "generationFailures": 0,
+            "judgeErrors": 0,
+            "judgeSkipped": 0,
+            "inputTokens": 412420,
+            "outputTokens": 118353,
+            "reasoningTokens": 85376,
+            "meanLatencyMs": 8332.42,
+            "p95LatencyMs": 17170,
+            "meanFirstTextTokenMs": 7267.033783783784,
+            "estimatedCostUsd": null
+          }
+        },
+        {
+          "repetition": 3,
+          "report_id": "selection-tuning-1788661927992-a2fdc3f6-dbdd-40da-822d-29af34984ddd",
+          "report_sha256": "8744ea7fed30d3ba8940c2044d41c123635c872ea0a40e9afb7e53c126908b23",
+          "passed": false,
+          "quality": 0.9352698412698409,
+          "metrics": {
+            "emptyResponses": 5,
+            "truncatedResponses": 9,
+            "protocolFailures": 0,
+            "wirePrivacyFailures": 0,
+            "generationFailures": 0,
+            "judgeErrors": 0,
+            "judgeSkipped": 0,
+            "inputTokens": 414512,
+            "outputTokens": 118165,
+            "reasoningTokens": 86080,
+            "meanLatencyMs": 7296.12,
+            "p95LatencyMs": 13521,
+            "meanFirstTextTokenMs": 6369.76551724138,
+            "estimatedCostUsd": null
+          }
+        }
+      ]
+    },
+    {
+      "budget": 1536,
+      "passing_every_repetition": true,
+      "aggregate_quality": 0.9632989417989416,
+      "repetitions": [
+        {
+          "repetition": 1,
+          "report_id": "selection-tuning-1788659814560-c7249c8e-3803-45cf-80bb-b2c0bae6653d",
+          "report_sha256": "3ec7c2c29aef2b350862d0d57c90e86267c003667c2bb1360a46d15bb818145f",
+          "passed": true,
+          "quality": 0.9682222222222221,
+          "metrics": {
+            "emptyResponses": 0,
+            "truncatedResponses": 0,
+            "protocolFailures": 0,
+            "wirePrivacyFailures": 0,
+            "generationFailures": 0,
+            "judgeErrors": 0,
+            "judgeSkipped": 0,
+            "inputTokens": 418380,
+            "outputTokens": 120421,
+            "reasoningTokens": 86080,
+            "meanLatencyMs": 8102.26,
+            "p95LatencyMs": 16120,
+            "meanFirstTextTokenMs": 7166.16,
+            "estimatedCostUsd": null
+          }
+        },
+        {
+          "repetition": 2,
+          "report_id": "selection-tuning-1788661079925-2c4a88d4-c098-4512-b9fa-fcf59179e2fc",
+          "report_sha256": "d3b64733ac07d631855e3801b46d2a1e2d4a5edf45ad3cae3e1d086ed4713572",
+          "passed": true,
+          "quality": 0.9624603174603172,
+          "metrics": {
+            "emptyResponses": 0,
+            "truncatedResponses": 0,
+            "protocolFailures": 0,
+            "wirePrivacyFailures": 0,
+            "generationFailures": 0,
+            "judgeErrors": 0,
+            "judgeSkipped": 0,
+            "inputTokens": 406337,
+            "outputTokens": 124074,
+            "reasoningTokens": 90176,
+            "meanLatencyMs": 7915.826666666667,
+            "p95LatencyMs": 16088,
+            "meanFirstTextTokenMs": 7037.993333333333,
+            "estimatedCostUsd": null
+          }
+        },
+        {
+          "repetition": 3,
+          "report_id": "selection-tuning-1788662214865-3940d47b-a3b2-45db-812a-10f53ff8a94a",
+          "report_sha256": "e4d75115c135dee33ce999fa35ddbfd5c580705e8fdbbb4e504204f64b62238a",
+          "passed": true,
+          "quality": 0.9592142857142856,
+          "metrics": {
+            "emptyResponses": 0,
+            "truncatedResponses": 0,
+            "protocolFailures": 0,
+            "wirePrivacyFailures": 0,
+            "generationFailures": 0,
+            "judgeErrors": 0,
+            "judgeSkipped": 0,
+            "inputTokens": 420959,
+            "outputTokens": 118894,
+            "reasoningTokens": 85376,
+            "meanLatencyMs": 7584.613333333334,
+            "p95LatencyMs": 14300,
+            "meanFirstTextTokenMs": 6779.6866666666665,
+            "estimatedCostUsd": null
+          }
+        }
+      ]
+    },
+    {
+      "budget": 2400,
+      "passing_every_repetition": false,
+      "aggregate_quality": 0.9606058201058199,
+      "repetitions": [
+        {
+          "repetition": 1,
+          "report_id": "selection-tuning-1788660132726-ed49a8f7-e26d-47c6-a969-caae4017b47c",
+          "report_sha256": "1a530787115319ea11853670bf60e1f68fa0c86e354a25d6cd811c86ef557327",
+          "passed": true,
+          "quality": 0.9631666666666664,
+          "metrics": {
+            "emptyResponses": 0,
+            "truncatedResponses": 0,
+            "protocolFailures": 0,
+            "wirePrivacyFailures": 0,
+            "generationFailures": 0,
+            "judgeErrors": 0,
+            "judgeSkipped": 0,
+            "inputTokens": 417416,
+            "outputTokens": 121926,
+            "reasoningTokens": 87488,
+            "meanLatencyMs": 8370.553333333333,
+            "p95LatencyMs": 15759,
+            "meanFirstTextTokenMs": 7426.806666666666,
+            "estimatedCostUsd": null
+          }
+        },
+        {
+          "repetition": 2,
+          "report_id": "selection-tuning-1788661389171-7103da2d-8ae3-4413-a1ed-72e6922effa9",
+          "report_sha256": "b0a135d07260f2db63635616a0bce01e8b8491326cf463f4c99088137bd10d60",
+          "passed": false,
+          "quality": 0.9578253968253967,
+          "metrics": {
+            "emptyResponses": 0,
+            "truncatedResponses": 0,
+            "protocolFailures": 0,
+            "wirePrivacyFailures": 0,
+            "generationFailures": 0,
+            "judgeErrors": 0,
+            "judgeSkipped": 0,
+            "inputTokens": 410847,
+            "outputTokens": 118421,
+            "reasoningTokens": 84800,
+            "meanLatencyMs": 7275.266666666666,
+            "p95LatencyMs": 13977,
+            "meanFirstTextTokenMs": 6442.3533333333335,
+            "estimatedCostUsd": null
+          }
+        },
+        {
+          "repetition": 3,
+          "report_id": "selection-tuning-1788662514029-74ccd051-c0b5-4e0a-9636-59525caea7b6",
+          "report_sha256": "82c4077d93a984208d6c4c420a90603efac4c0f7267bd8030ecb41c5cffa868d",
+          "passed": true,
+          "quality": 0.9608253968253966,
+          "metrics": {
+            "emptyResponses": 0,
+            "truncatedResponses": 0,
+            "protocolFailures": 0,
+            "wirePrivacyFailures": 0,
+            "generationFailures": 0,
+            "judgeErrors": 0,
+            "judgeSkipped": 0,
+            "inputTokens": 416984,
+            "outputTokens": 120990,
+            "reasoningTokens": 87232,
+            "meanLatencyMs": 7646.826666666667,
+            "p95LatencyMs": 14244,
+            "meanFirstTextTokenMs": 6805.366666666667,
+            "estimatedCostUsd": null
+          }
+        }
+      ]
+    }
+  ],
+  "repetitions": 3,
+  "quality_tolerance": 0.01,
+  "selected_budget": 1536,
+  "best_passing_quality": 0.9632989417989416,
+  "passed": true,
+  "rule": "Smallest budget passing every gate in every repetition within 0.01 of the highest aggregate quality among passing budgets.",
+  "selection_decision_sha256": "42cdb0b08718e0f34c2e9175f751b2fd27b50575a02eb4ce299f7c3ffa646d10"
+}

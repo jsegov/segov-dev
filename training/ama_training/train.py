@@ -19,12 +19,10 @@ checking which construction its renderer supports.
 """
 
 import asyncio
-import json
 import sys
 from pathlib import Path
 
 import chz
-from tinker_cookbook import cli_utils
 from tinker_cookbook.renderers import TrainOnWhat
 from tinker_cookbook.supervised import train
 from tinker_cookbook.supervised.types import ChatDatasetBuilderCommonConfig
@@ -34,45 +32,25 @@ from ama_training.dataset import AmaTraceDatasetBuilder
 TRAINING_DIR = Path(__file__).resolve().parents[1]
 EXPORT_DIR = TRAINING_DIR / "data" / "export"
 
-# Per-preset pointer to the latest trained checkpoint. Warm-starting from it —
-# rather than re-training a fresh LoRA from the base model every time — is the
-# default: each run continues from where the last one left off. The registry is
-# auto-updated with a run's final checkpoint when it finishes, so successive
-# remediation waves chain. Human-editable to repoint after a bad run.
-CHECKPOINT_REGISTRY = TRAINING_DIR / "data" / "checkpoints.json"
+from ama_training.registry import (
+    DEFAULT_REGISTRY,
+    candidate as registered_candidate,
+    load_registry,
+    register_checkpoints,
+    resolve_parent,
+)
+from ama_training.preflight import run_preflight
+from ama_training.provenance import read, write, seal
+
+CHECKPOINT_REGISTRY = DEFAULT_REGISTRY
 
 
-def load_registry() -> dict:
-    if CHECKPOINT_REGISTRY.exists():
-        return json.loads(CHECKPOINT_REGISTRY.read_text())
-    return {}
-
-
-def registered_checkpoint(preset_name: str) -> str | None:
-    entry = load_registry().get(preset_name)
+def registered_checkpoint(preset_name: str, registry_path=None) -> str | None:
+    entry = load_registry(registry_path or CHECKPOINT_REGISTRY)["latest_training_state"].get(
+        preset_name
+    )
     return entry.get("state_path") if entry else None
 
-
-def record_checkpoint(preset_name: str, log_path: str, note: str) -> str | None:
-    """Read the final checkpoint a run wrote and point the registry at it."""
-    ckpt_file = Path(log_path) / "checkpoints.jsonl"
-    if not ckpt_file.exists():
-        return None
-    lines = [ln for ln in ckpt_file.read_text().splitlines() if ln.strip()]
-    if not lines:
-        return None
-    final = json.loads(lines[-1])
-    state_path = final.get("state_path")
-    if not state_path:
-        return None
-    registry = load_registry()
-    registry[preset_name] = {
-        "state_path": state_path,
-        "note": note,
-        "run_log": log_path,
-    }
-    CHECKPOINT_REGISTRY.write_text(json.dumps(registry, indent=2) + "\n")
-    return state_path
 
 PRESETS: dict[str, dict] = {
     # Stage 1: collapsed one-example-per-conversation export. tml_v0 has the
@@ -115,7 +93,8 @@ def build_blueprint(
     builder = AmaTraceDatasetBuilder(
         file_path=str(EXPORT_DIR / preset["file"]),
         manifest_path=str(EXPORT_DIR / "prompt-manifest.json"),
-        test_size=50,
+        dataset_manifest_path=str(EXPORT_DIR / "dataset-manifest.json"),
+        split_manifest_path=str(EXPORT_DIR / "split-manifest.json"),
         common_config=ChatDatasetBuilderCommonConfig(
             model_name_for_tokenizer=preset["model_name"],
             renderer_name=preset["renderer_name"],
@@ -134,54 +113,133 @@ def build_blueprint(
             "recipe_name": "ama_sft",
             "renderer_name": preset["renderer_name"],
             "load_checkpoint_path": load_checkpoint_path,
-            "dataset_builder": builder,
+            "dataset_builder": AmaTraceDatasetBuilder,
+            "dataset_builder.common_config": ChatDatasetBuilderCommonConfig,
+            **{
+                f"dataset_builder.{key}": value
+                for key, value in chz.asdict(builder).items()
+                if key != "common_config"
+            },
+            **{
+                f"dataset_builder.common_config.{key}": value
+                for key, value in chz.asdict(builder.common_config).items()
+            },
             **DEFAULT_HYPERPARAMS,
         }
     )
 
 
-def main(argv: list[str]) -> None:
+def saved_run_checkpoint(preset_name, log_path):
+    """Recover the original parent; the cookbook separately resumes local progress."""
+    log_path = Path(log_path)
+    if not log_path.exists() or not any(log_path.iterdir()):
+        return False, None
+    prior, manifest = log_path / "preflight.json", log_path / "run-manifest.json"
+    if not prior.exists() or not manifest.exists():
+        raise ValueError("existing run has missing provenance; choose a new log_path")
+    preflight, run = read(prior, "ama_preflight"), read(manifest, "ama_run")
+    if (
+        run.get("preset") != preset_name
+        or "warm_start" not in run
+        or "load_checkpoint_path" not in preflight["training_config"]
+        or run["warm_start"] != preflight["training_config"]["load_checkpoint_path"]
+        or run.get("preflight_sha256") != preflight["artifact_sha256"]
+        or any(
+            run.get(key) != preflight[key]
+            for key in ("dataset_sha256", "split_sha256", "training_config_sha256")
+        )
+    ):
+        raise ValueError("existing run has inconsistent provenance; choose a new log_path")
+    return True, run["warm_start"]
+
+
+def resolve_config(argv: list[str], *, candidate_id=None, registry_path=None, resume=False):
     preset_name = "qwen3.5-4b"
-    warm_start = True  # default: continue from the last trained checkpoint
-    warm_start_from: str | None = None  # explicit checkpoint path override
+    warm_start = True
+    warm_start_from = None
     overrides = []
     for arg in argv:
         if arg.startswith("preset="):
             preset_name = arg.split("=", 1)[1]
         elif arg.startswith("warm_start="):
-            warm_start = arg.split("=", 1)[1].strip().lower() not in {"false", "0", "no"}
+            warm_start = arg.split("=", 1)[1].lower() not in {"false", "0", "no"}
         elif arg.startswith("warm_start_from="):
             warm_start_from = arg.split("=", 1)[1]
         else:
             overrides.append(arg)
     if preset_name not in PRESETS:
-        raise SystemExit(f"unknown preset {preset_name!r}; choose from {sorted(PRESETS)}")
-
-    # Resolve the warm-start source: explicit path > registry > base model.
-    if warm_start_from:
-        load_checkpoint_path = warm_start_from
-    elif warm_start:
-        load_checkpoint_path = registered_checkpoint(preset_name)
-    else:
-        load_checkpoint_path = None
-
-    if load_checkpoint_path:
-        print(f"[warm-start] initialising weights from {load_checkpoint_path}")
-    else:
-        print(f"[warm-start] no prior checkpoint — training {preset_name} fresh from base")
-
-    config = (
-        build_blueprint(preset_name, load_checkpoint_path=load_checkpoint_path)
-        .apply_from_argv(overrides)
-        .make()
+        raise ValueError(f"unknown preset {preset_name!r}")
+    # Resolve paths and explicit overrides before consulting any mutable pointer.
+    config = build_blueprint(preset_name, warm_start_from).apply_from_argv(overrides).make()
+    explicit_checkpoint = warm_start_from is not None or any(
+        arg.partition("=")[0] == "load_checkpoint_path" for arg in overrides
     )
-    cli_utils.check_log_dir(config.log_path, behavior_if_exists="ask")
-    asyncio.run(train.main(config))
+    bound, checkpoint = False, None
+    if candidate_id is not None:
+        selected = registered_candidate(candidate_id, registry_path or CHECKPOINT_REGISTRY)
+        if selected["preset"] != preset_name or "warm_start" not in selected:
+            raise ValueError("candidate preset or original warm-start provenance differs")
+        bound, checkpoint = True, selected["warm_start"]
+    elif resume:
+        bound, checkpoint = saved_run_checkpoint(preset_name, config.log_path)
+    if bound:
+        if (explicit_checkpoint and config.load_checkpoint_path != checkpoint) or (
+            not explicit_checkpoint and not warm_start and checkpoint is not None
+        ):
+            raise ValueError(
+                "explicit warm-start setting differs from the recorded original checkpoint"
+            )
+    else:
+        checkpoint = (
+            config.load_checkpoint_path
+            if explicit_checkpoint
+            else registered_checkpoint(preset_name, registry_path) if warm_start else None
+        )
+    config = chz.replace(config, load_checkpoint_path=checkpoint)
+    return preset_name, config
 
-    note = f"warm-started from {load_checkpoint_path}" if load_checkpoint_path else "fresh from base"
-    recorded = record_checkpoint(preset_name, config.log_path, note)
-    if recorded:
-        print(f"[warm-start] registry now points {preset_name} -> {recorded}")
+
+def main(argv: list[str]) -> None:
+    preset_name, config = resolve_config(argv, resume=True)
+    # Resolve overrides once; validate all rows, render every train/selection datum before network work.
+    preflight = run_preflight(config)
+    resolve_parent(
+        config.load_checkpoint_path, preset_name, preflight, load_registry(CHECKPOINT_REGISTRY)
+    )
+    log_path = Path(config.log_path)
+    prior = log_path / "preflight.json"
+    if log_path.exists() and any(log_path.iterdir()):
+        if (
+            not prior.exists()
+            or read(prior, "ama_preflight")["artifact_sha256"] != preflight["artifact_sha256"]
+        ):
+            raise ValueError(
+                "existing run has different or missing provenance; choose a new log_path"
+            )
+    log_path.mkdir(parents=True, exist_ok=True)
+    write(prior, preflight)
+    write(
+        log_path / "run-manifest.json",
+        seal(
+            {
+                "schema_version": 1,
+                "kind": "ama_run",
+                "preset": preset_name,
+                "preflight_sha256": preflight["artifact_sha256"],
+                "dataset_sha256": preflight["dataset_sha256"],
+                "split_sha256": preflight["split_sha256"],
+                "training_config_sha256": preflight["training_config_sha256"],
+                "warm_start": config.load_checkpoint_path,
+            }
+        ),
+    )
+    asyncio.run(train.main(config))
+    candidates = register_checkpoints(
+        preset_name, config.log_path, preflight, config.load_checkpoint_path, CHECKPOINT_REGISTRY
+    )
+    print(
+        f"Recorded {len(candidates)} checkpoint candidates; deployable pointer requires release checks."
+    )
 
 
 if __name__ == "__main__":

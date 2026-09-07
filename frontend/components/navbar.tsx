@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Menu, X } from 'lucide-react'
-import { useState } from 'react'
+import React, { useId, useRef, useState } from 'react'
 import { ThemeToggle } from '@/components/theme-toggle'
 
 const navItems = [
@@ -17,6 +17,8 @@ const navItems = [
 export function Navbar() {
   const pathname = usePathname()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const mobileMenuId = useId()
+  const menuButtonRef = useRef<HTMLButtonElement>(null)
 
   // Format the terminal prompt based on current path
   const getTerminalPrompt = () => {
@@ -30,7 +32,17 @@ export function Navbar() {
   }
 
   return (
-    <nav className="terminal-window-header sticky top-0 z-10 bg-background/80 backdrop-blur-sm border-b border-border/30">
+    <nav
+      aria-label="Main navigation"
+      className="terminal-window-header sticky top-0 z-10 bg-background/80 backdrop-blur-sm border-b border-border/30"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && isMenuOpen) {
+          event.preventDefault()
+          setIsMenuOpen(false)
+          menuButtonRef.current?.focus()
+        }
+      }}
+    >
       <div className="container mx-auto flex justify-between items-center">
         <div className="flex items-center">
           {/* Removed the colored dots */}
@@ -43,6 +55,7 @@ export function Navbar() {
             <Link
               key={item.path}
               href={item.path}
+              aria-current={pathname === item.path ? 'page' : undefined}
               className={`nav-link ${pathname === item.path ? 'text-foreground font-bold' : 'text-muted-foreground'}`}
             >
               {item.name}
@@ -54,7 +67,15 @@ export function Navbar() {
         {/* Mobile Navigation Toggle */}
         <div className="flex items-center md:hidden gap-4">
           <ThemeToggle />
-          <button className="text-foreground" onClick={() => setIsMenuOpen(!isMenuOpen)}>
+          <button
+            ref={menuButtonRef}
+            type="button"
+            aria-label="Toggle navigation"
+            aria-expanded={isMenuOpen}
+            aria-controls={mobileMenuId}
+            className="text-foreground"
+            onClick={() => setIsMenuOpen((open) => !open)}
+          >
             {isMenuOpen ? <X size={24} /> : <Menu size={24} />}
           </button>
         </div>
@@ -62,12 +83,16 @@ export function Navbar() {
 
       {/* Mobile Navigation Menu */}
       {isMenuOpen && (
-        <div className="md:hidden absolute top-full left-0 right-0 bg-background border-t border-border/30 py-4 shadow-lg">
+        <div
+          id={mobileMenuId}
+          className="md:hidden absolute top-full left-0 right-0 bg-background border-t border-border/30 py-4 shadow-lg"
+        >
           <div className="container mx-auto flex flex-col space-y-4 px-4">
             {navItems.map((item) => (
               <Link
                 key={item.path}
                 href={item.path}
+                aria-current={pathname === item.path ? 'page' : undefined}
                 className={`nav-link ${pathname === item.path ? 'text-foreground font-bold' : 'text-muted-foreground'}`}
                 onClick={() => setIsMenuOpen(false)}
               >

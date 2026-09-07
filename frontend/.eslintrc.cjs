@@ -1,6 +1,6 @@
 module.exports = {
   extends: ['next/core-web-vitals', 'next/typescript', 'prettier'],
-  ignorePatterns: ['.next/**', 'test-results/**'],
+  ignorePatterns: ['.next/**', 'next-env.d.ts', 'test-results/**'],
   rules: {
     '@typescript-eslint/consistent-type-imports': [
       'error',

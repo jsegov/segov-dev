@@ -1,4 +1,4 @@
-import { consumeStream, createAgentUIStreamResponse } from 'ai'
+import { consumeStream, createAgentUIStreamResponse, type UIMessage } from 'ai'
 import { randomUUID } from 'node:crypto'
 import { after } from 'next/server'
 import { createAmaAgent, getAmaCallSettings } from '@/lib/ama-agent'
@@ -13,21 +13,11 @@ import {
   type AmaStreamErrorKind,
 } from '@/lib/ama-stream-diagnostics'
 import { createAmaTraceCollector, persistAmaTrace, type AmaRequestTrigger } from '@/lib/ama-traces'
-import { waitForAmaInferenceEndpoint } from '@/lib/ama-wake'
+import { prepareAmaGeneration } from '@/lib/ama-request-budget'
+import { createAmaPublicStreamResponse } from '@/lib/ama-public-stream'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
-
-// Leave enough headroom for the AI SDK to emit a classified stream error
-// before Vercel's Fluid Compute invocation limit terminates the function.
-const AMA_REQUEST_BUDGET_MS = 285_000
-const AMA_INFERENCE_STARTUP_TIMEOUT_MS = 135_000
-
-function createInferenceStartupTimeoutError(): Error {
-  const error = new Error('The inference endpoint did not become ready in time.')
-  error.name = 'TimeoutError'
-  return error
-}
 
 function createErrorResponse(kind: AmaStreamErrorKind, status: number): Response {
   return new Response(createAmaErrorTokenForKind(kind), {
@@ -85,6 +75,50 @@ function getFirstUserMessageId(messages: unknown[]): string | null {
   return null
 }
 
+/** The public AMA accepts conversation text, never client-supplied tools or files. */
+function parsePublicMessages(value: unknown): UIMessage[] | null {
+  if (!Array.isArray(value) || value.length === 0) {
+    return null
+  }
+  const messages: UIMessage[] = []
+  for (const raw of value) {
+    if (
+      raw === null ||
+      typeof raw !== 'object' ||
+      Array.isArray(raw) ||
+      typeof raw.id !== 'string' ||
+      !raw.id.trim() ||
+      (raw.role !== 'user' && raw.role !== 'assistant') ||
+      !Array.isArray(raw.parts)
+    ) {
+      return null
+    }
+    const parts: UIMessage['parts'] = []
+    for (const part of raw.parts) {
+      if (part === null || typeof part !== 'object' || Array.isArray(part)) {
+        return null
+      }
+      // The SDK retains these public lifecycle markers on previous assistant turns.
+      if (raw.role === 'assistant' && part.type === 'step-start') {
+        continue
+      }
+      if (part.type !== 'text' || typeof part.text !== 'string') {
+        return null
+      }
+      parts.push({ type: 'text', text: part.text })
+    }
+    if (!parts.some((part) => part.type === 'text' && part.text.trim())) {
+      if (raw.role === 'user') {
+        return null
+      }
+      // An aborted response can leave an empty assistant message in live UI state.
+      continue
+    }
+    messages.push({ id: raw.id, role: raw.role, parts })
+  }
+  return messages.at(-1)?.role === 'user' ? messages : null
+}
+
 export async function POST(req: Request) {
   const requestStartedAt = Date.now()
   let body: unknown
@@ -94,9 +128,12 @@ export async function POST(req: Request) {
     return createErrorResponse('invalid_request', 400)
   }
 
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return createErrorResponse('invalid_request', 400)
+  }
   const requestBody = body as { id?: unknown; messages?: unknown; trigger?: unknown }
-  const messages = requestBody.messages
-  if (!Array.isArray(messages)) {
+  const messages = parsePublicMessages(requestBody.messages)
+  if (!messages) {
     return createErrorResponse('invalid_request', 400)
   }
 
@@ -122,29 +159,19 @@ export async function POST(req: Request) {
     })
     traceCollector = activeTraceCollector
 
-    let agentTimeoutMs = AMA_REQUEST_BUDGET_MS
-    if (modelConfig.inference) {
-      const readiness = await waitForAmaInferenceEndpoint({
-        timeoutMs: AMA_INFERENCE_STARTUP_TIMEOUT_MS,
-        signal: req.signal,
-      })
-      console.info(
-        JSON.stringify({
-          event: 'ama_inference_readiness',
-          traceId,
-          readiness,
-        }),
-      )
-
-      if (readiness === 'timed_out') {
-        throw createInferenceStartupTimeoutError()
-      }
-
-      // Startup polling and generation share the function's 285s safety
-      // budget, preserving 15s for classified errors before Vercel's 300s
-      // invocation limit.
-      agentTimeoutMs = Math.max(1_000, AMA_REQUEST_BUDGET_MS - (Date.now() - requestStartedAt))
-    }
+    const agentTimeoutMs = await prepareAmaGeneration({
+      inference: Boolean(modelConfig.inference),
+      requestStartedAt,
+      signal: req.signal,
+      onReadiness: (readiness) =>
+        console.info(
+          JSON.stringify({
+            event: 'ama_inference_readiness',
+            traceId,
+            readiness,
+          }),
+        ),
+    })
 
     const agent = createAmaAgent({
       modelConfig,
@@ -156,6 +183,8 @@ export async function POST(req: Request) {
       uiMessages: messages,
       abortSignal: req.signal,
       timeout: { totalMs: agentTimeoutMs },
+      sendReasoning: false,
+      sendSources: false,
       onFinish: ({
         responseMessage,
         finishReason,
@@ -217,6 +246,7 @@ export async function POST(req: Request) {
           console.info(
             JSON.stringify({
               event: 'ama_sse_wire_finish',
+              streamBoundary: 'internal',
               traceId,
               outcome,
               summary: collector.finish(),
@@ -236,7 +266,7 @@ export async function POST(req: Request) {
       }
     })
 
-    return response
+    return createAmaPublicStreamResponse(response)
   } catch (error) {
     traceCollector?.settleWithoutTrace()
     const errorDetails = getAmaStreamErrorDetails(error, 'request')

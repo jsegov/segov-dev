@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "export": "node export/export-traces.mjs"
+    "export": "node export/export-traces.mjs",
+    "test": "node --test export/*.test.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0"

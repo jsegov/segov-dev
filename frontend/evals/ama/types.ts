@@ -28,6 +28,10 @@ export type AmaEvalScoreName =
   | 'first_person_voice'
   | 'style'
   | 'judge'
+  | 'judge_completion'
+  | 'stream_integrity'
+  | 'output_completion'
+  | 'tool_order'
 
 export interface AmaEvalJudgeSpec {
   reference: string
@@ -46,6 +50,7 @@ export interface AmaEvalCase {
   requiredSubstrings?: string[]
   forbiddenSubstrings?: string[]
   expectedTools?: string[]
+  expectedToolOrder?: string[]
   disallowedTools?: string[]
   expectCareerProjectsRedirect?: boolean
   expectFirstPerson?: boolean
@@ -57,13 +62,37 @@ export interface AmaEvalCase {
 
 export type AmaEvalUsage = Record<string, number>
 
+export interface AmaEvalToolOutcome {
+  step: number
+  name: 'get_public_site_content' | 'get_resume' | 'search_work_context' | 'search_personal_context'
+  invalid: boolean
+  /** Whether this attempt invoked the tool loader; reused results remain false. */
+  executed: boolean
+  status: 'found' | 'no_match' | 'empty' | 'unavailable' | 'error' | 'not_executed'
+}
+
 export interface AmaEvalGenerationDiagnostics {
   finishReason?: string
   stepCount: number
   usage?: AmaEvalUsage
   totalUsage?: AmaEvalUsage
   stepFinishReasons: string[]
+  latencyMs?: number
+  firstTextTokenMs?: number
+  errorKind?: string
+  wirePrivacyPassed?: boolean
+  protocolPassed?: boolean
+  serverFinishReceived?: boolean
+  toolSequence?: Array<{ step: number; name: string }>
+  /** Allowlisted summaries only; never include arguments, IDs, results, or error text. */
+  toolOutcomes?: AmaEvalToolOutcome[]
+  responseModel?: string
+  provider?: string
 }
+
+export type AmaEvalProfile = 'production' | 'benchmark' | 'tuning'
+export type AmaEvalPartition = 'selection' | 'final'
+export type AmaEvalJudgeStatus = 'not_required' | 'skipped' | 'passed' | 'failed' | 'error'
 
 export interface AmaEvalCaseRun {
   case: AmaEvalCase
@@ -93,6 +122,7 @@ export interface AmaEvalCaseResult {
   weightedScore: number
   passed: boolean
   criticalFailures: string[]
+  judgeStatus?: AmaEvalJudgeStatus
 }
 
 export interface AmaEvalSummary {
@@ -111,6 +141,50 @@ export interface AmaEvalSummary {
   }>
   passed: boolean
   results: AmaEvalCaseResult[]
+  metadata?: AmaEvalRunMetadata
+  metrics?: AmaEvalMetrics
+}
+
+export interface AmaEvalRunMetadata {
+  runId: string
+  profile: AmaEvalProfile
+  partition: AmaEvalPartition
+  datasetSha256: string
+  selectionDatasetSha256: string
+  finalDatasetSha256: string
+  fixtureSha256: string
+  scorerSha256: string
+  promptSha256: string
+  callSettings: Record<string, unknown>
+  sdkVersion: string
+  transportSha256: string
+  modelConfigSha256: string
+  promptManifestSha256: string
+  judgeModel: string | null
+  judgeModelConfig: AmaModelConfig | null
+  judgeCallSettings?: Record<string, unknown>
+  judgeRequired: boolean
+  repetition: number
+  startedAt: string
+  completedAt: string
+}
+
+export interface AmaEvalMetrics {
+  emptyResponses: number
+  truncatedResponses: number
+  protocolFailures: number
+  wirePrivacyFailures: number
+  generationFailures: number
+  judgeErrors: number
+  judgeSkipped: number
+  inputTokens: number
+  outputTokens: number
+  reasoningTokens: number
+  meanLatencyMs: number
+  p95LatencyMs: number
+  meanFirstTextTokenMs: number | null
+  /** Cost is only reported when explicit per-million input/output prices are supplied. */
+  estimatedCostUsd: number | null
 }
 
 export interface AmaEvalThresholds {
@@ -123,4 +197,9 @@ export interface RunAmaEvalOptions {
   enforceThresholds?: boolean
   useJudge?: boolean
   judgeModel?: string
+  profile?: AmaEvalProfile
+  partition?: AmaEvalPartition
+  maxOutputTokens?: number
+  repetition?: number
+  writeArtifacts?: boolean
 }

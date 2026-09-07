@@ -1,0 +1,315 @@
+import type { ModelMessage } from 'ai'
+
+export const AMA_CONTEXT_TOOL_NAMES = [
+  'get_public_site_content',
+  'get_resume',
+  'search_work_context',
+  'search_personal_context',
+] as const
+
+export type AmaContextToolName = (typeof AMA_CONTEXT_TOOL_NAMES)[number]
+export type AmaRetrievalStatus = 'found' | 'no_match' | 'empty' | 'unavailable'
+const SOURCE_KINDS = {
+  get_public_site_content: 'public_site',
+  get_resume: 'resume',
+  search_work_context: 'work',
+  search_personal_context: 'personal',
+} as const
+
+export function describeAmaSourceResult<
+  T extends { available: boolean; content: string; source: string },
+>(name: AmaContextToolName, result: T) {
+  const retrievalStatus: AmaRetrievalStatus =
+    result.available && result.content.trim()
+      ? 'found'
+      : result.source === 'no_matches'
+        ? 'no_match'
+        : result.available ||
+            ['empty_blob', 'empty_files'].includes(result.source) ||
+            ('retrievalStatus' in result && result.retrievalStatus === 'empty')
+          ? 'empty'
+          : 'unavailable'
+  return {
+    ...result,
+    available: retrievalStatus === 'found',
+    sourceKind: SOURCE_KINDS[name],
+    retrievalStatus,
+    executionStatus: 'executed' as const,
+  }
+}
+
+export interface AmaSourcePlan {
+  requiredTools: AmaContextToolName[]
+  needsPublicLinks: boolean
+  // An underspecified comparison remains model-routed instead of prematurely
+  // closing the turn after its first private source.
+  allowAdditionalSources: boolean
+}
+
+function latestUserText(messages: ModelMessage[]): string {
+  const message = messages.findLast((item) => item.role === 'user')
+  if (!message) {
+    return ''
+  }
+  return typeof message.content === 'string'
+    ? message.content
+    : message.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join(' ')
+}
+
+export function getAmaSourcePlan(messages: ModelMessage[]): AmaSourcePlan {
+  // Plan from this request, never earlier answers, tool text, or client claims
+  // that a source has already been consulted. Quoted examples are not intents.
+  const clauses = latestUserText(messages)
+    .replace(/```[\s\S]*?```|`[^`]*`|"[^"]*"|“[^”]*”/g, ' ')
+    .replace(/[’]/g, "'")
+    .toLowerCase()
+    .split(/[;.!?\n]+/)
+    .map((clause) => clause.trim())
+    .filter(Boolean)
+    .filter((clause) => !/\b(?:not|don't|never|avoid|without)\b/.test(clause))
+    .filter(
+      (clause) =>
+        !/\byour (?:friend|colleague|coworker|manager|partner|brother|sister|parent)\b/.test(
+          clause,
+        ),
+    )
+  const text = clauses.join('. ')
+  const subject = /\b(?:you|your|jonathan(?: segovia)?|segov)\b/.test(text)
+  const education =
+    /\b(?:your|jonathan(?: segovia)?'s|segov's) (?:education|academic background|educational background|degrees?|undergraduate|undergrad|master'?s|phd)\b/.test(
+      text,
+    ) ||
+    /\bwhere (?:did|do) (?:you|jonathan(?: segovia)?|segov) (?:go to (?:(?:grad(?:uate)?|undergrad(?:uate)?) )?(?:school|college|university)|study|attend|graduate)\b/.test(
+      text,
+    ) ||
+    /\b(?:what|which) (?:schools?|colleges?|universities|university|degrees?) (?:did|do|have) (?:you|jonathan(?: segovia)?|segov) (?:attend|graduate|study|earn|earned|receive|received|hold|have|go to)\b/.test(
+      text,
+    ) ||
+    /\bwhen did (?:you|jonathan(?: segovia)?|segov) graduate\b/.test(text) ||
+    /\b(?:what|which) years? did (?:you|jonathan(?: segovia)?|segov) attend (?:(?:each|all) of )?(?:your )?(?:(?:grad(?:uate)?|undergrad(?:uate)?) )?(?:schools?|colleges?|universit(?:y|ies))\b(?! (?:projects?|demos?|meetings?|events?)\b)/.test(
+      text,
+    )
+  const resumeDetails =
+    education ||
+    (subject &&
+      (/\b(?:you|jonathan(?: segovia)?|segov) (?:ever )?(?:won|earned|received|hold|have)\b.{0,40}\b(?:awards?|honou?rs?|certifications?|qualifications?)\b/.test(
+        text,
+      ) ||
+        /\b(?:what|which) (?:awards?|honou?rs?|certifications?|qualifications?) (?:do|have|did) (?:you|jonathan(?: segovia)?|segov) (?:have|hold|earn|earned|win|won|receive|received)\b/.test(
+          text,
+        ) ||
+        /\b(?:your|jonathan(?: segovia)?'s|segov's) (?:full |complete |broader )?(?:toolbox|skill set|qualifications|certifications|resume|cv)\b/.test(
+          text,
+        )))
+  // Inventory questions use public project summaries. Their "built" wording
+  // does not itself request implementation details; retain any other clauses.
+  const detailText = text
+    .replace(
+      /\b(?:what|which) (?:side|personal|hobby)[- ]projects? (?:have|did) (?:you|jonathan(?: segovia)?|segov) (?:built|build|created|create|made|make|worked on)\b/g,
+      ' ',
+    )
+    .replace(
+      /\b(?:list|name|show) (?:your|jonathan(?: segovia)?'s|segov's) (?:side|personal|hobby)[- ]projects?\b/g,
+      ' ',
+    )
+  const personalInventory = detailText !== text
+  const detail =
+    /\b(?:how|architecture|implementation|design|storage|sync|recovery|offline|tradeoffs?|technical|internals?|built|build)\b/.test(
+      detailText,
+    )
+  const personal =
+    subject &&
+    detail &&
+    /\b(?:(?:side|personal|hobby)[- ]projects?|your work and personal)\b/.test(detailText) &&
+    !/\b(?:my|their|her|his) (?:side|personal|hobby)[- ]projects?\b/.test(detailText)
+  const work =
+    subject &&
+    detail &&
+    /\b(?:your (?:professional )?(?:work|jobs?|employers?|workplace)|at work|work-related|professional (?:work|experience))\b/.test(
+      text,
+    )
+  const links =
+    /\b(?:links?|urls?|github|repositories|repository|career page|projects page)\b/.test(text)
+  const requiredTools: AmaContextToolName[] = []
+  if (resumeDetails || personalInventory || (links && (personal || work))) {
+    requiredTools.push('get_public_site_content')
+  }
+  if (resumeDetails) {
+    requiredTools.push('get_resume')
+  }
+  if (work) {
+    requiredTools.push('search_work_context')
+  }
+  if (personal) {
+    requiredTools.push('search_personal_context')
+  }
+  // A continuation that only asks for the same source's design and public
+  // links adds no new source. Named or otherwise unresolved subjects remain
+  // adaptive; do not close a mixed request merely because one part is known.
+  const unresolvedContinuation =
+    (!(work || personal) && clauses.length > 1) ||
+    clauses
+      .slice(1)
+      .some(
+        (clause) =>
+          !/^(?:please )?(?:explain|describe|outline) (?:its |their |the )?(?:architecture|implementation|design|storage|sync|recovery)(?: and (?:give|include|provide) (?:a |the )?public links?(?: if (?:one is |they are )?available)?)?$/.test(
+            clause,
+          ),
+      )
+  return {
+    requiredTools,
+    needsPublicLinks: links,
+    allowAdditionalSources:
+      (personalInventory && detail && !personal) ||
+      (!(work && personal) && /\b(?:compare|comparison|versus|vs|both)\b/.test(text)) ||
+      (!(work && personal) &&
+        (resumeDetails || work || personal || personalInventory) &&
+        detail &&
+        unresolvedContinuation) ||
+      (!(work && personal) &&
+        detail &&
+        /\b(?:and|also|plus)\s+(?:the\s+|your\s+|its\s+)?(?:how|what|why|implementation|architecture|design|storage|sync|recovery)\b/.test(
+          text,
+        )),
+  }
+}
+
+export interface AmaSourceStep {
+  toolCalls: Array<{ toolCallId?: string; toolName: string; invalid?: boolean }>
+  toolResults?: Array<{ toolCallId?: string; toolName: string; output: unknown }>
+  content?: Array<{ type: string; toolCallId?: string; toolName?: string }>
+}
+
+export function getAmaSourceLedger(steps: AmaSourceStep[]) {
+  const ledger = new Map<AmaContextToolName, AmaRetrievalStatus>()
+  for (const step of steps) {
+    for (const result of step.toolResults ?? []) {
+      const name = AMA_CONTEXT_TOOL_NAMES.find((name) => name === result.toolName)
+      if (
+        !name ||
+        !result.toolCallId ||
+        !step.toolCalls.some(
+          (call) =>
+            !call.invalid && call.toolName === name && call.toolCallId === result.toolCallId,
+        )
+      ) {
+        continue
+      }
+      const value = result.output
+      if (
+        !value ||
+        typeof value !== 'object' ||
+        !('available' in value) ||
+        typeof value.available !== 'boolean' ||
+        !('content' in value) ||
+        typeof value.content !== 'string' ||
+        !('source' in value) ||
+        typeof value.source !== 'string'
+      ) {
+        continue
+      }
+      // A rejected later attempt must never overwrite earlier usable evidence.
+      if (!ledger.has(name)) {
+        ledger.set(
+          name,
+          describeAmaSourceResult(name, {
+            available: value.available,
+            content: value.content,
+            source: value.source,
+            ...('retrievalStatus' in value ? { retrievalStatus: value.retrievalStatus } : {}),
+          }).retrievalStatus,
+        )
+      }
+    }
+    for (const error of step.content ?? []) {
+      const name = AMA_CONTEXT_TOOL_NAMES.find((name) => name === error.toolName)
+      if (
+        error.type === 'tool-error' &&
+        error.toolCallId &&
+        name &&
+        !ledger.has(name) &&
+        step.toolCalls.some(
+          (call) => !call.invalid && call.toolName === name && call.toolCallId === error.toolCallId,
+        )
+      ) {
+        ledger.set(name, 'unavailable')
+      }
+    }
+  }
+  return ledger
+}
+
+export function getAmaSourceDecision(
+  messages: ModelMessage[],
+  steps: AmaSourceStep[],
+  eligibleTools: AmaContextToolName[],
+) {
+  const plan = getAmaSourcePlan(messages)
+  const ledger = getAmaSourceLedger(steps)
+  // Adaptive routing can discover a named project's source. An explicitly
+  // requested public link still requires public content after that discovery.
+  if (
+    plan.needsPublicLinks &&
+    [...ledger.keys()].some((name) => name !== 'get_public_site_content') &&
+    !plan.requiredTools.includes('get_public_site_content')
+  ) {
+    plan.requiredTools.push('get_public_site_content')
+  }
+  // No-match private retrieval cannot establish that public background is
+  // absent. Consult the public source once before falling back; never repeat
+  // the failed search or broaden it into a different private collection.
+  if (
+    !ledger.has('get_public_site_content') &&
+    [...ledger.entries()].some(
+      ([name, status]) =>
+        (name === 'search_work_context' || name === 'search_personal_context') &&
+        status === 'no_match',
+    ) &&
+    !plan.requiredTools.includes('get_public_site_content')
+  ) {
+    plan.requiredTools.push('get_public_site_content')
+  }
+  const pending = plan.requiredTools.filter((name) => !ledger.has(name))
+  const requiredTool = pending[0]
+  const privateCompleted = [...ledger.keys()].some((name) => name !== 'get_public_site_content')
+  const terminal =
+    pending.length === 0 &&
+    !plan.allowAdditionalSources &&
+    (privateCompleted || plan.requiredTools.length > 0)
+  // Respect an upstream restriction. Do not force a source that prepareStep
+  // explicitly excluded or pretend that excluded source returned no evidence.
+  const forcedTool = requiredTool && eligibleTools.includes(requiredTool) ? requiredTool : undefined
+  return {
+    activeTools: terminal ? [] : forcedTool ? [forcedTool] : eligibleTools,
+    forcedTool,
+    reminder: [
+      ...AMA_CONTEXT_TOOL_NAMES.flatMap((name) => {
+        const status = ledger.get(name)
+        return status ? [`Source ${SOURCE_KINDS[name]}: ${status}. Further calls allowed: no.`] : []
+      }),
+      ...(requiredTool
+        ? [
+            `Required source still pending: ${SOURCE_KINDS[requiredTool]}. It has not returned evidence yet.`,
+          ]
+        : []),
+      ...(ledger.size
+        ? [
+            'Use first person (I, me, my) when describing my background or experience, even when the question refers to me by name.',
+            'Source status describes returned evidence, not permission to call again or permission to disclose it. A later rejected call does not invalidate earlier FOUND evidence. Attribute facts to the source that returned them; personal notes are not public website content.',
+            ...([...ledger.entries()].some(
+              ([name, status]) => name !== 'search_work_context' && status === 'found',
+            )
+              ? [
+                  'Use supported facts from found public website, resume, and personal-project context. If a requested detail is unspecified, say so without claiming the found notes are inaccessible.',
+                ]
+              : []),
+            ...(ledger.get('search_work_context') === 'found'
+              ? [
+                  'FOUND work context remains restricted to anonymous, high-level summaries of the problem, purpose, and approach. Never repeat customers or other customer identifiers, internal codenames, internal dates, numbers, or implementation details from work context, even when found. Do not describe what was omitted. Keep the full work disclosure policy in force; finding work evidence does not make it disclosable.',
+                ]
+              : []),
+          ]
+        : []),
+    ].join('\n'),
+  }
+}

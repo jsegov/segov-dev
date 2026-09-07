@@ -5,12 +5,14 @@ description = "Fine-tuning pipeline for the segov.dev AMA chatbot on Tinker (Thi
 requires-python = ">=3.11,<3.14"
 dependencies = [
     "tinker>=0.24.0",
+    "rfc8785>=0.1.4,<1",
     "tinker-cookbook[inkling]>=0.5.3",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=8.0",
+    "modal>=1.0,<2",
 ]
 
 [tool.uv]

@@ -550,7 +550,7 @@ describe('AMA eval scorers', () => {
     )
   })
 
-  it('skips the judge score after structured-output generation fails all retries', async () => {
+  it('fails a critical gate after structured-output generation fails all retries', async () => {
     const error = new Error('raw provider response should not be serialized')
     error.name = 'NoObjectGeneratedError'
     generateTextMock.mockResolvedValue({
@@ -585,10 +585,51 @@ describe('AMA eval scorers', () => {
     )
     expect(generateTextMock).toHaveBeenCalledTimes(2)
     expect(result.scores.find((score) => score.name === 'judge')).toBeUndefined()
+    expect(result.criticalFailures).toContain('judge_completion')
+    expect(result.judgeStatus).toBe('error')
+    expect(result.passed).toBe(false)
     expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('NoObjectGeneratedError'))
     expect(consoleErrorSpy).not.toHaveBeenCalledWith(
       expect.stringContaining('raw provider response'),
     )
     consoleErrorSpy.mockRestore()
+  })
+
+  it('fails skipped required judges without inflating the quality average', async () => {
+    const result = await scoreAmaEvalCase(
+      {
+        case: {
+          id: 'required-judge',
+          category: 'style',
+          prompt: 'Describe your work.',
+          judge: { reference: 'I build tools.', rubric: 'Grounded.' },
+        },
+        output: 'I build tools.',
+        toolCalls: [],
+        model: 'test',
+      },
+      { requireJudge: true, useJudge: false },
+    )
+    expect(result.judgeStatus).toBe('skipped')
+    expect(result.criticalFailures).toEqual(['judge_completion'])
+    expect(result.weightedScore).toBe(1)
+  })
+
+  it.each([
+    ['duplicate', ['get_public_site_content', 'get_public_site_content']],
+    ['resume before public', ['get_resume', 'get_public_site_content']],
+  ])('rejects %s retrieval', async (_name, toolCalls) => {
+    const result = await scoreAmaEvalCase({
+      case: { id: 'tool-sequence', category: 'resume', prompt: 'Describe your education.' },
+      output: 'I studied computing.',
+      toolCalls,
+      model: 'test',
+      diagnostics: {
+        stepCount: 2,
+        stepFinishReasons: ['tool-calls', 'stop'],
+        toolSequence: toolCalls.map((name, step) => ({ name, step })),
+      },
+    })
+    expect(result.criticalFailures).toContain('tool_order')
   })
 })

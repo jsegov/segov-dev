@@ -2,7 +2,7 @@ import React from 'react'
 import type { ComponentProps } from 'react'
 import type * as StreamdownModule from 'streamdown'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import AMAPage from '@/app/ama/page'
 
 const {
@@ -418,6 +418,39 @@ describe('AMA page', () => {
     expect(sendMessageMock).toHaveBeenCalledWith({ text: 'Tell me about your work.' })
   })
 
+  it('names the prompt and announces completed responses without announcing streamed tokens', () => {
+    const { rerender } = render(<AMAPage />)
+    expect(screen.getByRole('textbox', { name: 'Ask a question' })).toBeInTheDocument()
+    expect(screen.getByRole('status')).toBeEmptyDOMElement()
+    const chatState = useChatMock.mock.results.at(-1)?.value
+
+    useChatMock.mockReturnValue({
+      ...chatState,
+      status: 'streaming',
+      messages: [{ id: 'answer', role: 'assistant', parts: [{ type: 'text', text: 'Partial' }] }],
+    })
+    rerender(<AMAPage />)
+    expect(screen.getByRole('region', { name: 'Conversation' })).toHaveTextContent('Partial')
+    expect(screen.getByRole('status')).toBeEmptyDOMElement()
+
+    const onFinish = useChatMock.mock.calls.at(-1)?.[0].onFinish
+    act(() => {
+      onFinish({
+        message: {
+          id: 'answer',
+          role: 'assistant',
+          parts: [{ type: 'text', text: 'The completed answer.' }],
+        },
+        finishReason: 'stop',
+        isAbort: false,
+        isDisconnect: false,
+        isError: false,
+      })
+    })
+    expect(screen.getByRole('status')).toHaveTextContent('The completed answer.')
+    expect(screen.getByRole('status')).toHaveAttribute('aria-live', 'polite')
+  })
+
   it('shows a toast when the chat hook reports an error', () => {
     useChatMock.mockReturnValue({
       status: 'ready',
@@ -700,6 +733,46 @@ describe('AMA page', () => {
         }),
       ])
     })
+  })
+
+  it('keeps chat and clear working when access to localStorage is blocked, with one notice', () => {
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      get: () => {
+        throw new DOMException('Storage is blocked', 'SecurityError')
+      },
+    })
+    render(<AMAPage />)
+
+    const input = screen.getByRole('textbox', { name: 'Ask a question' })
+    fireEvent.change(input, { target: { value: 'Tell me about your work' } })
+    fireEvent.submit(input.closest('form')!)
+    expect(sendMessageMock).toHaveBeenCalledWith({ text: 'Tell me about your work' })
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+    expect(setMessagesMock).toHaveBeenCalledWith([
+      expect.objectContaining({ id: 'initial', role: 'assistant' }),
+    ])
+    expect(
+      toastMock.mock.calls.filter(([notice]) => notice.title === 'Local history unavailable'),
+    ).toHaveLength(1)
+  })
+
+  it('continues in memory after quota or removal failures and reports persistence once', () => {
+    vi.spyOn(window.localStorage, 'setItem').mockImplementation(() => {
+      throw new DOMException('Quota full', 'QuotaExceededError')
+    })
+    vi.spyOn(window.localStorage, 'removeItem').mockImplementation(() => {
+      throw new DOMException('Storage is blocked', 'SecurityError')
+    })
+    render(<AMAPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+
+    expect(setMessagesMock).toHaveBeenCalledWith([
+      expect.objectContaining({ id: 'initial', role: 'assistant' }),
+    ])
+    expect(
+      toastMock.mock.calls.filter(([notice]) => notice.title === 'Local history unavailable'),
+    ).toHaveLength(1)
   })
 
   it('does not persist tool parts to local storage or strip live message state', async () => {

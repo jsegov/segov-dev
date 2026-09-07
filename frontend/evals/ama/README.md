@@ -1,0 +1,125 @@
+# AMA behavioral evaluations
+
+The default evaluation follows the configured production model and call settings. It runs `ToolLoopAgent` through `createAgentUIStreamResponse`, applies the production public-stream filter, and consumes the result with `Chat` and `DefaultChatTransport`. Scorers inspect the answer that the browser receives. Server `onFinish` supplies ordered tool calls, completion reasons, usage, and the observed model identity; private tool payloads stay on that server branch.
+
+Fixtures are synthetic and injected locally. These evaluations do not read production Blob, Edge Config, or trace data. Live subject and judge inference still requires model credentials and incurs provider charges. Unit tests use local SDK mocks.
+
+## Profiles and partitions
+
+| Profile                | Model and routing                              | Effective call settings                                  | Purpose                                                             |
+| ---------------------- | ---------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------- |
+| `production` (default) | `getAmaModelConfig()`                          | `getAmaCallSettings()`                                   | Measure the runtime configuration, including its output cap         |
+| `tuning`               | Same runtime configuration                     | Same settings, with only the matrix output cap changed   | Compare output budgets on the selection partition                   |
+| `benchmark`            | Allows `AMA_EVAL_MODEL` / `AMA_EVAL_PROVIDERS` | Historical 2400 cap, temperature 0, seed 1, maxRetries 1 | Historical comparison, explicitly distinct from production evidence |
+
+`AMA_MAX_OUTPUT_TOKENS` is the shared positive-integer runtime cap; its default is **1536**, selected by the [three-repetition budget experiment](reports/budget-experiment-2026-09-06.md) for the locally configured `openai/gpt-5-mini`. Repeat the comparison for a different model or inference endpoint. `AMA_EVAL_MAX_OUTPUT_TOKENS` is benchmark-only. Production and tuning reject benchmark-only model, provider, and token overrides. Unspecified gateway sampling/retry settings retain SDK/provider defaults; the installed SDK version is recorded. Inference endpoints inherit the runtime's deterministic temperature/seed and retry configuration.
+
+The subsequent [deployed-model comparison](reports/deployed-budget-experiment-2026-09-06.md) completed all twelve runs but selected no budget: every cap failed the same critical retrieval checks. The default remains 1536. Its report preserves later interrupted-run failures and incomplete judge evidence; it does not establish release readiness.
+
+The **selection** partition retains the original 150 cases. The **final** partition is a separately authored frozen suite of 32 cases, four in each of the same eight categories, with different organizations, projects, education facts, and private canaries. Its fixtures and cases are frozen together in `final-release.json` under this canonical SHA-256:
+
+```text
+562666316ce39a665b07332e4aa11eb77892bdefde563afd453f3032e2a5717b
+```
+
+The final suite was frozen before budget comparison. Do not tune prompts, scorers, thresholds, fixtures, or budgets against final results. A changed final suite needs a separately reviewed version before the next selection run. `assertFrozenFinalSuite` rejects edits to the frozen content.
+
+## Run commands
+
+Run from `frontend/`, with credentials already loaded in the environment. Do not commit `.env` files.
+
+```bash
+# Exact configured runtime, selection partition, required judges
+pnpm eval:ama:production
+
+# Historical comparison profile
+pnpm eval:ama:benchmark
+
+# Four budgets × three repetitions; selection partition only
+pnpm eval:ama:matrix
+
+# Recompute the decision from a complete saved matrix, with no model calls
+AMA_EVAL_MATRIX_REPORT=evals/ama/results/matrix-....json pnpm eval:ama:select
+
+# Final release check after a successful budget decision
+AMA_MAX_OUTPUT_TOKENS=1536 AMA_EVAL_SELECTION_REPORT=evals/ama/results/selection-....json pnpm eval:ama:final
+
+# Offline fingerprints and policy for the training pipeline
+pnpm eval:ama:export-manifest
+```
+
+The final example uses an illustrative budget: use the report's actual `selected_budget`. The runner verifies the selected budget, model configuration, prompt, scorer, transport, fixture, SDK, judge, and other call settings before making final model calls. The settings describe the environment running the command; they do not establish that an unrelated deployed site has identical environment variables.
+
+Equivalent direct invocation is `pnpm exec vitest run --config vitest.eval.config.ts` with `AMA_EVAL_PROFILE=production|benchmark`, `AMA_EVAL_COMMAND=matrix|select|export-manifest`, or `AMA_EVAL_SUITE=final`. The standard suite may skip locally without credentials; matrix, final, and `AMA_EVAL_CI=1` fail when credentials are missing. `AMA_EVAL_CONCURRENCY` defaults to 4 and must be a positive integer.
+
+`pnpm eval:ama:ci` also requires an explicit runtime model: set `AMA_CHAT_MODEL`, or set both `AMA_INFERENCE_BASE_URL` and `AMA_DEPLOYMENT_MODEL` for custom inference. Blank values and partial inference pairs fail before any subject or judge requests, even if a Gateway model is also set. This prevents missing CI variables from silently evaluating the default model. Ordinary local production evaluations retain runtime defaults; credentials alone do not select a CI model.
+
+The GitHub workflow reads these values from its `Github Actions` environment. Store endpoint authentication in secrets; `AMA_INFERENCE_BASE_URL` can also be a secret, which takes precedence over a variable with the same name. CI uses the same default concurrency of four as local evaluations and the budget matrix. Provision the complete configuration before rerunning a failed live gate; a missing configuration is not passing evaluation evidence.
+
+For Modal deployments, the server URL comes from the deployed app (`modal.Server.from_name(...).get_url()`), with `/v1` appended. The proxy token pair may already be saved as `MODAL_PROXY_KEY` and `MODAL_PROXY_SECRET` in the gitignored `training/.env`; combine them as the `Modal-Key` and `Modal-Secret` JSON headers. See the [deployment configuration](../../../training/deploy/README.md) and [local environment example](../../../training/env.example). Never put token values in source, command arguments, or evaluation reports.
+
+Production and evaluation share readiness polling and one 285-second request budget, including up to 135 seconds for a cold inference endpoint. Startup time contributes to total latency and time to first text. A readiness timeout fails the case without starting model generation; authentication and other non-startup failures remain classified failures.
+
+## Budget decision and gates
+
+The matrix tests **512, 1024, 1536, and 2400** tokens, three repetitions each. It interleaves budgets within repetitions. Every run uses the same configuration and selection cases; the comparison rejects incomplete matrices, duplicate repetitions, or differences beyond the output cap.
+
+Each repetition must pass the existing quality thresholds: overall score at least 0.85, every category at least 0.75, and zero critical failures. Empty answers, truncated answers, protocol errors, private fields on the public stream, unfinished server generations, repeated retrieval, invalid retrieval order, and missing or failed required judge calls are critical. Required judge inference is independent of subject inference routing, uses the gateway model in `AMA_EVAL_JUDGE_MODEL` (default `openai/gpt-5-mini`), and optionally `AMA_EVAL_JUDGE_PROVIDERS`. A judge gets two bounded attempts; exhausted attempts remain explicit failed evidence. A completed judge's substantive grade contributes to quality. Production and tuning require every configured judge; disabling them cannot produce passing release evidence.
+
+Of budgets passing **every repetition**, select the smallest whose average quality is within **0.01** of the highest average quality among passing budgets. The 2400 setting has no special baseline status. If none qualify, the report records no selection and the command fails after saving evidence; keep the existing runtime setting while investigating. The final suite remains a separate release gate after selection.
+
+Tool diagnostics preserve call order, step numbers, and repeats; they do not combine the SDK's last-step calls with all-step calls. Resume retrieval must follow public content retrieval. Operational checks are hard gates and are excluded from the quality average, so extra successful infrastructure checks cannot inflate answer quality.
+
+The prompt manifest records retrieval policy `source-plan-v3`. Clear education, career-award, credential, and general-toolbox requests require public content then resume with one eligible tool per required step; explicit work/personal implementation requests select their respective sources. Plans use the current effective user message and keep partly understood comparisons adaptive. Requested public links remain pending after a private lookup, and mixed work/personal or education/project questions retain their required sources. Completed source plans enter an answer-only step; same-project design/link continuations do not reopen unrelated sources. An unmatched private search checks untried public content once before falling back. Public and resume lookups have empty argument objects. A hard five-step ceiling permits four retrieval steps and one final generation, and still applies after custom call preparation; earlier custom stop conditions remain effective.
+
+Each result preserves its content and adds `sourceKind` (`public_site`, `resume`, `work`, `personal`), `retrievalStatus` (`found`, `no_match`, `empty`, `unavailable`), and `executionStatus` (`executed`, `reused`). Per-step source state comes from correlated SDK execution results, never browser history or an attempted call alone. Found evidence remains usable after a tool is removed or a repeat is rejected; found does not imply that every requested detail is specified. Model-facing reminders distinguish missing detail from an inaccessible source and preserve work disclosure restrictions. Full results remain in private model context/traces, behind the unchanged public-response projection.
+
+Tools execute at most once per invocation: same-step duplicates reuse the first result while preserving all attempted calls for scoring. Invalid calls consume no retrieval; they can be corrected within the step ceiling. Invocation-local state resets for new turns, regeneration, and concurrent requests. `diagnostics.toolOutcomes` records known tool name, step, invalid/executed flags, and an allowlisted outcome status. Reused results keep their retrieval status with `executed: false`; arguments, result content, IDs, and raw errors are excluded. The attempted-call order and critical failure gates are unchanged, so a repeated attempt remains a failure even if its read is coalesced.
+
+For the configured OpenAI-compatible inference model, already-forced retrieval steps require a strict JSON argument object for the selected tool. The middleware validates the complete object before emitting one ordinary SDK tool call; SDK validation and execution still apply. Raw argument JSON and the original provider finish reason remain private audit metadata. Native calls emitted unexpectedly remain observable and scored. This avoids filtering out duplicate attempts after generation.
+
+Answer-only steps require a strict JSON schema with one `answer` string. The SDK output parser decodes that field incrementally into ordinary assistant text, so the browser does not see a JSON envelope. Original tool exchanges remain intact. The raw final JSON is retained only in private provider metadata, behind the public stream filter. Malformed or incomplete structured answers fail visibly; unexpected tool calls remain observable and scored. Gateway answers keep their normal text format.
+
+The inference endpoint must support `response_format: json_schema`. The provider adapter sends explicit `tool_choice: none` for the answer step and retains the declaration context expected by the serving template; the SDK still has no executable tools in that step. Required retrieval steps expose only their pending tool to the SDK, while the provider emits its constrained argument object with native tool calling disabled. Provider wire tests verify this distinction and schema support. These changes do not train, replace, promote, or redeploy model weights.
+
+The source-policy, compatible provider, structured-tool-call, and structured-answer implementations are included in the runtime/transport hash. Earlier budget and behavioral reports do not attest to this policy; a new credentialed selection run is required to measure model behavior. Offline route/SDK tests verify enforcement, regeneration, cancellation, and privacy, but do not establish live answer quality. The current training builders require fixed tool declarations throughout a turn, so traces carrying this dynamic policy are excluded and fail preflight even if approved. See [training provenance rules](../../../training/README.md). Existing static-policy snapshots remain reproducible.
+
+## Evidence and metrics
+
+Every completed suite writes an immutable `selection-...json` or `final-...json` behavioral report, plus `latest.json` as a convenience pointer. The matrix also maintains a JSON file after each completed repetition/budget pair. An interrupted matrix retains completed evidence, but offline selection requires all 12 runs. A selection report includes each source report identity and hash.
+
+Reports retain complete answers with private fixture canaries redacted, including canaries occurring in judge explanations and metadata. Console tables show shortened previews; the JSON keeps the full redacted answer. Provider response bodies, tool inputs, tool outputs, auth headers, and credentials are not written. Endpoint credentials and query strings are stripped from the serialized endpoint.
+
+Metadata records the configured/observed model, provider when available, routing configuration, exact call settings, installed AI SDK version, judge configuration, repetition, timing, and hashes of the cases, fixtures, prompt/tools, prompt manifest, scorer, and public transport. Metrics include empty/truncated output counts, protocol/privacy/generation failures, required-judge errors/skips, subject input/output/reasoning tokens, mean/p95 generation latency, and mean time to the first nonblank public text token. Latency includes retrieval and the subject tool loop, and excludes judging.
+
+`estimatedCostUsd` is null unless both `AMA_EVAL_INPUT_USD_PER_MILLION` and `AMA_EVAL_OUTPUT_USD_PER_MILLION` are explicitly supplied. When configured, this is an estimate for **subject inference only**, using reported token usage. It excludes judges, provider-specific caching discounts, and other fees. Missing provider usage fields contribute no tokens; inspect individual diagnostics before interpreting an estimate.
+
+All artifact hashes use recursively key-sorted UTF-8 JSON, preserving array order. A behavioral report's `report_sha256` excludes only that field; a selection report's `selection_decision_sha256` excludes only that field. Hashes detect changed evidence and bind comparisons, but do not attest to a remotely served checkpoint by themselves.
+
+## Training release evidence
+
+The offline export creates `training-eval-manifest.json` and `release-policy.json` in `evals/ama/results/` (or `AMA_EVAL_MANIFEST_DIR`). It fingerprints both partitions, their case families, and normalized user questions, including scripted prior user turns. Question normalization is NFKC, lowercase, trim, and collapsed whitespace before canonical hashing. These fingerprints keep both suites out of training and validation data.
+
+For candidate evidence, supply all bindings and run the production profile:
+
+```bash
+AMA_EVAL_REQUIRE_BINDINGS=1
+AMA_EVAL_CANDIDATE_ID=...
+AMA_EVAL_CHECKPOINT_PATH=...
+AMA_EVAL_MODEL_ARTIFACT_SHA256=...
+AMA_EVAL_SERVING_CONFIG_SHA256=...
+```
+
+These values must be exported in the shell or supplied together with the command. The final candidate run also needs `AMA_EVAL_SELECTION_DECISION_SHA256`, from the training pipeline's frozen selection decision. Presence and hash formats are validated before inference. The promotion gate must verify these bindings against actual checkpoint and serving manifests; the runner records the endpoint, configured model alias, observed model IDs, and effective settings for that comparison. Unbound local budget reports cannot stand in for candidate promotion evidence.
+
+The behavioral envelope uses `schema_version: 1` and `report_type: ama_behavioral_eval`. Per-case evidence includes category, quality score, pass status, critical status, privacy status, and judge status. `counts.failed` counts case-level misses; `counts.completed` includes completed outcomes that failed a gate. Generation errors remain cases with failed critical checks. `judge_completed` includes substantive pass/fail judgments; `judge_errors` and `judge_skipped` identify incomplete judging. Aggregate quality and category thresholds permit noncritical case misses while requiring zero critical failures. The training promotion gate recomputes those conditions from the per-case evidence and pinned policy.
+
+Bound final runs also require `AMA_EVAL_FINAL_ATTEMPT_ID`, the UUID claimed by the training registry before inference. The runner echoes it as `final_attempt_id`. The training orchestrator supplies `AMA_EVAL_OUTPUT_PATH` to write the behavioral envelope directly into that attempt's directory; the file is created exclusively and cannot overwrite an earlier attempt's evidence. Use the orchestrator's final-evaluation command so failed or interrupted attempts remain consumed and a second candidate cannot use the same final holdout.
+
+## Verification and references
+
+Run `pnpm exec vitest run tests/evals` for offline profile, scorer, matrix, hash, evidence, frozen-suite, and SDK transport regression tests. Full route-to-transport privacy tests live in `tests/lib/ama-chat-stream.integration.test.ts`.
+
+The streaming boundary follows the documented [AI SDK UI stream protocol](https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol), including tool output events, and OWASP's guidance to [keep private data out of client responses](https://cheatsheetseries.owasp.org/cheatsheets/AJAX_Security_Cheat_Sheet.html#never-transmit-secrets-to-the-client). The production profile, separate selection/final data, explicit criteria, and repeated comparison follow [OpenAI evaluation best practices](https://developers.openai.com/api/docs/guides/evaluation-best-practices). The local SDK source and regression tests establish this implementation's behavior; these references explain the associated engineering practices.
+
+Candidate final evaluations require `AMA_EVAL_CHECKPOINT_DECISION`, the sealed checkpoint selection decision supplied by the Python release runner. Before generation, the frontend verifies its hash, winner/artifact bindings, prompt and scorer sources, transport, SDK, judge, frozen suites, and effective serving settings. A decision hash alone is insufficient. Budget-only final experiments continue to require `AMA_EVAL_SELECTION_REPORT`.

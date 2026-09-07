@@ -251,7 +251,10 @@ describe('AMA trace persistence', () => {
     expect(queries[0].text).toContain('ON CONFLICT (version) DO NOTHING')
     expect(queries[1].text).toContain('ON CONFLICT (id) DO NOTHING')
     expect(JSON.parse(queries[0].values[2])).toEqual(AMA_PROMPT_MANIFEST.tools)
-    expect(JSON.parse(queries[0].values[3])).toEqual(AMA_PROMPT_MANIFEST.callSettings)
+    expect(JSON.parse(queries[0].values[3])).toEqual({
+      ...AMA_PROMPT_MANIFEST.callSettings,
+      toolAvailabilityPolicy: AMA_PROMPT_MANIFEST.toolAvailabilityPolicy,
+    })
     expect(JSON.parse(queries[1].values[9])).toEqual(inputMessages)
     expect(JSON.parse(queries[1].values[10])).toEqual(responseMessages)
     expect(JSON.parse(queries[1].values[11])).toEqual(trace.totalUsage)

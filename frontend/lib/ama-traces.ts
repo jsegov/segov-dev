@@ -1,18 +1,13 @@
 import { neon } from '@neondatabase/serverless'
 import { randomUUID } from 'node:crypto'
-import type {
-  LanguageModelUsage,
-  ModelMessage,
-  ProviderMetadata,
-  ToolLoopAgentOnFinishCallback,
-  ToolLoopAgentSettings,
-} from 'ai'
+import type { LanguageModelUsage, ModelMessage, ProviderMetadata } from 'ai'
 import {
   AMA_PROMPT_MANIFEST,
   AMA_SYSTEM_PROMPT_VERSION,
   createAmaPromptManifest,
   getAmaSystemPromptVersion,
   type AmaAgentCallSettings,
+  type AmaAgentSettings,
   type AMA_TOOL_DECLARATIONS,
 } from '@/lib/ama-agent'
 
@@ -22,6 +17,7 @@ interface AmaPromptManifest {
   instructions: string
   tools: typeof AMA_TOOL_DECLARATIONS
   callSettings: AmaAgentCallSettings
+  toolAvailabilityPolicy?: string
 }
 
 export interface AmaTracePayload {
@@ -53,8 +49,8 @@ interface CreateAmaTraceCollectorOptions {
 export interface AmaTraceCollector {
   readonly traceId: string
   readonly payload: Promise<AmaTracePayload | null>
-  readonly prepareCall: NonNullable<ToolLoopAgentSettings['prepareCall']>
-  readonly onFinish: ToolLoopAgentOnFinishCallback
+  readonly prepareCall: NonNullable<AmaAgentSettings['prepareCall']>
+  readonly onFinish: NonNullable<AmaAgentSettings['onFinish']>
   settleWithoutTrace: () => void
 }
 
@@ -127,7 +123,7 @@ function getGatewayProvider(providerMetadata: ProviderMetadata | undefined): str
 }
 
 function getModelMessages(
-  options: Parameters<NonNullable<ToolLoopAgentSettings['prepareCall']>>[0],
+  options: Parameters<AmaTraceCollector['prepareCall']>[0],
 ): ModelMessage[] | null {
   if ('messages' in options && Array.isArray(options.messages)) {
     return options.messages
@@ -227,7 +223,10 @@ function createNeonWriter(databaseUrl: string): AmaTraceWriter {
             ${trace.systemPromptVersion},
             ${trace.promptManifest.instructions},
             ${JSON.stringify(trace.promptManifest.tools)}::jsonb,
-            ${JSON.stringify(trace.promptManifest.callSettings)}::jsonb
+            ${JSON.stringify({
+              ...trace.promptManifest.callSettings,
+              toolAvailabilityPolicy: trace.promptManifest.toolAvailabilityPolicy,
+            })}::jsonb
           )
           ON CONFLICT (version) DO NOTHING
         `,

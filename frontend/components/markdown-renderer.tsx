@@ -1,7 +1,9 @@
+import React from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import Image from 'next/image'
 import Link from 'next/link'
+import { cn } from '@/lib/utils'
 
 interface MarkdownRendererProps {
   content: string
@@ -18,10 +20,10 @@ function sanitizeUrl(url: string): string | null {
 
   // Allow only safe protocols
   const allowedProtocols = ['http:', 'https:', 'mailto:', 'tel:']
-  const isRelativeUrl = url.startsWith('/') || url.startsWith('./') || url.startsWith('../')
+  const isRelativeUrl = !/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(url) && !url.startsWith('//')
 
   if (isRelativeUrl) {
-    return url // Relative URLs are generally safe
+    return url
   }
 
   try {
@@ -77,24 +79,24 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
         ),
 
         // Code blocks
-        code: ({ className, children, ...props }) => {
-          const isInline = !className
-          if (isInline) {
-            return (
-              <code
-                className={`${className} bg-muted text-foreground px-1 py-0.5 rounded font-mono text-sm`}
-                {...props}
-              >
-                {children}
-              </code>
-            )
-          }
-          return (
-            <pre className="bg-muted p-4 rounded-md overflow-x-auto my-4 text-sm">
-              <code {...props}>{children}</code>
-            </pre>
-          )
-        },
+        pre: ({ node: _node, className, ...props }) => (
+          <pre
+            className={cn(
+              'bg-muted p-4 rounded-md overflow-x-auto my-4 text-sm [&>code]:bg-transparent [&>code]:p-0',
+              className,
+            )}
+            {...props}
+          />
+        ),
+        code: ({ node: _node, className, ...props }) => (
+          <code
+            className={cn(
+              'bg-muted text-foreground px-1 py-0.5 rounded font-mono text-sm',
+              className,
+            )}
+            {...props}
+          />
+        ),
 
         // Links
         a: ({ href, children, node: _node, ...props }) => {
@@ -108,7 +110,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
             return <span className="text-primary">{children}</span>
           }
 
-          const isInternal = sanitizedHref.startsWith('/')
+          const isInternal = !/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(sanitizedHref)
 
           if (isInternal) {
             return (
@@ -147,20 +149,17 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
             return null
           }
 
-          // Handle relative paths for images
-          const imageSrc = sanitizedSrc.startsWith('http') ? sanitizedSrc : sanitizedSrc
-
           return (
-            <div className="my-4">
+            <span className="my-4 block">
               <Image
-                src={imageSrc}
+                src={sanitizedSrc}
                 alt={alt || 'Image'}
                 width={800}
                 height={450}
                 className="rounded-md"
               />
-              {title && <p className="text-sm text-muted-foreground mt-1">{title}</p>}
-            </div>
+              {title && <span className="block text-sm text-muted-foreground mt-1">{title}</span>}
+            </span>
           )
         },
       }}

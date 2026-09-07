@@ -1,337 +1,430 @@
-// Export ama_traces rows into training JSONL files:
-//   data/export/ama-traces-qwen.jsonl     — one example per turn (LAST_ASSISTANT_TURN at train time)
-//   data/export/ama-traces-inkling.jsonl  — one example per stitched conversation (ALL_ASSISTANT_MESSAGES)
-//   data/export/prompt-manifest.json      — system prompt + tool declarations + call settings per version
-//   data/export/export-report.json        — resolution/exclusion stats + file hashes
-//
-// Usage:
-//   DATABASE_URL='postgresql://…' pnpm --filter ama-training export
-//
-// Env:
-//   DATABASE_URL        (required) Neon connection string for segov-dev-ama-traces
-//   TRACE_ID_LIKE       conversation_id filter, default 'synth-0730%'
-//   TRACE_ID_NOT_LIKE   exclusion filter, default 'synth-0730b-smoke%'
-//
-// Resolution rules (docs/ama-fine-tuning-experiment.md, "From per-turn traces to
-// training conversations"):
-//   1. Branch resolution for duplicate (conversation_id, turn) rows.
-//   2. Canonicalize parallel tool-result order to the assistant's call order,
-//      then prefix-consistency stitch check.
-//   3. Turns with finish_reason != 'stop' are never training targets (truncated
-//      output); conversations containing them fall out of the collapsed export
-//      but later turns still export per-turn.
+// Acquisition is explicit and online. Dataset construction is deterministic and offline.
 import { createHash } from 'node:crypto'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import path from 'node:path'
-import { neon } from '@neondatabase/serverless'
+import { pathToFileURL } from 'node:url'
+import { normalizeMessages } from './normalize.mjs'
 
-const dir = path.dirname(new URL(import.meta.url).pathname)
-const outDir = path.join(dir, '..', 'data', 'export')
-mkdirSync(outDir, { recursive: true })
+export function canonical(value) {
+  if (value instanceof Date) return value.toISOString()
+  if (Array.isArray(value)) return value.map(canonical)
+  if (value && typeof value === 'object')
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((k) => [k, canonical(value[k])]),
+    )
+  if (typeof value === 'number' && !Number.isFinite(value)) throw new Error('non-finite number')
+  return value
+}
+export function canonicalJson(value) {
+  if (value instanceof Date) return JSON.stringify(value.toISOString())
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  if (value && typeof value === 'object')
+    return `{${Object.keys(value)
+      .filter((key) => value[key] !== undefined)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .join(',')}}`
+  if (typeof value === 'number' && !Number.isFinite(value)) throw new Error('non-finite number')
+  return JSON.stringify(value)
+}
+export const digest = (value) => createHash('sha256').update(canonicalJson(value)).digest('hex')
+const fileHash = (file) => createHash('sha256').update(readFileSync(file)).digest('hex')
+const json = (file) => JSON.parse(readFileSync(file, 'utf8'))
+const lines = (file) => readFileSync(file, 'utf8').split('\n').filter(Boolean).map(JSON.parse)
+const write = (dir, name, value) =>
+  writeFileSync(path.join(dir, name), JSON.stringify(value, null, 2) + '\n')
+export const seal = (value) => ({ ...value, artifact_sha256: digest(value) })
+export function verify(value, kind) {
+  const { artifact_sha256, ...payload } = value
+  if (value.schema_version !== 1 || value.kind !== kind || digest(payload) !== artifact_sha256)
+    throw new Error(`invalid ${kind} manifest`)
+  return value
+}
+function newDirectory(dir) {
+  if (existsSync(dir)) throw new Error(`output already exists: ${dir}`)
+  mkdirSync(dir, { recursive: true })
+}
+export const questionHash = (text) =>
+  digest(text.normalize('NFKC').toLowerCase().replace(/\s+/gu, ' ').trim())
 
-const DATABASE_URL = process.env.DATABASE_URL
-if (!DATABASE_URL) throw new Error('DATABASE_URL required')
-const sql = neon(DATABASE_URL)
+// This is prompt-policy metadata, not an inference call setting. Preserve the raw
+// snapshot separately; only the derived manifest separates the persisted envelope.
+function normalizePromptPolicy(entry) {
+  if (!Object.hasOwn(entry.call_settings ?? {}, 'toolAvailabilityPolicy')) return entry
+  const { toolAvailabilityPolicy, ...callSettings } = entry.call_settings
+  return { ...entry, toolAvailabilityPolicy, call_settings: callSettings }
+}
 
-const ID_LIKE = process.env.TRACE_ID_LIKE ?? 'synth-0730%'
-const ID_NOT_LIKE = process.env.TRACE_ID_NOT_LIKE ?? 'synth-0730b-smoke%'
+const hasToolAvailabilityPolicy = (entry) => Object.hasOwn(entry, 'toolAvailabilityPolicy')
 
-// ---------- fetch ----------
+export function writeSnapshot(rows, prompts, outDir, filters = {}) {
+  if (!rows.length || new Set(rows.map((r) => r.id)).size !== rows.length)
+    throw new Error('snapshot needs nonempty unique trace IDs')
+  newDirectory(outDir)
+  writeFileSync(
+    path.join(outDir, 'traces.jsonl'),
+    rows.map((r) => JSON.stringify(canonical(r))).join('\n') + '\n',
+  )
+  write(outDir, 'prompt-manifest.json', prompts)
+  const manifest = seal({
+    schema_version: 1,
+    kind: 'ama_snapshot',
+    filters,
+    row_count: rows.length,
+    files: Object.fromEntries(
+      ['traces.jsonl', 'prompt-manifest.json'].map((f) => [f, fileHash(path.join(outDir, f))]),
+    ),
+  })
+  write(outDir, 'snapshot-manifest.json', manifest)
+  write(outDir, 'review-manifest.template.json', {
+    schema_version: 1,
+    snapshot_sha256: manifest.artifact_sha256,
+    rows: Object.fromEntries(
+      rows.map((r) => [
+        r.id,
+        {
+          row_sha256: digest(r),
+          decision: 'pending',
+          corpus_class: 'synthetic',
+          family_id: null,
+          reason: '',
+        },
+      ]),
+    ),
+  })
+  write(outDir, 'policy.template.json', {
+    schema_version: 1,
+    corpus_class: 'synthetic',
+    allowed_models: [],
+    allowed_response_models: [],
+    allowed_prompt_versions: [],
+    conversation_prefixes: ['synth-'],
+    evaluation_fingerprints_sha256: null,
+  })
+  return manifest
+}
 
-async function fetchAllRows() {
-  const rows = []
-  let cursor = { cid: '', id: '00000000-0000-0000-0000-000000000000' }
-  for (;;) {
-    const page = await sql`
-      SELECT id, conversation_id, turn, system_prompt_version, model, response_model,
-             finish_reason, input_messages, response_messages, total_usage, created_at
-      FROM ama_traces
-      WHERE conversation_id LIKE ${ID_LIKE}
-        AND conversation_id NOT LIKE ${ID_NOT_LIKE}
-        AND (conversation_id, id::text) > (${cursor.cid}, ${cursor.id})
-      ORDER BY conversation_id, id::text
-      LIMIT 40
-    `
-    if (page.length === 0) break
-    rows.push(...page)
-    const last = page[page.length - 1]
-    cursor = { cid: last.conversation_id, id: last.id }
-    process.stderr.write(`fetched ${rows.length} rows\r`)
+export function resolveRows(rows) {
+  const groups = new Map()
+  for (const row of rows) {
+    if (!groups.has(row.conversation_id)) groups.set(row.conversation_id, [])
+    groups.get(row.conversation_id).push(row)
   }
-  process.stderr.write(`fetched ${rows.length} rows\n`)
-  return rows
-}
-
-// ---------- ModelMessage -> OpenAI-style normalization ----------
-
-function textOf(parts) {
-  return parts
-    .filter((p) => p.type === 'text')
-    .map((p) => p.text)
-    .join('')
-}
-
-function toolResultContent(part) {
-  const out = part.output
-  if (out && out.type === 'json') return JSON.stringify(out.value)
-  if (out && (out.type === 'text' || out.type === 'error-text')) return out.value ?? out.text ?? ''
-  return JSON.stringify(out)
-}
-
-// Normalizes a ModelMessage[] into OpenAI-format messages. Reasoning parts and
-// providerOptions are dropped. Tool-result parts are re-ordered to match the
-// preceding assistant message's tool-call order (rule 2) and split one message
-// per result. Returns { messages, reordered }.
-function normalizeMessages(modelMessages) {
-  const out = []
-  let lastToolCallOrder = []
-  let reordered = 0
-  let i = 0
-  while (i < modelMessages.length) {
-    const msg = modelMessages[i]
-    if (msg.role === 'user') {
-      const content = typeof msg.content === 'string' ? msg.content : textOf(msg.content)
-      out.push({ role: 'user', content })
-      i += 1
-    } else if (msg.role === 'assistant') {
-      const parts = typeof msg.content === 'string' ? [{ type: 'text', text: msg.content }] : msg.content
-      const text = textOf(parts)
-      const toolCalls = parts
-        .filter((p) => p.type === 'tool-call')
-        .map((p) => ({
-          id: p.toolCallId,
-          type: 'function',
-          function: { name: p.toolName, arguments: JSON.stringify(p.input ?? {}) },
-        }))
-      const entry = { role: 'assistant', content: text.length > 0 ? text : null }
-      if (toolCalls.length > 0) {
-        entry.tool_calls = toolCalls
-        lastToolCallOrder = toolCalls.map((c) => c.id)
-      }
-      out.push(entry)
-      i += 1
-    } else if (msg.role === 'tool') {
-      // Collect consecutive tool messages, flatten their result parts.
-      const parts = []
-      while (i < modelMessages.length && modelMessages[i].role === 'tool') {
-        parts.push(...modelMessages[i].content)
-        i += 1
-      }
-      const order = new Map(lastToolCallOrder.map((id, idx) => [id, idx]))
-      const sorted = [...parts].sort(
-        (a, b) => (order.get(a.toolCallId) ?? 999) - (order.get(b.toolCallId) ?? 999),
-      )
-      if (sorted.some((p, idx) => p !== parts[idx])) reordered += 1
-      for (const p of sorted) {
-        out.push({
-          role: 'tool',
-          tool_call_id: p.toolCallId,
-          name: p.toolName,
-          content: toolResultContent(p),
-        })
-      }
-    } else if (msg.role === 'system') {
-      out.push({ role: 'system', content: msg.content })
-      i += 1
-    } else {
-      throw new Error(`unknown role ${msg.role}`)
-    }
-  }
-  return { messages: out, reordered }
-}
-
-const key = (messages) => JSON.stringify(messages)
-
-// ---------- resolution ----------
-
-const rows = await fetchAllRows()
-
-const byConversation = new Map()
-for (const row of rows) {
-  if (!byConversation.has(row.conversation_id)) byConversation.set(row.conversation_id, [])
-  byConversation.get(row.conversation_id).push(row)
-}
-
-const report = {
-  filters: { like: ID_LIKE, notLike: ID_NOT_LIKE },
-  rowsFetched: rows.length,
-  conversations: byConversation.size,
-  duplicateTurnGroups: [],
-  toolMessagesReordered: 0,
-  stitchFailures: [],
-  nonStopTurnsExcluded: [],
-  qwenExamples: 0,
-  inklingConversations: 0,
-  perTurnOnlyConversations: [],
-}
-
-const qwenLines = []
-const inklingLines = []
-
-const conversationIds = [...byConversation.keys()].sort()
-for (const cid of conversationIds) {
-  const convoRows = byConversation.get(cid)
-  const byTurn = new Map()
-  for (const row of convoRows) {
-    if (!byTurn.has(row.turn)) byTurn.set(row.turn, [])
-    byTurn.get(row.turn).push(row)
-  }
-  const turns = [...byTurn.keys()].sort((a, b) => a - b)
-
-  // Pre-normalize every candidate row.
-  const norm = new Map() // row.id -> {input, response, reordered}
-  for (const row of convoRows) {
-    const input = normalizeMessages(row.input_messages)
-    const response = normalizeMessages(row.response_messages)
-    norm.set(row.id, {
-      input: input.messages,
-      response: response.messages,
-      reordered: input.reordered + response.reordered,
-    })
-  }
-
-  // Walk turns in order, choosing one branch per turn (rule 1) and verifying
-  // the stitch (rule 2).
-  let prefix = null // normalized chosen history: input(t)+response(t) of last chosen row
-  let collapsible = true
-  const chosen = []
-  for (const turn of turns) {
-    const candidates = byTurn.get(turn)
-    let viable = candidates
-    if (prefix !== null) {
-      viable = candidates.filter((row) => {
-        const n = norm.get(row.id)
+  const normalized = new Map(
+    rows.map((row) => [
+      row.id,
+      {
+        input: normalizeMessages(row.input_messages).messages,
+        response: normalizeMessages(row.response_messages).messages,
+      },
+    ]),
+  )
+  const result = []
+  const latest = (rs) =>
+    [...rs].sort(
+      (a, b) =>
+        String(b.created_at).localeCompare(String(a.created_at)) ||
+        String(b.id).localeCompare(String(a.id)),
+    )[0]
+  for (const [cid, conversation] of [...groups].sort(([a], [b]) => a.localeCompare(b))) {
+    const turns = [...new Set(conversation.map((r) => r.turn))].sort((a, b) => a - b)
+    let prefix = null
+    let collapsible = turns.every((t, i) => t === i + 1)
+    const chosen = []
+    for (const turn of turns) {
+      const candidates = conversation.filter((r) => r.turn === turn)
+      const viable = candidates.filter((r) => {
+        const n = normalized.get(r.id)
         return (
-          n.input.length === prefix.length + 1 &&
-          key(n.input.slice(0, -1)) === key(prefix) &&
-          n.input[n.input.length - 1].role === 'user'
+          prefix === null ||
+          (n.input.length === prefix.length + 1 &&
+            n.input.at(-1)?.role === 'user' &&
+            digest(n.input.slice(0, -1)) === digest(prefix))
         )
       })
-    }
-    if (candidates.length > 1) {
-      report.duplicateTurnGroups.push({
-        conversation_id: cid,
-        turn,
-        candidates: candidates.length,
-        viable: viable.length,
+      const embedded = viable.filter((r) => {
+        const n = normalized.get(r.id)
+        return conversation.some(
+          (next) =>
+            next.turn === turn + 1 &&
+            digest(normalized.get(next.id).input.slice(0, -1)) ===
+              digest([...n.input, ...n.response]),
+        )
       })
+      const pick = latest(embedded.length ? embedded : viable.length ? viable : candidates)
+      if (!viable.length) collapsible = false
+      chosen.push(pick)
+      const n = normalized.get(pick.id)
+      prefix = [...n.input, ...n.response]
     }
-    let pick
-    if (viable.length === 0) {
-      // No candidate stitches onto the chosen history — take the latest row and
-      // drop the conversation to per-turn-only export.
-      pick = [...candidates].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0]
-      collapsible = false
-      report.stitchFailures.push({ conversation_id: cid, turn })
-    } else if (viable.length === 1) {
-      pick = viable[0]
-    } else {
-      // Sibling regenerations that both stitch: prefer the one embedded in the
-      // next turn's input; fall back to latest created_at.
-      const nextTurnRows = byTurn.get(turn + 1) ?? []
-      pick =
-        viable.find((row) => {
-          const n = norm.get(row.id)
-          const full = key([...n.input, ...n.response])
-          return nextTurnRows.some((next) => {
-            const nn = norm.get(next.id)
-            return key(nn.input.slice(0, -1)) === full
-          })
-        }) ?? [...viable].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0]
-    }
-    const n = norm.get(pick.id)
-    report.toolMessagesReordered += n.reordered
-    chosen.push(pick)
-    prefix = [...n.input, ...n.response]
+    result.push({ cid, chosen, collapsible })
   }
+  return { groups: result, normalized }
+}
 
-  // Turn contiguity: turns must be 1..N for a collapsed export.
-  const contiguous = turns.every((t, idx) => t === idx + 1)
-  if (!contiguous) collapsible = false
-
-  // Emit per-turn (Qwen) examples; non-stop turns are excluded as targets.
-  for (const row of chosen) {
-    const n = norm.get(row.id)
-    if (row.finish_reason !== 'stop') {
-      report.nonStopTurnsExcluded.push({
-        conversation_id: cid,
-        turn: row.turn,
-        finish_reason: row.finish_reason,
-      })
-      collapsible = false
-      continue
-    }
-    qwenLines.push(
-      JSON.stringify({
+export function buildDataset({ snapshotDir, policyPath, reviewsPath, fingerprintsPath, outDir }) {
+  const snapshot = verify(json(path.join(snapshotDir, 'snapshot-manifest.json')), 'ama_snapshot')
+  for (const [name, hash] of Object.entries(snapshot.files)) {
+    if (
+      !['traces.jsonl', 'prompt-manifest.json'].includes(name) ||
+      fileHash(path.join(snapshotDir, name)) !== hash
+    )
+      throw new Error('snapshot file changed')
+  }
+  const rows = lines(path.join(snapshotDir, 'traces.jsonl'))
+  const prompts = Object.fromEntries(
+    Object.entries(json(path.join(snapshotDir, 'prompt-manifest.json'))).map(([version, entry]) => [
+      version,
+      normalizePromptPolicy(entry),
+    ]),
+  )
+  const policy = json(policyPath),
+    reviews = json(reviewsPath),
+    fingerprints = json(fingerprintsPath)
+  if (
+    policy.schema_version !== 1 ||
+    policy.corpus_class !== 'synthetic' ||
+    ![
+      'allowed_models',
+      'allowed_response_models',
+      'allowed_prompt_versions',
+      'conversation_prefixes',
+    ].every(
+      (k) =>
+        Array.isArray(policy[k]) &&
+        policy[k].length &&
+        policy[k].every((v) => typeof v === 'string' && v.length),
+    )
+  )
+    throw new Error('explicit synthetic-only teacher/model/prompt policy required')
+  if (
+    fingerprints.schema_version !== 1 ||
+    !fingerprints.dataset_sha256 ||
+    !fingerprints.selection_dataset_sha256 ||
+    !fingerprints.final_dataset_sha256 ||
+    !Array.isArray(fingerprints.question_sha256) ||
+    !Array.isArray(fingerprints.family_ids) ||
+    policy.evaluation_fingerprints_sha256 !== digest(fingerprints)
+  )
+    throw new Error('evaluation fingerprints missing or changed')
+  if (reviews.schema_version !== 1 || reviews.snapshot_sha256 !== snapshot.artifact_sha256)
+    throw new Error('reviews belong to another snapshot')
+  const ids = new Set(rows.map((r) => r.id))
+  if (Object.keys(reviews.rows).some((id) => !ids.has(id)))
+    throw new Error('review references unknown trace')
+  const eligible = new Set(),
+    excluded = []
+  for (const row of rows) {
+    const review = reviews.rows[row.id]
+    let reason
+    if (review && review.row_sha256 !== digest(row)) reason = 'changed'
+    else if (review?.decision === 'rejected') reason = 'rejected'
+    else if (review?.decision !== 'approved') reason = 'pending'
+    else if (
+      review.corpus_class !== 'synthetic' ||
+      !policy.conversation_prefixes.some((p) => row.conversation_id.startsWith(p))
+    )
+      reason = 'non_synthetic'
+    else if (!review.family_id || !review.reason?.trim())
+      throw new Error(`approved trace needs family and review reason: ${row.id}`)
+    else if (
+      !policy.allowed_models.includes(row.model) ||
+      !policy.allowed_response_models.includes(row.response_model)
+    )
+      reason = 'teacher_model'
+    else if (
+      !policy.allowed_prompt_versions.includes(row.system_prompt_version) ||
+      !prompts[row.system_prompt_version]
+    )
+      reason = 'prompt_version'
+    else if (hasToolAvailabilityPolicy(prompts[row.system_prompt_version]))
+      reason = 'unsupported_tool_availability_policy'
+    else if (row.finish_reason !== 'stop') reason = 'non_stop'
+    else if (
+      fingerprints.family_ids.includes(review.family_id) ||
+      normalizeMessages(row.input_messages).messages.some(
+        (m) => m.role === 'user' && fingerprints.question_sha256.includes(questionHash(m.content)),
+      )
+    )
+      reason = 'evaluation_contamination'
+    if (reason) excluded.push({ trace_id: row.id, reason })
+    else eligible.add(row.id)
+  }
+  // Resolve against the complete snapshot. Filtering first could silently select a different regeneration.
+  const { groups, normalized } = resolveRows(rows)
+  const selectedIds = new Set(groups.flatMap(({ chosen }) => chosen.map((row) => row.id)))
+  for (const row of rows) {
+    if (eligible.has(row.id) && !selectedIds.has(row.id))
+      excluded.push({ trace_id: row.id, reason: 'superseded_branch' })
+  }
+  const qwen = [],
+    inkling = [],
+    collapsedExcluded = []
+  for (const { cid, chosen, collapsible } of groups) {
+    const selected = chosen.filter((r) => eligible.has(r.id))
+    for (const row of selected) {
+      const n = normalized.get(row.id)
+      qwen.push({
         conversation_id: cid,
         turn: row.turn,
         trace_id: row.id,
+        family_ids: [reviews.rows[row.id].family_id],
         system_prompt_version: row.system_prompt_version,
         model: row.model,
         messages: [...n.input, ...n.response],
-      }),
-    )
-    report.qwenExamples += 1
+      })
+    }
+    if (
+      selected.length !== chosen.length ||
+      !collapsible ||
+      new Set(chosen.map((r) => r.system_prompt_version)).size !== 1
+    ) {
+      collapsedExcluded.push(cid)
+      continue
+    }
+    const last = chosen.at(-1),
+      n = normalized.get(last.id)
+    inkling.push({
+      conversation_id: cid,
+      turns: chosen.length,
+      trace_ids: chosen.map((r) => r.id),
+      family_ids: [...new Set(chosen.map((r) => reviews.rows[r.id].family_id))].sort(),
+      system_prompt_version: last.system_prompt_version,
+      model: last.model,
+      messages: [...n.input, ...n.response],
+    })
   }
-
-  if (collapsible) {
-    const last = chosen[chosen.length - 1]
-    const n = norm.get(last.id)
-    inklingLines.push(
-      JSON.stringify({
-        conversation_id: cid,
-        turns: chosen.length,
-        trace_ids: chosen.map((row) => row.id),
-        system_prompt_version: last.system_prompt_version,
-        model: last.model,
-        messages: [...n.input, ...n.response],
-      }),
-    )
-    report.inklingConversations += 1
-  } else {
-    report.perTurnOnlyConversations.push(cid)
-  }
-}
-
-// ---------- prompt manifest ----------
-
-const versions = [...new Set(rows.map((row) => row.system_prompt_version))]
-const manifest = {}
-for (const version of versions) {
-  const [row] = await sql`
-    SELECT version, instructions, tool_declarations, call_settings
-    FROM ama_prompt_versions WHERE version = ${version}
-  `
-  manifest[version] = row
-}
-
-// ---------- write ----------
-
-function writeWithHash(name, content) {
-  const filePath = path.join(outDir, name)
-  writeFileSync(filePath, content)
-  return createHash('sha256').update(content).digest('hex')
-}
-
-const hashes = {
-  'ama-traces-qwen.jsonl': writeWithHash('ama-traces-qwen.jsonl', qwenLines.join('\n') + '\n'),
-  'ama-traces-inkling.jsonl': writeWithHash(
-    'ama-traces-inkling.jsonl',
-    inklingLines.join('\n') + '\n',
-  ),
-  'prompt-manifest.json': writeWithHash('prompt-manifest.json', JSON.stringify(manifest, null, 2)),
-}
-report.sha256 = hashes
-writeWithHash('export-report.json', JSON.stringify(report, null, 2))
-
-console.log(
-  JSON.stringify(
-    {
-      ...report,
-      perTurnOnlyConversations: report.perTurnOnlyConversations.length,
-      stitchFailureCount: report.stitchFailures.length,
+  const exclusionCounts = excluded.reduce(
+    (counts, row) => {
+      counts[row.reason] = (counts[row.reason] ?? 0) + 1
+      return counts
     },
-    null,
-    2,
-  ),
-)
+    {
+      pending: 0,
+      rejected: 0,
+      changed: 0,
+      non_synthetic: 0,
+      teacher_model: 0,
+      prompt_version: 0,
+      unsupported_tool_availability_policy: 0,
+      non_stop: 0,
+      evaluation_contamination: 0,
+      superseded_branch: 0,
+    },
+  )
+  if (!qwen.length)
+    throw new Error(
+      `no eligible selected examples; exclusion_counts=${JSON.stringify(exclusionCounts)}`,
+    )
+  newDirectory(outDir)
+  const documents = {
+    'prompt-manifest.json': prompts,
+    'policy.json': policy,
+    'reviews.json': reviews,
+    'evaluation-fingerprints.json': fingerprints,
+    'snapshot-manifest.json': snapshot,
+    'export-report.json': {
+      excluded,
+      exclusion_counts: exclusionCounts,
+      snapshot_rows: rows.length,
+      excluded_rows: excluded.length,
+      collapsed_excluded: collapsedExcluded,
+      collapsed_excluded_count: collapsedExcluded.length,
+      qwen_examples: qwen.length,
+      inkling_examples: inkling.length,
+    },
+  }
+  for (const [name, doc] of Object.entries(documents)) write(outDir, name, doc)
+  writeFileSync(
+    path.join(outDir, 'source-traces.jsonl'),
+    readFileSync(path.join(snapshotDir, 'traces.jsonl')),
+  )
+  writeFileSync(
+    path.join(outDir, 'source-prompts.json'),
+    readFileSync(path.join(snapshotDir, 'prompt-manifest.json')),
+  )
+  for (const [name, data] of [
+    ['ama-traces-qwen.jsonl', qwen],
+    ['ama-traces-inkling.jsonl', inkling],
+  ])
+    writeFileSync(
+      path.join(outDir, name),
+      data.map((r) => JSON.stringify(canonical(r))).join('\n') + (data.length ? '\n' : ''),
+    )
+  const names = [
+    ...Object.keys(documents),
+    'source-traces.jsonl',
+    'source-prompts.json',
+    'ama-traces-qwen.jsonl',
+    'ama-traces-inkling.jsonl',
+  ]
+  const manifest = seal({
+    schema_version: 1,
+    kind: 'ama_dataset',
+    corpus_class: 'synthetic',
+    snapshot_sha256: snapshot.artifact_sha256,
+    files: Object.fromEntries(names.map((name) => [name, fileHash(path.join(outDir, name))])),
+  })
+  write(outDir, 'dataset-manifest.json', manifest)
+  return manifest
+}
+
+async function snapshotOnline(outDir) {
+  if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL required for snapshot acquisition')
+  const { neon } = await import('@neondatabase/serverless')
+  const sql = neon(process.env.DATABASE_URL)
+  const like = process.env.TRACE_ID_LIKE ?? 'synth-%',
+    notLike = process.env.TRACE_ID_NOT_LIKE ?? 'synth-smoke%'
+  const rows = []
+  let cursor = ''
+  for (;;) {
+    const page =
+      await sql`SELECT * FROM ama_traces WHERE conversation_id LIKE ${like} AND conversation_id NOT LIKE ${notLike} AND id > ${cursor} ORDER BY id LIMIT 40`
+    if (!page.length) break
+    rows.push(...page)
+    cursor = page.at(-1).id
+  }
+  const prompts = {}
+  for (const version of [...new Set(rows.map((r) => r.system_prompt_version))].sort()) {
+    const [prompt] =
+      await sql`SELECT version, instructions, tool_declarations, call_settings FROM ama_prompt_versions WHERE version = ${version}`
+    if (!prompt) throw new Error(`missing prompt version ${version}`)
+    prompts[version] = prompt
+  }
+  return writeSnapshot(rows, prompts, outDir, { like, not_like: notLike })
+}
+
+async function main(argv) {
+  const [command, ...rest] = argv
+  const opts = {}
+  for (let i = 0; i < rest.length; i += 2) {
+    if (!rest[i].startsWith('--') || !rest[i + 1]) throw new Error('use --name value arguments')
+    opts[rest[i].slice(2)] = rest[i + 1]
+  }
+  if (!opts.out)
+    throw new Error(
+      'usage: export-traces.mjs snapshot --out NEW_DIR | build --snapshot DIR --policy FILE --reviews FILE --fingerprints FILE --out NEW_DIR',
+    )
+  if (command === 'snapshot') return snapshotOnline(opts.out)
+  if (
+    command === 'build' &&
+    ['snapshot', 'policy', 'reviews', 'fingerprints'].every((k) => opts[k])
+  )
+    return buildDataset({
+      snapshotDir: opts.snapshot,
+      policyPath: opts.policy,
+      reviewsPath: opts.reviews,
+      fingerprintsPath: opts.fingerprints,
+      outDir: opts.out,
+    })
+  throw new Error('snapshot and build are separate explicit commands')
+}
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
+  main(process.argv.slice(2))
+    .then((result) => console.log(result.artifact_sha256))
+    .catch((error) => {
+      console.error(error.message)
+      process.exitCode = 1
+    })

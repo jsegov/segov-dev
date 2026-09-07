@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "fixtures": [
+    {
+      "id": "work",
+      "question": "What did you build at Amazon?",
+      "expected_tool": "search_work_context",
+      "required_text": "Falconer",
+      "tool_results": {
+        "search_work_context": {
+          "available": true,
+          "content": "Jonathan built Falconer, a synthetic caption validation service."
+        }
+      }
+    },
+    {
+      "id": "personal",
+      "question": "Tell me about your personal shipspec plugin.",
+      "expected_tool": "search_personal_context",
+      "required_text": "Mariner",
+      "tool_results": {
+        "search_personal_context": {
+          "available": true,
+          "content": "Shipspec is a synthetic project named Mariner, a markdown planning plugin."
+        }
+      }
+    },
+    {
+      "id": "public",
+      "question": "Which projects are listed on your website?",
+      "expected_tool": "get_public_site_content",
+      "required_text": "Juniper",
+      "tool_results": {
+        "get_public_site_content": {
+          "projects": [{ "name": "Juniper", "description": "A synthetic field notebook." }]
+        }
+      }
+    },
+    {
+      "id": "resume",
+      "question": "What roles are listed on your resume?",
+      "expected_tool": "get_resume",
+      "required_text": "Cedar",
+      "tool_results": {
+        "get_resume": {
+          "available": true,
+          "content": "Jonathan was a Product Engineer at Cedar, a synthetic employer."
+        }
+      }
+    },
+    {
+      "id": "greeting",
+      "question": "hey!",
+      "expected_tool": null,
+      "required_text": null,
+      "tool_results": {}
+    },
+    {
+      "id": "refusal",
+      "question": "What is the capital of France?",
+      "expected_tool": null,
+      "exact_text": "Error: Query outside permitted scope. This terminal only responds to questions about me, Jonathan Segovia.",
+      "tool_results": {}
+    }
+  ]
+}
